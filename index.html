@@ -1,0 +1,3153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Medieval Empire Builder - Pixel Enhanced</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Courier New', monospace; /* Retro font */
+        }
+        body {
+            background: linear-gradient(135deg, #0a2e36, #1a4548);
+            color: #e8f4f8;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        .game-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            width: 100vw;
+        }
+        .header {
+            background: linear-gradient(to bottom, #2c5f72, #1a3e4a);
+            padding: 12px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 3px solid #8a6d3b;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+            z-index: 10;
+        }
+        .resources {
+            display: flex;
+            gap: 25px;
+            align-items: center;
+        }
+        .resource {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(0, 0, 0, 0.4);
+            padding: 8px 12px;
+            border-radius: 8px;
+            border: 2px solid transparent;
+            background-clip: padding-box;
+            backdrop-filter: blur(5px);
+            transition: all 0.3s ease;
+        }
+        .resource:hover {
+            border-color: #5a8c95;
+            transform: translateY(-2px);
+        }
+        .resource-icon {
+            width: 28px;
+            height: 28px;
+            /* Removed background gradients */
+        }
+        /* Removed individual resource background gradients */
+        .game-title {
+            font-size: 32px;
+            font-weight: bold;
+            text-shadow: 3px 3px 6px rgba(0, 0, 0, 0.8);
+            color: #f0c040;
+            background: linear-gradient(45deg, #f0c040, #ffd700);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .main-content {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+            min-height: 0; /* allow children to shrink in flex container */
+        }
+        .game-area {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+            min-height: 0; /* critical for flexbox height shrink */
+        }
+        #gameCanvas {
+            background: linear-gradient(135deg, #2a8f52, #1e6b3d);
+            display: block;
+            cursor: crosshair;
+            width: 100%;
+            height: 100%;
+        }
+        .minimap {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            width: 200px;
+            height: 150px;
+            background: rgba(0, 0, 0, 0.7);
+            border: 3px solid #8a6d3b;
+            border-radius: 8px;
+            backdrop-filter: blur(5px);
+        }
+        .sidebar {
+            width: 280px;
+            background: linear-gradient(to right, #1a3e4a, #163138);
+            padding: 20px;
+            border-left: 3px solid #8a6d3b;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            overflow-y: auto;
+            box-shadow: -5px 0 15px rgba(0, 0, 0, 0.3);
+        }
+        .section-title {
+            font-size: 20px;
+            color: #f0c040;
+            border-bottom: 2px solid #5a8c95;
+            padding-bottom: 8px;
+            margin-bottom: 15px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        }
+        .unit-list, .building-list {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+        /* Make building action grid auto-fit and stack when narrow */
+        #building-unit-list {
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        }
+        .unit, .building {
+            background: linear-gradient(135deg, rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.2));
+            border: 2px solid #5a8c95;
+            border-radius: 8px;
+            padding: 8px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(5px);
+            position: relative;
+        }
+        .unit:hover, .building:hover {
+            background: linear-gradient(135deg, rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0.4));
+            transform: translateY(-3px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+        }
+        .unit.disabled, .building.disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .unit-icon, .building-icon {
+            width: 40px;
+            height: 40px;
+            margin: 0 auto 6px;
+            /* Removed background gradients */
+            image-rendering: pixelated; /* Ensures crisp pixel art */
+        }
+        /* Removed individual unit/building background gradients */
+
+        .controls {
+            display: flex;
+            gap: 15px;
+            padding: 15px 20px;
+            background: linear-gradient(to top, #2c5f72, #1a3e4a);
+            border-top: 3px solid #8a6d3b;
+        }
+        button {
+            padding: 12px 18px;
+            background: linear-gradient(135deg, #8a6d3b, #6b4f2b);
+            border: none;
+            border-radius: 8px;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            font-family: 'Courier New', monospace; /* Retro font */
+        }
+        button:hover {
+            background: linear-gradient(135deg, #a98b4a, #8a6d3b);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+        }
+        .notification {
+            position: absolute;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: linear-gradient(135deg, rgba(0, 0, 0, 0.9), rgba(0, 0, 0, 0.7));
+            padding: 15px 25px;
+            border-radius: 8px;
+            border-left: 5px solid #f0c040;
+            display: none;
+            z-index: 100;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+            animation: slideIn 0.5s ease;
+            font-family: 'Courier New', monospace; /* Retro font */
+        }
+        @keyframes slideIn {
+            from { transform: translateX(-50%) translateY(-20px); opacity: 0; }
+            to { transform: translateX(-50%) translateY(0); opacity: 1; }
+        }
+        .selection-box {
+            position: absolute;
+            border: 2px dashed #00ff00;
+            background: rgba(0, 255, 0, 0.1);
+            pointer-events: none;
+            display: none;
+        }
+        .game-over {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            z-index: 1000;
+        }
+        .game-over h2 {
+            font-size: 48px;
+            margin-bottom: 20px;
+            color: #f0c040;
+            font-family: 'Courier New', monospace; /* Retro font */
+        }
+        .progress-bar {
+            width: 100%;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 2px;
+            margin-top: 4px;
+            position: absolute;
+            bottom: 0;
+            left: 0;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4CAF50, #8BC34A);
+            border-radius: 2px;
+            transition: width 0.3s ease;
+        }
+        .age-display {
+            font-size: 18px;
+            font-weight: bold;
+            color: #f0c040;
+            background: rgba(0, 0, 0, 0.4);
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace; /* Retro font */
+        }
+        .placing-building {
+            cursor: pointer;
+        }
+        .invalid-placement {
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <div class="header">
+            <div class="game-title">Medieval Empire Builder - Pixel</div>
+            <div class="resources">
+                <div class="resource">
+                    <canvas class="resource-icon food" width="28" height="28"></canvas>
+                    <div>
+                        <div id="food-count">200</div>
+                        <div style="font-size: 10px; color: #ccc;">+<span id="food-rate">0</span>/s</div>
+                    </div>
+                </div>
+                <div class="resource">
+                    <canvas class="resource-icon wood" width="28" height="28"></canvas>
+                    <div>
+                        <div id="wood-count">200</div>
+                        <div style="font-size: 10px; color: #ccc;">+<span id="wood-rate">0</span>/s</div>
+                    </div>
+                </div>
+                <div class="resource">
+                    <canvas class="resource-icon stone" width="28" height="28"></canvas>
+                    <div>
+                        <div id="stone-count">100</div>
+                        <div style="font-size: 10px; color: #ccc;">+<span id="stone-rate">0</span>/s</div>
+                    </div>
+                </div>
+                <div class="resource">
+                    <canvas class="resource-icon gold" width="28" height="28"></canvas>
+                    <div>
+                        <div id="gold-count">100</div>
+                        <div style="font-size: 10px; color: #ccc;">+<span id="gold-rate">0</span>/s</div>
+                    </div>
+                </div>
+                <div class="resource">
+                    <div style="color: #f0c040;">Population</div>
+                    <div id="population">1/5</div>
+                </div>
+                <div class="age-display" id="age-display">Dark Age</div>
+            </div>
+        </div>
+        <div class="main-content">
+            <div class="game-area">
+                <canvas id="gameCanvas"></canvas>
+                <div class="minimap">
+                    <canvas id="minimapCanvas" width="194" height="144"></canvas>
+                </div>
+                <div class="selection-box" id="selectionBox"></div>
+                <div class="notification" id="notification"></div>
+                <div class="game-over" id="gameOver">
+                    <h2 id="gameOverText">Victory!</h2>
+                    <p id="gameOverSubtext">You have conquered the enemy!</p>
+                    <button onclick="location.reload()">Play Again</button>
+                </div>
+            </div>
+            <div class="sidebar">
+                <div class="selected-info">
+                    <div class="section-title">Selection</div>
+                    <div id="selection-info">No units or buildings selected</div>
+                </div>
+                <div class="building-actions-section" id="building-actions" style="display: none;">
+                    <div class="section-title" id="building-title">Building Actions</div>
+                    <div class="unit-list" id="building-unit-list">
+                        <!-- Dynamic content based on selected building -->
+                    </div>
+                </div>
+                <div class="units-section" id="general-units" style="display: block;">
+                    <div class="section-title">Train Units (Select Building First)</div>
+                    <div class="unit-list">
+                        <div style="text-align: center; color: #ccc; padding: 20px;">
+                            Click on a building to see available units and upgrades
+                        </div>
+                    </div>
+                </div>
+                <div class="buildings-section">
+                    <div class="section-title">Construct Buildings</div>
+                    <div class="building-list">
+                        <div class="building" data-type="house">
+                            <canvas class="building-icon house" width="48" height="48"></canvas>
+                            <div style="font-weight: bold;">House</div>
+                            <div style="font-size: 12px; color: #ccc;">25 Wood</div>
+                            <div style="font-size: 10px; color: #8cc;">+5 Pop</div>
+                        </div>
+                        <div class="building" data-type="barracks">
+                            <canvas class="building-icon barracks" width="48" height="48"></canvas>
+                            <div style="font-weight: bold;">Barracks</div>
+                            <div style="font-size: 12px; color: #ccc;">175 Wood</div>
+                        </div>
+                        <div class="building" data-type="archeryRange">
+                            <canvas class="building-icon archeryRange" width="48" height="48"></canvas>
+                            <div style="font-weight: bold;">Archery Range</div>
+                            <div style="font-size: 12px; color: #ccc;">150 Wood</div>
+                        </div>
+                        <div class="building" data-type="craftery">
+                            <canvas class="building-icon craftery" width="48" height="48"></canvas>
+                            <div style="font-weight: bold;">Craftery</div>
+                            <div style="font-size: 12px; color: #ccc;">200W, 100S</div>
+                        </div>
+                        <div class="building" data-type="navy">
+                            <canvas class="building-icon navy" width="48" height="48"></canvas>
+                            <div style="font-weight: bold;">Navy</div>
+                            <div style="font-size: 12px; color: #ccc;">200W, 50S</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="ai-status">
+                    <div class="section-title">Enemy Status</div>
+                    <div id="ai-info">
+                        <div>Enemy Units: <span id="enemy-units">4</span></div>
+                        <div>Enemy Buildings: <span id="enemy-buildings">1</span></div>
+                        <div>Threat Level: <span id="threat-level" style="color: #4CAF50;">Low</span></div>
+                    </div>
+                </div>
+                
+                <div class="age-section" style="margin-top: 8px;">
+                    <div class="section-title">Age Advancement</div>
+                    <button id="btn-age-up" style="width:100%;">Advance to Feudal Age (500 Food)</button>
+                </div>
+            </div>
+        </div>
+        <div class="controls">
+            <button id="btn-fullscreen">Enter Fullscreen</button>
+        </div>
+    </div>
+    <script>
+        // Game Configuration
+        const GAME_CONFIG = {
+            canvas: { width: 1400, height: 700 },
+            world: { width: 2800, height: 1400 },
+            units: {
+                villager: {
+                    cost: { food: 50 },
+                    health: 25,
+                    maxHealth: 25,
+                    speed: 1.5,
+                    attackRange: 0,
+                    attack: 2,
+                    gatherRate: 3, // Increased from 1 to 3
+                    buildTime: 25
+                },
+                militia: {
+                    cost: { food: 60, gold: 20 },
+                    health: 40,
+                    maxHealth: 40,
+                    attack: 6,
+                    speed: 1.2,
+                    attackRange: 30,
+                    buildTime: 21
+                },
+                archer: {
+                    cost: { wood: 25, gold: 45 },
+                    health: 30,
+                    maxHealth: 30,
+                    attack: 4,
+                    speed: 1.0,
+                    attackRange: 120,
+                    buildTime: 35
+                },
+                crossbowman: {
+                    cost: { wood: 35, gold: 65 },
+                    health: 35,
+                    maxHealth: 35,
+                    attack: 5,
+                    speed: 1.0,
+                    attackRange: 140,
+                    buildTime: 40
+                },
+                scout: {
+                    cost: { food: 80 },
+                    health: 45,
+                    maxHealth: 45,
+                    attack: 3,
+                    speed: 2.5,
+                    attackRange: 20,
+                    buildTime: 30
+                },
+                knight: {
+                    cost: { food: 60, gold: 75 },
+                    health: 100,
+                    maxHealth: 100,
+                    attack: 10,
+                    speed: 1.8,
+                    attackRange: 25,
+                    buildTime: 45
+                },
+                warrior: {
+                    cost: { food: 80, gold: 40 },
+                    health: 60,
+                    maxHealth: 60,
+                    attack: 8,
+                    speed: 1.3,
+                    attackRange: 30,
+                    buildTime: 35
+                },
+                soldier: {
+                    cost: { food: 70, gold: 30 },
+                    health: 50,
+                    maxHealth: 50,
+                    attack: 7,
+                    speed: 1.2,
+                    attackRange: 25,
+                    buildTime: 30
+                },
+                catapult: {
+                    cost: { wood: 200, gold: 200 },
+                    health: 150,
+                    maxHealth: 150,
+                    attack: 40,
+                    speed: 0.8,
+                    attackRange: 200,
+                    buildTime: 60
+                },
+                ballista: {
+                    cost: { wood: 120, gold: 150 },
+                    health: 80,
+                    maxHealth: 80,
+                    attack: 25,
+                    speed: 0.9,
+                    attackRange: 180,
+                    buildTime: 50
+                },
+                mangonel: {
+                    cost: { wood: 180, gold: 180 },
+                    health: 120,
+                    maxHealth: 120,
+                    attack: 35,
+                    speed: 0.8,
+                    attackRange: 190,
+                    buildTime: 55
+                },
+                trebuchet: {
+                    cost: { wood: 300, gold: 250 },
+                    health: 200,
+                    maxHealth: 200,
+                    attack: 50,
+                    speed: 0.6,
+                    attackRange: 250,
+                    buildTime: 80
+                },
+                transportSmall: {
+                    cost: { wood: 120 },
+                    health: 120,
+                    maxHealth: 120,
+                    attack: 0,
+                    speed: 1.2,
+                    attackRange: 0,
+                    buildTime: 35,
+                    vessel: true,
+                    capacity: 4
+                },
+                transportLarge: {
+                    cost: { wood: 220 },
+                    health: 200,
+                    maxHealth: 200,
+                    attack: 0,
+                    speed: 1.0,
+                    attackRange: 0,
+                    buildTime: 50,
+                    vessel: true,
+                    capacity: 8
+                },
+                galley: {
+                    cost: { wood: 150, gold: 50 },
+                    health: 150,
+                    maxHealth: 150,
+                    attack: 10,
+                    speed: 1.0,
+                    attackRange: 160,
+                    buildTime: 45,
+                    vessel: true
+                },
+                warship: {
+                    cost: { wood: 220, gold: 120 },
+                    health: 220,
+                    maxHealth: 220,
+                    attack: 18,
+                    speed: 0.9,
+                    attackRange: 180,
+                    buildTime: 55,
+                    vessel: true
+                },
+                fishingBoat: {
+                    cost: { wood: 90 },
+                    health: 110,
+                    maxHealth: 110,
+                    attack: 0,
+                    speed: 1.0,
+                    attackRange: 0,
+                    buildTime: 30,
+                    vessel: true,
+                    gatherRate: 2.5
+                }
+            },
+            buildings: {
+                townCenter: {
+                    cost: { wood: 400, stone: 300 },
+                    health: 2400,
+                    maxHealth: 2400,
+                    width: 160,
+                    height: 160
+                },
+                house: {
+                    cost: { wood: 25 },
+                    health: 550,
+                    maxHealth: 550,
+                    population: 5,
+                    width: 80,
+                    height: 80
+                },
+                barracks: {
+                    cost: { wood: 175 },
+                    health: 1200,
+                    maxHealth: 1200,
+                    width: 120,
+                    height: 120
+                },
+                archeryRange: {
+                    cost: { wood: 150 },
+                    health: 1000,
+                    maxHealth: 1000,
+                    width: 120,
+                    height: 120
+                },
+                craftery: {
+                    cost: { wood: 200, stone: 100 },
+                    health: 1500,
+                    maxHealth: 1500,
+                    width: 140,
+                    height: 140
+                },
+                navy: {
+                    cost: { wood: 200, stone: 50 },
+                    health: 1000,
+                    maxHealth: 1000,
+                    width: 140,
+                    height: 120
+                },
+                bridge: {
+                    cost: { wood: 150, stone: 50 },
+                    health: 800,
+                    maxHealth: 800,
+                    width: 160,
+                    height: 24
+                }
+            },
+            worldObjects: {
+                berryBush: { type: 'resource', resourceType: 'food', amount: 100, width: 30, height: 30, color: '#8B0000' },
+                tree: { type: 'resource', resourceType: 'wood', amount: 150, width: 40, height: 40, color: '#228B22' },
+                stoneMine: { type: 'resource', resourceType: 'stone', amount: 100, width: 50, height: 50, color: '#A9A9A9' },
+                goldMine: { type: 'resource', resourceType: 'gold', amount: 100, width: 50, height: 50, color: '#FFD700' },
+                rock: { type: 'obstacle', width: 30, height: 30, color: '#696969' },
+                water: { type: 'water', width: 1200, height: 100, color: '#1e90ff' },
+                lake: { type: 'water', width: 500, height: 400, color: '#1c86ee' },
+                bridgeSpan: { type: 'bridge', width: 160, height: 24, color: '#8B4513' }
+            }
+        };
+
+        // --- Pixel Art Drawing Functions ---
+        function drawPixelIcon(ctx, pixels, palette, scale = 1) {
+            pixels.forEach((row, y) => {
+                for (let x = 0; x < row.length; x++) {
+                    const colorIndex = row[x];
+                    if (colorIndex !== undefined && colorIndex !== 0) { // 0 is transparent
+                        ctx.fillStyle = palette[colorIndex];
+                        ctx.fillRect(x * scale, y * scale, scale, scale);
+                    }
+                }
+            });
+        }
+
+        function drawVillagerIcon(ctx, scale = 1) {
+            const pixels = [
+                [0,0,0,0,0,0,0,0],
+                [0,0,0,1,1,0,0,0],
+                [0,0,1,2,2,1,0,0],
+                [0,0,1,2,2,1,0,0],
+                [0,0,1,1,1,1,0,0],
+                [0,1,3,1,1,3,1,0],
+                [0,1,3,3,3,3,1,0],
+                [0,0,1,1,1,1,0,0]
+            ];
+            const palette = ['', '#8B4513', '#D2691E', '#FFD700']; // Transparent, Skin, Hair, Gold Trim
+            drawPixelIcon(ctx, pixels, palette, scale);
+        }
+
+        function drawMilitiaIcon(ctx, scale = 1) {
+            const pixels = [
+                [0,0,0,0,0,0,0,0],
+                [0,0,0,1,1,0,0,0],
+                [0,0,1,2,2,1,0,0],
+                [0,0,1,2,2,1,0,0],
+                [0,0,1,1,1,1,0,0],
+                [0,1,3,1,1,3,1,0],
+                [0,1,3,3,3,3,1,0],
+                [0,0,1,1,1,1,0,0]
+            ];
+            const palette = ['', '#8B4513', '#C0C0C0', '#808080']; // Skin, Armor, Helmet
+            drawPixelIcon(ctx, pixels, palette, scale);
+        }
+
+        function drawArcherIcon(ctx, scale = 1) {
+             const pixels = [
+                [0,0,0,0,0,0,0,0],
+                [0,0,0,1,1,0,0,0],
+                [0,0,1,2,2,1,0,0],
+                [0,0,1,2,2,1,0,0],
+                [0,0,1,1,1,1,0,0],
+                [0,1,3,1,1,3,1,0],
+                [0,1,3,3,3,3,1,0],
+                [0,0,1,1,1,1,0,0]
+            ];
+            const palette = ['', '#8B4513', '#006400', '#228B22']; // Skin, Tunic, Bow
+            drawPixelIcon(ctx, pixels, palette, scale);
+        }
+
+        function drawScoutIcon(ctx, scale = 1) {
+             const pixels = [
+                [0,0,0,0,0,0,0,0],
+                [0,0,0,1,1,0,0,0],
+                [0,0,1,2,2,1,0,0],
+                [0,0,1,2,2,1,0,0],
+                [0,0,1,1,1,1,0,0],
+                [0,1,3,1,1,3,1,0],
+                [0,1,3,3,3,3,1,0],
+                [0,0,1,1,1,1,0,0]
+            ];
+            const palette = ['', '#8B4513', '#FF0000', '#8B0000']; // Skin, Tunic, Horse
+            drawPixelIcon(ctx, pixels, palette, scale);
+        }
+
+        function drawKnightIcon(ctx, scale = 1) {
+             const pixels = [
+                [0,0,0,0,0,0,0,0],
+                [0,0,0,1,1,0,0,0],
+                [0,0,1,2,2,1,0,0],
+                [0,0,1,2,2,1,0,0],
+                [0,0,1,1,1,1,0,0],
+                [0,1,3,1,1,3,1,0],
+                [0,1,3,3,3,3,1,0],
+                [0,0,1,1,1,1,0,0]
+            ];
+            const palette = ['', '#8B4513', '#000000', '#FFFFFF']; // Skin, Armor, Details
+            drawPixelIcon(ctx, pixels, palette, scale);
+        }
+
+        function drawCrossbowmanIcon(ctx, scale = 1) {
+             const pixels = [
+                [0,0,0,0,0,0,0,0],
+                [0,0,0,1,1,0,0,0],
+                [0,0,1,2,2,1,0,0],
+                [0,0,1,2,2,1,0,0],
+                [0,0,1,1,1,1,0,0],
+                [0,1,3,1,1,3,1,0],
+                [0,1,3,3,3,3,1,0],
+                [0,0,1,1,1,1,0,0]
+            ];
+            const palette = ['', '#8B4513', '#000080', '#4B0082']; // Skin, Tunic, Crossbow
+            drawPixelIcon(ctx, pixels, palette, scale);
+        }
+
+        function drawWarriorIcon(ctx, scale = 1) {
+             const pixels = [
+                [0,0,0,0,0,0,0,0],
+                [0,0,0,1,1,0,0,0],
+                [0,0,1,2,2,1,0,0],
+                [0,0,1,2,2,1,0,0],
+                [0,0,1,1,1,1,0,0],
+                [0,1,3,1,1,3,1,0],
+                [0,1,3,3,3,3,1,0],
+                [0,0,1,1,1,1,0,0]
+            ];
+            const palette = ['', '#8B4513', '#B22222', '#696969']; // Skin, Armor, Sword
+            drawPixelIcon(ctx, pixels, palette, scale);
+        }
+
+        function drawSoldierIcon(ctx, scale = 1) {
+             const pixels = [
+                [0,0,0,0,0,0,0,0],
+                [0,0,0,1,1,0,0,0],
+                [0,0,1,2,2,1,0,0],
+                [0,0,1,2,2,1,0,0],
+                [0,0,1,1,1,1,0,0],
+                [0,1,3,1,1,3,1,0],
+                [0,1,3,3,3,3,1,0],
+                [0,0,1,1,1,1,0,0]
+            ];
+            const palette = ['', '#8B4513', '#228B22', '#A9A9A9']; // Skin, Uniform, Weapon
+            drawPixelIcon(ctx, pixels, palette, scale);
+        }
+
+        function drawBallistaIcon(ctx, scale = 1) {
+             const pixels = [
+                [0,0,0,0,0,0,0,0],
+                [0,0,0,1,1,0,0,0],
+                [0,0,1,2,2,1,0,0],
+                [0,0,1,2,2,1,0,0],
+                [0,0,1,1,1,1,0,0],
+                [0,1,3,1,1,3,1,0],
+                [0,1,3,3,3,3,1,0],
+                [0,0,1,1,1,1,0,0]
+            ];
+            const palette = ['', '#654321', '#8B4513', '#000000']; // Frame, Wood, Bolts
+            drawPixelIcon(ctx, pixels, palette, scale);
+        }
+
+        function drawCatapultIcon(ctx, scale = 1) {
+            const pixels = [
+                [0,0,0,0,0,0,0,0],
+                [0,0,1,1,1,1,0,0],
+                [0,1,2,2,2,2,1,0],
+                [0,1,2,3,3,2,1,0],
+                [0,1,2,2,2,2,1,0],
+                [0,0,1,1,1,1,0,0],
+                [0,0,0,1,1,0,0,0],
+                [0,0,0,0,0,0,0,0]
+            ];
+            const palette = ['', '#654321', '#8B4513', '#A9A9A9'];
+            drawPixelIcon(ctx, pixels, palette, scale);
+        }
+
+        function drawMangonelIcon(ctx, scale = 1) {
+             const pixels = [
+                [0,0,0,0,0,0,0,0],
+                [0,0,0,1,1,0,0,0],
+                [0,0,1,2,2,1,0,0],
+                [0,0,1,2,2,1,0,0],
+                [0,0,1,1,1,1,0,0],
+                [0,1,3,1,1,3,1,0],
+                [0,1,3,3,3,3,1,0],
+                [0,0,1,1,1,1,0,0]
+            ];
+            const palette = ['', '#654321', '#8B4513', '#DC143C']; // Frame, Wood, Stone
+            drawPixelIcon(ctx, pixels, palette, scale);
+        }
+
+        function drawTrebuchetIcon(ctx, scale = 1) {
+             const pixels = [
+                [0,0,0,0,0,0,0,0],
+                [0,0,0,1,1,0,0,0],
+                [0,0,1,2,2,1,0,0],
+                [0,0,1,2,2,1,0,0],
+                [0,0,1,1,1,1,0,0],
+                [0,1,3,1,1,3,1,0],
+                [0,1,3,3,3,3,1,0],
+                [0,0,1,1,1,1,0,0]
+            ];
+            const palette = ['', '#654321', '#8B4513', '#8B0000']; // Frame, Wood, Heavy Stone
+            drawPixelIcon(ctx, pixels, palette, scale);
+        }
+
+        function drawArcheryRangeIcon(ctx, scale = 1) {
+            const pixels = [
+                [0,0,1,1,1,1,0,0],
+                [0,1,2,2,2,2,1,0],
+                [1,2,2,2,2,2,2,1],
+                [1,3,3,3,3,3,3,1],
+                [1,3,3,3,3,3,3,1],
+                [1,3,3,3,3,3,3,1],
+                [1,3,3,3,3,3,3,1],
+                [1,1,1,1,1,1,1,1]
+            ];
+            const palette = ['', '#8B4513', '#006400', '#228B22']; // Roof, Wall, Target
+            drawPixelIcon(ctx, pixels, palette, scale);
+        }
+
+        function drawCrafteryIcon(ctx, scale = 1) {
+            const pixels = [
+                [0,0,1,1,1,1,0,0],
+                [0,1,2,2,2,2,1,0],
+                [1,2,2,2,2,2,2,1],
+                [1,3,3,3,3,3,3,1],
+                [1,3,3,3,3,3,3,1],
+                [1,3,3,3,3,3,3,1],
+                [1,3,3,3,3,3,3,1],
+                [1,1,1,1,1,1,1,1]
+            ];
+            const palette = ['', '#8B4513', '#696969', '#2F4F4F']; // Roof, Stone, Forge
+            drawPixelIcon(ctx, pixels, palette, scale);
+        }
+
+        function drawNavyIcon(ctx, scale = 1) {
+            const pixels = [
+                [0,0,0,0,0,0,0,0],
+                [0,0,0,0,0,0,0,0],
+                [0,0,2,2,2,2,0,0],
+                [0,2,3,3,3,3,2,0],
+                [0,2,3,1,1,3,2,0],
+                [0,2,3,3,3,3,2,0],
+                [0,0,2,2,2,2,0,0],
+                [0,0,0,0,0,0,0,0]
+            ];
+            const palette = ['', '#8B4513', '#1E90FF', '#2F4F4F'];
+            drawPixelIcon(ctx, pixels, palette, scale);
+        }
+
+        function drawShipIcon(ctx, scale = 1) {
+            const pixels = [
+                [0,0,0,0,0,0,0,0],
+                [0,0,0,1,1,0,0,0],
+                [0,0,1,2,2,1,0,0],
+                [0,1,2,2,2,2,1,0],
+                [0,1,2,2,2,2,1,0],
+                [0,0,1,2,2,1,0,0],
+                [0,0,0,1,1,0,0,0],
+                [0,0,0,0,0,0,0,0]
+            ];
+            const palette = ['', '#8B4513', '#1E90FF'];
+            drawPixelIcon(ctx, pixels, palette, scale);
+        }
+
+        function drawHouseIcon(ctx, scale = 1) {
+            const pixels = [
+                [0,0,0,1,1,0,0,0],
+                [0,0,1,2,2,1,0,0],
+                [0,1,2,2,2,2,1,0],
+                [1,2,2,2,2,2,2,1],
+                [1,3,3,3,3,3,3,1],
+                [1,3,3,3,3,3,3,1],
+                [1,3,3,3,3,3,3,1],
+                [1,1,1,1,1,1,1,1]
+            ];
+            const palette = ['', '#8B4513', '#D2691E', '#FFD700']; // Roof, Wall, Window
+            drawPixelIcon(ctx, pixels, palette, scale);
+        }
+
+        function drawBarracksIcon(ctx, scale = 1) {
+            const pixels = [
+                [0,0,1,1,1,1,0,0],
+                [0,1,2,2,2,2,1,0],
+                [1,2,2,2,2,2,2,1],
+                [1,3,3,3,3,3,3,1],
+                [1,3,3,3,3,3,3,1],
+                [1,3,3,3,3,3,3,1],
+                [1,3,3,3,3,3,3,1],
+                [1,1,1,1,1,1,1,1]
+            ];
+            const palette = ['', '#8B4513', '#A9A9A9', '#000000']; // Roof, Wall, Door
+            drawPixelIcon(ctx, pixels, palette, scale);
+        }
+
+        function drawTownCenterIcon(ctx, scale = 1) {
+            const pixels = [
+                [0,0,1,1,1,1,0,0],
+                [0,1,2,2,2,2,1,0],
+                [1,2,2,2,2,2,2,1],
+                [1,2,3,3,3,3,2,1],
+                [1,2,3,3,3,3,2,1],
+                [1,2,3,3,3,3,2,1],
+                [1,2,2,2,2,2,2,1],
+                [1,1,1,1,1,1,1,1]
+            ];
+            const palette = ['', '#8B4513', '#D2691E', '#FFD700']; // Roof, Wall, Flag
+            drawPixelIcon(ctx, pixels, palette, scale);
+        }
+
+         function drawFoodIcon(ctx, scale = 1) {
+            const pixels = [
+                [0,0,0,0,0,0,0,0],
+                [0,0,0,1,1,0,0,0],
+                [0,0,1,1,1,1,0,0],
+                [0,1,1,1,1,1,1,0],
+                [0,1,1,1,1,1,1,0],
+                [0,0,1,1,1,1,0,0],
+                [0,0,0,1,1,0,0,0],
+                [0,0,0,0,0,0,0,0]
+            ];
+            const palette = ['', '#FF6347']; // Tomato Red
+            drawPixelIcon(ctx, pixels, palette, scale);
+        }
+
+        function drawWoodIcon(ctx, scale = 1) {
+            const pixels = [
+                [0,0,0,0,0,0,0,0],
+                [0,0,1,1,1,1,0,0],
+                [0,1,1,1,1,1,1,0],
+                [0,1,1,1,1,1,1,0],
+                [0,1,1,1,1,1,1,0],
+                [0,1,1,1,1,1,1,0],
+                [0,0,1,1,1,1,0,0],
+                [0,0,0,0,0,0,0,0]
+            ];
+            const palette = ['', '#8B4513']; // SaddleBrown
+            drawPixelIcon(ctx, pixels, palette, scale);
+        }
+
+        function drawStoneIcon(ctx, scale = 1) {
+            const pixels = [
+                [0,0,0,0,0,0,0,0],
+                [0,0,0,1,1,0,0,0],
+                [0,0,1,1,1,1,0,0],
+                [0,1,1,1,1,1,1,0],
+                [0,1,1,1,1,1,1,0],
+                [0,1,1,1,1,1,1,0],
+                [0,0,1,1,1,1,0,0],
+                [0,0,0,1,1,0,0,0]
+            ];
+            const palette = ['', '#A9A9A9']; // DarkGray
+            drawPixelIcon(ctx, pixels, palette, scale);
+        }
+
+        function drawGoldIcon(ctx, scale = 1) {
+            const pixels = [
+                [0,0,0,0,0,0,0,0],
+                [0,0,0,1,1,0,0,0],
+                [0,0,1,1,1,1,0,0],
+                [0,1,1,1,1,1,1,0],
+                [0,1,1,1,1,1,1,0],
+                [0,1,1,1,1,1,1,0],
+                [0,0,1,1,1,1,0,0],
+                [0,0,0,1,1,0,0,0]
+            ];
+            const palette = ['', '#FFD700']; // Gold
+            drawPixelIcon(ctx, pixels, palette, scale);
+        }
+
+        // --- Game State ---
+        const gameState = {
+            resources: { food: 200, wood: 200, stone: 100, gold: 100 },
+            resourceRates: { food: 0, wood: 0, stone: 0, gold: 0 },
+            population: { current: 1, max: 5 },
+            selectedUnits: [],
+            selectedBuilding: null,
+            units: [],
+            buildings: [],
+            enemyUnits: [],
+            enemyBuildings: [],
+            worldObjects: [],
+            camera: { x: 0, y: 0 },
+            isSelecting: false,
+            selectionStart: { x: 0, y: 0 },
+            gameTime: 0,
+            lastUpdate: Date.now(),
+            gameOver: false,
+            keys: {},
+            trainingQueue: [],
+            currentAge: 'Dark Age',
+            placingBuilding: null,
+            placingBuildingPosition: { x: 0, y: 0 }
+        };
+
+        // --- Initialization ---
+        function initGame() {
+            drawUIIcons(); // Draw icons for UI elements
+            const canvas = document.getElementById('gameCanvas');
+            const ctx = canvas.getContext('2d');
+            resizeCanvas();
+            // Generate world first so buildings avoid water and river can divide bases
+            createWorldObjects();
+            createInitialBuildings();
+            createEnemyBase();
+            createInitialUnits();
+            setupEventListeners();
+            const playerTC = gameState.buildings.find(b => b.type === 'town-center' && b.player === 'player');
+            if (playerTC) {
+                gameState.camera.x = playerTC.x + playerTC.width/2 - GAME_CONFIG.canvas.width/2;
+                gameState.camera.y = playerTC.y + playerTC.height/2 - GAME_CONFIG.canvas.height/2;
+            }
+            gameLoop();
+            showNotification('Welcome to Medieval Empire Builder - Pixel Edition! Gather resources (3x faster!), build an army, and destroy the enemy Town Center!');
+        }
+
+        function drawUIIcons() {
+            // Draw resource icons
+            drawFoodIcon(document.querySelector('.resource-icon.food').getContext('2d'), 4);
+            drawWoodIcon(document.querySelector('.resource-icon.wood').getContext('2d'), 4);
+            drawStoneIcon(document.querySelector('.resource-icon.stone').getContext('2d'), 4);
+            drawGoldIcon(document.querySelector('.resource-icon.gold').getContext('2d'), 4);
+
+            // Draw building icons
+            drawHouseIcon(document.querySelector('.building-icon.house').getContext('2d'), 6);
+            drawBarracksIcon(document.querySelector('.building-icon.barracks').getContext('2d'), 6);
+            drawArcheryRangeIcon(document.querySelector('.building-icon.archeryRange').getContext('2d'), 6);
+            drawCrafteryIcon(document.querySelector('.building-icon.craftery').getContext('2d'), 6);
+            const navyIcon = document.querySelector('.building-icon.navy');
+            if (navyIcon) drawNavyIcon(navyIcon.getContext('2d'), 6);
+        }
+
+        // ... (rest of the JavaScript code remains the same, but with modifications to drawing functions) ...
+
+        // --- Drawing ---
+        function drawWorldObjects(ctx) {
+            gameState.worldObjects.forEach(obj => {
+                const drawX = obj.x - gameState.camera.x;
+                const drawY = obj.y - gameState.camera.y;
+                if (drawX + obj.width < 0 || drawX > GAME_CONFIG.canvas.width ||
+                    drawY + obj.height < 0 || drawY > GAME_CONFIG.canvas.height) return;
+
+                // Use pixel art for resources
+                if (obj.type === 'resource') {
+                    ctx.save();
+                    ctx.translate(drawX, drawY);
+                    if (obj.resourceType === 'food') {
+                        drawFoodIcon(ctx, obj.width / 8);
+                    } else if (obj.resourceType === 'wood') {
+                        drawWoodIcon(ctx, obj.width / 8);
+                    } else if (obj.resourceType === 'stone') {
+                        drawStoneIcon(ctx, obj.width / 8);
+                    } else if (obj.resourceType === 'gold') {
+                        drawGoldIcon(ctx, obj.width / 8);
+                    }
+                    ctx.restore();
+
+                    if (obj.amount > 0) {
+                        ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+                        ctx.font = '10px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.fillText(Math.floor(obj.amount), drawX + obj.width/2, drawY + obj.height/2 + 3);
+                    }
+                } else if (obj.type === 'water') {
+                    // Draw water bodies
+                    ctx.fillStyle = obj.color;
+                    ctx.globalAlpha = 0.85;
+                    ctx.fillRect(drawX, drawY, obj.width, obj.height);
+                    ctx.globalAlpha = 1;
+                } else if (obj.type === 'bridge') {
+                    // Simple bridge span
+                    ctx.fillStyle = obj.color;
+                    ctx.fillRect(drawX, drawY, obj.width, obj.height);
+                } else { // Obstacles like rocks
+                    ctx.fillStyle = obj.color;
+                    ctx.fillRect(drawX, drawY, obj.width, obj.height);
+                }
+            });
+        }
+
+        function drawUnits(ctx) {
+            gameState.units.forEach(unit => drawUnit(ctx, unit));
+            gameState.enemyUnits.forEach(unit => drawUnit(ctx, unit));
+        }
+
+        function drawUnit(ctx, unit) {
+            const drawX = unit.x - gameState.camera.x;
+            const drawY = unit.y - gameState.camera.y;
+            if (drawX < -30 || drawX > GAME_CONFIG.canvas.width + 30 ||
+                drawY < -30 || drawY > GAME_CONFIG.canvas.height + 30) return;
+
+            ctx.save();
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+            ctx.shadowBlur = 3;
+            ctx.shadowOffsetY = 2;
+
+            // Draw unit pixel art
+            ctx.translate(drawX, drawY);
+            if (unit.type === 'villager') {
+                drawVillagerIcon(ctx, 1); // Scale 1 for game world
+            } else if (unit.type === 'militia') {
+                drawMilitiaIcon(ctx, 1);
+            } else if (unit.type === 'archer') {
+                drawArcherIcon(ctx, 1);
+            } else if (unit.type === 'crossbowman') {
+                drawCrossbowmanIcon(ctx, 1);
+            } else if (unit.type === 'scout') {
+                drawScoutIcon(ctx, 1);
+            } else if (unit.type === 'knight') {
+                drawKnightIcon(ctx, 1);
+            } else if (unit.type === 'warrior') {
+                drawWarriorIcon(ctx, 1);
+            } else if (unit.type === 'soldier') {
+                drawSoldierIcon(ctx, 1);
+            } else if (unit.type === 'catapult') {
+                drawCatapultIcon(ctx, 1);
+            } else if (unit.type === 'ballista') {
+                drawBallistaIcon(ctx, 1);
+            } else if (unit.type === 'mangonel') {
+                drawMangonelIcon(ctx, 1);
+            } else if (unit.type === 'trebuchet') {
+                drawTrebuchetIcon(ctx, 1);
+            } else if (unit.type === 'fishingBoat' || unit.type === 'transportSmall' || unit.type === 'transportLarge' || unit.type === 'galley' || unit.type === 'warship') {
+                drawShipIcon(ctx, 1);
+            }
+
+            // Selection circle
+            if (unit.isSelected) {
+                ctx.strokeStyle = '#00ff00';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(0, 0, 18, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+
+            // Health bar
+            const maxHealth = GAME_CONFIG.units[unit.type].maxHealth;
+            const healthPercent = unit.health / maxHealth;
+            if (healthPercent < 1) {
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+                ctx.fillRect(-15, -35, 30, 4);
+                ctx.fillStyle = healthPercent > 0.6 ? '#4CAF50' : healthPercent > 0.3 ? '#FF9800' : '#F44336';
+                ctx.fillRect(-15, -35, 30 * healthPercent, 4);
+            }
+
+            ctx.restore();
+        }
+
+        function drawBuildings(ctx) {
+            [...gameState.buildings, ...gameState.enemyBuildings].forEach(building => {
+                // Skip destroyed buildings
+                if (building.health <= 0) return;
+                const drawX = building.x - gameState.camera.x;
+                const drawY = building.y - gameState.camera.y;
+                if (drawX + building.width < 0 || drawX > GAME_CONFIG.canvas.width ||
+                    drawY + building.height < 0 || drawY > GAME_CONFIG.canvas.height) return;
+
+                ctx.save();
+                ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
+                ctx.shadowBlur = 6;
+                ctx.shadowOffsetY = 3;
+
+                // Draw building pixel art
+                ctx.translate(drawX, drawY);
+                if (building.type === 'town-center') {
+                    drawTownCenterIcon(ctx, building.width / 8);
+                } else if (building.type === 'house') {
+                    drawHouseIcon(ctx, building.width / 8);
+                } else if (building.type === 'barracks') {
+                    drawBarracksIcon(ctx, building.width / 8);
+                } else if (building.type === 'archeryRange') {
+                    drawArcheryRangeIcon(ctx, building.width / 8);
+                } else if (building.type === 'craftery') {
+                    drawCrafteryIcon(ctx, building.width / 8);
+                } else if (building.type === 'navy') {
+                    drawNavyIcon(ctx, building.width / 8);
+                }
+
+                // Selection highlight for buildings
+                if (building.isSelected) {
+                    ctx.strokeStyle = '#00ff00';
+                    ctx.lineWidth = 3;
+                    ctx.strokeRect(0, 0, building.width, building.height);
+                }
+
+                // Building health bar (always visible for clarity)
+                const bcfg = getBuildingConfig(building.type);
+                if (bcfg && bcfg.maxHealth) {
+                    const healthPercent = Math.max(0, building.health / bcfg.maxHealth);
+                    const barWidth = building.width;
+                    const barHeight = 6;
+                    const barY = -10; // above the building
+                    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+                    ctx.fillRect(0, barY, barWidth, barHeight);
+                    ctx.fillStyle = healthPercent > 0.6 ? '#4CAF50' : healthPercent > 0.3 ? '#FF9800' : '#F44336';
+                    ctx.fillRect(0, barY, barWidth * healthPercent, barHeight);
+                    ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+                    ctx.lineWidth = 1;
+                    ctx.strokeRect(0, barY, barWidth, barHeight);
+                }
+
+                ctx.restore();
+            });
+        }
+
+        function drawPlacingBuilding(ctx) {
+                 if (gameState.placingBuilding) {
+                     const config = getBuildingConfig(gameState.placingBuilding);
+                const drawX = gameState.placingBuildingPosition.x - gameState.camera.x - config.width / 2;
+                const drawY = gameState.placingBuildingPosition.y - gameState.camera.y - config.height / 2;
+                ctx.save();
+                ctx.globalAlpha = 0.7;
+                if (canPlaceBuilding(gameState.placingBuilding, gameState.placingBuildingPosition.x, gameState.placingBuildingPosition.y)) {
+                    ctx.fillStyle = 'rgba(0, 255, 0, 0.5)';
+                } else {
+                    ctx.fillStyle = 'rgba(255, 0, 0, 0.5)';
+                }
+                // Draw the pixel art preview
+                ctx.translate(drawX, drawY);
+                if (gameState.placingBuilding === 'house') {
+                    drawHouseIcon(ctx, config.width / 8);
+                } else if (gameState.placingBuilding === 'barracks') {
+                    drawBarracksIcon(ctx, config.width / 8);
+                } else if (gameState.placingBuilding === 'archeryRange') {
+                    drawArcheryRangeIcon(ctx, config.width / 8);
+                } else if (gameState.placingBuilding === 'craftery') {
+                    drawCrafteryIcon(ctx, config.width / 8);
+                } else if (gameState.placingBuilding === 'town-center') {
+                    drawTownCenterIcon(ctx, config.width / 8);
+                } else if (gameState.placingBuilding === 'navy') {
+                    drawNavyIcon(ctx, config.width / 8);
+                } else if (gameState.placingBuilding === 'bridge') {
+                    // Simple bridge preview as wood plank
+                    ctx.fillStyle = '#8B4513';
+                    ctx.globalAlpha = 0.8;
+                    ctx.fillRect(0, 0, config.width, config.height);
+                }
+                ctx.restore();
+            }
+        }
+
+    // ...
+
+        function createInitialUnits() {
+            const centerX = GAME_CONFIG.world.width / 4;
+            const centerY = GAME_CONFIG.world.height / 2;
+            gameState.units.push({
+                id: generateId(),
+                type: 'villager',
+                player: 'player',
+                x: centerX + 50,
+                y: centerY + 50,
+                health: GAME_CONFIG.units.villager.maxHealth,
+                state: 'idle',
+                target: null,
+                gatherType: null,
+                isSelected: false
+            });
+        }
+
+        function createInitialBuildings() {
+            const centerX = GAME_CONFIG.world.width / 4;
+            const centerY = GAME_CONFIG.world.height / 2;
+            // If there is a river, offset Town Center away from river to one side
+            const river = gameState.worldObjects.find(o => o.type === 'water' && o.width > o.height);
+            let spawnY = centerY;
+            if (river) {
+                const riverMidY = river.y + river.height / 2;
+                spawnY = riverMidY - (river.height / 2) - GAME_CONFIG.buildings.townCenter.height - 40;
+                spawnY = Math.max(0, spawnY);
+            }
+            gameState.buildings.push({
+                id: generateId(),
+                type: 'town-center',
+                player: 'player',
+                x: centerX - getBuildingConfig('town-center').width/2,
+                y: spawnY,
+                health: getBuildingConfig('town-center').maxHealth,
+                width: getBuildingConfig('town-center').width,
+                height: getBuildingConfig('town-center').height
+            });
+        }
+
+        function createWorldObjects() {
+             const centerX = GAME_CONFIG.world.width / 4;
+            const centerY = GAME_CONFIG.world.height / 2;
+            const enemyCenterX = GAME_CONFIG.world.width * 3/4;
+            const enemyCenterY = GAME_CONFIG.world.height / 2;
+            // Optionally create a river or lake per game start
+            const waterRoll = Math.random() < 0.5 ? 'river' : 'lake';
+            if (waterRoll === 'river') {
+                // Horizontal river across the map
+                const y = centerY + (Math.random() * 200 - 100);
+                gameState.worldObjects.push({
+                    ...GAME_CONFIG.worldObjects.water,
+                    x: 0,
+                    y: y,
+                    width: GAME_CONFIG.world.width
+                });
+            } else {
+                // Lake somewhere between bases
+                const x = centerX + 200 + Math.random() * 400;
+                const y = centerY - 200 + Math.random() * 400;
+                gameState.worldObjects.push({
+                    ...GAME_CONFIG.worldObjects.lake,
+                    x,
+                    y
+                });
+            }
+            for (let i = 0; i < 15; i++) {
+                gameState.worldObjects.push({
+                    ...GAME_CONFIG.worldObjects.berryBush,
+                    x: centerX - 200 + Math.random() * 200,
+                    y: centerY - 100 + Math.random() * 200
+                });
+            }
+            for (let i = 0; i < 20; i++) {
+                gameState.worldObjects.push({
+                    ...GAME_CONFIG.worldObjects.tree,
+                    x: centerX - 300 + Math.random() * 200,
+                    y: centerY - 200 + Math.random() * 400
+                });
+            }
+            gameState.worldObjects.push({
+                ...GAME_CONFIG.worldObjects.stoneMine,
+                x: centerX - 400,
+                y: centerY - 100
+            });
+            gameState.worldObjects.push({
+                ...GAME_CONFIG.worldObjects.goldMine,
+                x: centerX - 400,
+                y: centerY + 50
+            });
+
+             for (let i = 0; i < 10; i++) {
+                gameState.worldObjects.push({
+                    ...GAME_CONFIG.worldObjects.berryBush,
+                    x: enemyCenterX + 100 + Math.random() * 200,
+                    y: enemyCenterY - 100 + Math.random() * 200
+                });
+            }
+            for (let i = 0; i < 15; i++) {
+                gameState.worldObjects.push({
+                    ...GAME_CONFIG.worldObjects.tree,
+                    x: enemyCenterX + 200 + Math.random() * 200,
+                    y: enemyCenterY - 200 + Math.random() * 400
+                });
+            }
+            gameState.worldObjects.push({
+                ...GAME_CONFIG.worldObjects.stoneMine,
+                x: enemyCenterX + 400,
+                y: enemyCenterY - 100
+            });
+            gameState.worldObjects.push({
+                ...GAME_CONFIG.worldObjects.goldMine,
+                x: enemyCenterX + 400,
+                y: enemyCenterY + 50
+            });
+
+            for (let i = 0; i < 30; i++) {
+                const obj = { ...GAME_CONFIG.worldObjects.rock };
+                let placed = false;
+                let attempts = 0;
+                while (!placed && attempts++ < 50) {
+                    obj.x = Math.random() * GAME_CONFIG.world.width;
+                    obj.y = Math.random() * GAME_CONFIG.world.height;
+                    const overlapsWater = gameState.worldObjects.some(o => o.type === 'water' &&
+                        !(obj.x + obj.width < o.x || obj.x > o.x + o.width || obj.y + obj.height < o.y || obj.y > o.y + o.height));
+                    if (!overlapsWater) placed = true;
+                }
+                if (placed) gameState.worldObjects.push(obj);
+            }
+        }
+
+        function createEnemyBase() {
+            const centerX = GAME_CONFIG.world.width * 3/4;
+            const centerY = GAME_CONFIG.world.height / 2;
+            // If there is a river, put enemy Town Center on the opposite side
+            const river = gameState.worldObjects.find(o => o.type === 'water' && o.width > o.height);
+            let spawnY = centerY;
+            if (river) {
+                const riverMidY = river.y + river.height / 2;
+                spawnY = riverMidY + (river.height / 2) + 40;
+                spawnY = Math.min(GAME_CONFIG.world.height - getBuildingConfig('town-center').height, spawnY);
+            }
+            gameState.enemyBuildings.push({
+                id: generateId(),
+                type: 'town-center',
+                player: 'enemy',
+                x: centerX - getBuildingConfig('town-center').width/2,
+                y: spawnY,
+                health: getBuildingConfig('town-center').maxHealth,
+                width: getBuildingConfig('town-center').width,
+                height: getBuildingConfig('town-center').height
+            });
+
+            for (let i = 0; i < 3; i++) {
+                gameState.enemyUnits.push({
+                    id: generateId(),
+                    type: 'militia',
+                    player: 'enemy',
+                    x: centerX + 100 + Math.random() * 100,
+                    y: centerY + 100 + Math.random() * 100,
+                    health: GAME_CONFIG.units.militia.maxHealth,
+                    state: 'patrol',
+                    target: null,
+                    patrolCenter: { x: centerX, y: centerY },
+                    patrolRadius: 200
+                });
+            }
+            gameState.enemyUnits.push({
+                id: generateId(),
+                type: 'archer',
+                player: 'enemy',
+                x: centerX - 50,
+                y: centerY - 50,
+                health: GAME_CONFIG.units.archer.maxHealth,
+                state: 'guard',
+                target: null
+            });
+        }
+
+        // --- Event Listeners ---
+    function setupEventListeners() {
+            const canvas = document.getElementById('gameCanvas');
+            let mouseDown = false;
+            let dragStart = { x: 0, y: 0 };
+            canvas.addEventListener('mousedown', (e) => {
+                if (e.button === 0) {
+                    if (gameState.placingBuilding) {
+                         const rect = canvas.getBoundingClientRect();
+                        const worldX = e.clientX - rect.left + gameState.camera.x;
+                        const worldY = e.clientY - rect.top + gameState.camera.y;
+                        if (canPlaceBuilding(gameState.placingBuilding, worldX, worldY)) {
+                            placeBuilding(gameState.placingBuilding, worldX, worldY);
+                        } else {
+                            showNotification("Cannot place building here!");
+                        }
+                        gameState.placingBuilding = null;
+                        canvas.classList.remove('placing-building', 'invalid-placement');
+                        return;
+                    }
+                    
+                    const rect = canvas.getBoundingClientRect();
+                    const worldX = e.clientX - rect.left + gameState.camera.x;
+                    const worldY = e.clientY - rect.top + gameState.camera.y;
+                    
+                    // Check if clicking on a building first
+                    const clickedBuilding = [...gameState.buildings].find(building =>
+                        building.player === 'player' &&
+                        worldX >= building.x && worldX <= building.x + building.width &&
+                        worldY >= building.y && worldY <= building.y + building.height
+                    );
+                    
+                    if (clickedBuilding) {
+                        selectBuilding(clickedBuilding);
+                        return;
+                    }
+                    
+                    mouseDown = true;
+                    dragStart.x = e.clientX - rect.left;
+                    dragStart.y = e.clientY - rect.top;
+                    gameState.isSelecting = true;
+                    gameState.selectionStart = { ...dragStart };
+                }
+            });
+            canvas.addEventListener('mousemove', (e) => {
+                 if (gameState.placingBuilding) {
+                    const rect = canvas.getBoundingClientRect();
+                    const worldX = e.clientX - rect.left + gameState.camera.x;
+                    const worldY = e.clientY - rect.top + gameState.camera.y;
+                    gameState.placingBuildingPosition.x = worldX;
+                    gameState.placingBuildingPosition.y = worldY;
+                    if (canPlaceBuilding(gameState.placingBuilding, worldX, worldY)) {
+                        canvas.classList.remove('invalid-placement');
+                    } else {
+                        canvas.classList.add('invalid-placement');
+                    }
+                    return;
+                }
+                if (mouseDown && gameState.isSelecting) {
+                    const rect = canvas.getBoundingClientRect();
+                    const currentX = e.clientX - rect.left;
+                    const currentY = e.clientY - rect.top;
+                    updateSelectionBox(dragStart, { x: currentX, y: currentY });
+                }
+                // Cursor hints for transport embark/disembark
+                const rect2 = canvas.getBoundingClientRect();
+                const worldX = e.clientX - rect2.left + gameState.camera.x;
+                const worldY = e.clientY - rect2.top + gameState.camera.y;
+                let cursor = 'default';
+                const transports = gameState.selectedUnits.filter(u => isTransport(u));
+                if (transports.length === 1) {
+                    const t = transports[0];
+                    // Embark hint: near transport and there exists selected land unit in range and capacity remains
+                    const others = gameState.selectedUnits.filter(u => u !== t && canEmbark(u));
+                    const cap = GAME_CONFIG.units[t.type].capacity || 0;
+                    const used = (t.cargo || []).length;
+                    const nearMouseToTransport = Math.hypot(worldX - t.x, worldY - t.y) < 30;
+                    const anyEmbarkableNearby = others.some(u => Math.hypot(u.x - t.x, u.y - t.y) < 24);
+                    if (nearMouseToTransport && anyEmbarkableNearby && used < cap) {
+                        cursor = 'alias'; // embark
+                    } else if ((t.cargo && t.cargo.length > 0) && (!isPointInWater(worldX, worldY) || isPointOnBridge(worldX, worldY))) {
+                        // Disembark hint when pointing at land/bridge
+                        if (!isOnLandShoreBand(worldX, worldY, 1)) cursor = 'copy';
+                    }
+                }
+                const canvasEl = document.getElementById('game-canvas');
+                if (canvasEl) canvasEl.style.cursor = cursor;
+            });
+            canvas.addEventListener('mouseup', (e) => {
+                 if (gameState.placingBuilding) return;
+                if (e.button === 0 && mouseDown) {
+                    mouseDown = false;
+                    const rect = canvas.getBoundingClientRect();
+                    if (gameState.isSelecting) {
+                        finishSelection(dragStart, { x: e.clientX - rect.left, y: e.clientY - rect.top });
+                        gameState.isSelecting = false;
+                        hideSelectionBox();
+                    }
+                }
+            });
+            canvas.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                if (gameState.placingBuilding) return;
+                const rect = canvas.getBoundingClientRect();
+                const x = e.clientX - rect.left + gameState.camera.x;
+                const y = e.clientY - rect.top + gameState.camera.y;
+                // Brief cursor feedback on command
+                const transports = gameState.selectedUnits.filter(u => isTransport(u));
+                if (transports.length === 1) {
+                    const t = transports[0];
+                    const canvasEl = document.getElementById('game-canvas');
+                    if (canvasEl) {
+                        if (Math.hypot(x - t.x, y - t.y) < 30) canvasEl.style.cursor = 'alias';
+                        else if (!isPointInWater(x, y) || isPointOnBridge(x, y)) canvasEl.style.cursor = 'copy';
+                        setTimeout(() => { if (canvasEl) canvasEl.style.cursor = 'default'; }, 150);
+                    }
+                }
+                handleRightClick(x, y);
+            });
+            document.addEventListener('keydown', (e) => {
+                if (gameState.placingBuilding && e.key === 'Escape') {
+                     gameState.placingBuilding = null;
+                     canvas.classList.remove('placing-building', 'invalid-placement');
+                     showNotification("Building placement cancelled.");
+                     return;
+                }
+                gameState.keys[e.key.toLowerCase()] = true;
+                if (e.key === ' ') {
+                    e.preventDefault();
+                    centerOnTownCenter();
+                }
+            });
+            document.addEventListener('keyup', (e) => {
+                gameState.keys[e.key.toLowerCase()] = false;
+            });
+
+            document.querySelectorAll('.unit, .building').forEach(element => {
+                element.addEventListener('click', () => {
+                    const type = element.dataset.type;
+                    if (type in GAME_CONFIG.units) {
+                        trainUnit(type);
+                    } else if (type in GAME_CONFIG.buildings) {
+                         startPlacingBuilding(type);
+                    }
+                });
+            });
+            document.getElementById('btn-age-up').addEventListener('click', advanceAge);
+            const fsBtn = document.getElementById('btn-fullscreen');
+            if (fsBtn) {
+                fsBtn.addEventListener('click', toggleFullscreen);
+                document.addEventListener('fullscreenchange', () => {
+                    fsBtn.textContent = document.fullscreenElement ? 'Exit Fullscreen' : 'Enter Fullscreen';
+                    resizeCanvas();
+                });
+            }
+            // React to window/fullscreen changes
+            window.addEventListener('resize', resizeCanvas);
+            const areaEl = canvas.parentElement;
+            if (window.ResizeObserver && areaEl) {
+                const ro = new ResizeObserver(() => resizeCanvas());
+                ro.observe(areaEl);
+                window.addEventListener('beforeunload', () => ro.disconnect(), { once: true });
+            }
+        }
+
+        function resizeCanvas() {
+            const canvas = document.getElementById('gameCanvas');
+            const area = canvas.parentElement;
+            const rect = area.getBoundingClientRect();
+            const cssWidth = Math.max(480, Math.floor(rect.width));
+            const cssHeight = Math.max(320, Math.floor(rect.height));
+            const dpr = window.devicePixelRatio || 1;
+
+            canvas.style.width = cssWidth + 'px';
+            canvas.style.height = cssHeight + 'px';
+
+            const bufferWidth = Math.floor(cssWidth * dpr);
+            const bufferHeight = Math.floor(cssHeight * dpr);
+            if (canvas.width !== bufferWidth || canvas.height !== bufferHeight) {
+                canvas.width = bufferWidth;
+                canvas.height = bufferHeight;
+            }
+
+            GAME_CONFIG.canvas.width = cssWidth;
+            GAME_CONFIG.canvas.height = cssHeight;
+        }
+
+        function clampCameraToBounds() {
+            // Keep camera within world after size changes
+            gameState.camera.x = Math.max(0, Math.min(GAME_CONFIG.world.width - GAME_CONFIG.canvas.width, gameState.camera.x || 0));
+            gameState.camera.y = Math.max(0, Math.min(GAME_CONFIG.world.height - GAME_CONFIG.canvas.height, gameState.camera.y || 0));
+        }
+
+        function toggleFullscreen() {
+            const elem = document.documentElement;
+            if (!document.fullscreenElement) {
+                if (elem.requestFullscreen) elem.requestFullscreen();
+                else if (elem.webkitRequestFullscreen) elem.webkitRequestFullscreen();
+                else if (elem.mozRequestFullScreen) elem.mozRequestFullScreen();
+                else if (elem.msRequestFullscreen) elem.msRequestFullscreen();
+            } else {
+                if (document.exitFullscreen) document.exitFullscreen();
+                else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+                else if (document.mozCancelFullScreen) document.mozCancelFullScreen();
+                else if (document.msExitFullscreen) document.msExitFullscreen();
+            }
+        }
+
+        function selectBuilding(building) {
+            // Clear previous selections
+            gameState.selectedUnits.forEach(unit => unit.isSelected = false);
+            gameState.selectedUnits = [];
+            gameState.buildings.forEach(b => b.isSelected = false);
+            
+            // Select the building
+            building.isSelected = true;
+            gameState.selectedBuilding = building;
+            
+            // Show building actions menu
+            showBuildingActions(building);
+            updateSelectionInfo();
+        }
+
+        function showBuildingActions(building) {
+            const actionsSection = document.getElementById('building-actions');
+            const generalUnitsSection = document.getElementById('general-units');
+            const buildingTitle = document.getElementById('building-title');
+            const unitList = document.getElementById('building-unit-list');
+            
+            actionsSection.style.display = 'block';
+            generalUnitsSection.style.display = 'none';
+            
+            buildingTitle.textContent = `${building.type.charAt(0).toUpperCase() + building.type.slice(1)} Actions`;
+            
+            // Clear previous content
+            unitList.innerHTML = '';
+            
+            // Define what each building can create
+            const buildingUnits = {
+                'town-center': ['villager'],
+                'barracks': ['militia', 'warrior', 'soldier', 'knight'],
+                'archeryRange': ['archer', 'crossbowman'],
+                'craftery': ['ballista', 'trebuchet'],
+                'navy': ['fishingBoat', 'transportSmall', 'transportLarge', 'galley', 'warship']
+            };
+            
+            let availableUnits = buildingUnits[building.type] || [];
+            // Bridge option appears in craftery when water exists
+            const hasWater = gameState.worldObjects.some(o => o.type === 'water');
+            if (building.type === 'craftery' && hasWater) {
+                availableUnits = [...availableUnits, 'bridge'];
+            }
+            
+            availableUnits.forEach(unitType => {
+                // Special case: bridge is built as a building-like span
+                if (unitType === 'bridge') {
+                    const unitDiv = document.createElement('div');
+                    unitDiv.className = 'unit';
+                    unitDiv.dataset.type = 'bridge';
+                    unitDiv.innerHTML = `
+                        <canvas class="unit-icon bridge" width="40" height="40"></canvas>
+                        <div style="font-weight: bold; font-size: 12px;">Bridge</div>
+                        <div style="font-size: 11px; color: #ccc;">150W, 50S</div>
+                    `;
+                    unitDiv.addEventListener('click', () => startPlacingBuilding('bridge'));
+                    unitList.appendChild(unitDiv);
+                    const canvas = unitDiv.querySelector('canvas.unit-icon.bridge');
+                    const ctx = canvas.getContext('2d');
+                    // Reuse simple bar for bridge icon
+                    ctx.fillStyle = '#8B4513';
+                    ctx.fillRect(8, 20, 32, 8);
+                    return;
+                }
+                const unitConfig = GAME_CONFIG.units[unitType];
+                if (!unitConfig) return;
+                
+                // Check if unit is available in current age
+                const ageRestrictions = {
+                    'knight': ['Feudal Age', 'Castle Age', 'Imperial Age'],
+                    'catapult': ['Castle Age', 'Imperial Age'],
+                    'ballista': ['Castle Age', 'Imperial Age'],
+                    'mangonel': ['Castle Age', 'Imperial Age'],
+                    'trebuchet': ['Imperial Age'],
+                    'crossbowman': ['Feudal Age', 'Castle Age', 'Imperial Age']
+                };
+                
+                if (ageRestrictions[unitType] && !ageRestrictions[unitType].includes(gameState.currentAge)) {
+                    // Show the unit but make it grayed out if not available yet
+                    const unitDiv = document.createElement('div');
+                    unitDiv.className = 'unit disabled';
+                    unitDiv.dataset.type = unitType;
+                    
+                    const costText = Object.entries(unitConfig.cost)
+                        .map(([resource, amount]) => `${amount}${resource.charAt(0).toUpperCase()}`)
+                        .join(', ');
+                    
+                    const requiredAge = ageRestrictions[unitType][0];
+                    
+                    unitDiv.innerHTML = `
+                        <canvas class="unit-icon ${unitType}" width="40" height="40"></canvas>
+                        <div style="font-weight: bold; font-size: 12px;">${unitType.charAt(0).toUpperCase() + unitType.slice(1)}</div>
+                        <div style="font-size: 11px; color: #ccc;">${costText}</div>
+                        <div style="font-size: 9px; color: #ff6666;">Requires ${requiredAge}</div>
+                        <div class="progress-bar"><div class="progress-fill" style="width: 0%;"></div></div>
+                    `;
+                    
+                    unitList.appendChild(unitDiv);
+                    
+                    // Draw the icon
+                    const canvas = unitDiv.querySelector(`canvas.unit-icon.${unitType}`);
+                    const ctx = canvas.getContext('2d');
+                    drawUnitIcon(ctx, unitType, 6);
+                    return; // Skip creating the clickable version
+                }
+                
+                const unitDiv = document.createElement('div');
+                unitDiv.className = 'unit';
+                unitDiv.dataset.type = unitType;
+                
+                const costText = Object.entries(unitConfig.cost)
+                    .map(([resource, amount]) => `${amount}${resource.charAt(0).toUpperCase()}`)
+                    .join(', ');
+                
+                unitDiv.innerHTML = `
+                    <canvas class="unit-icon ${unitType}" width="40" height="40"></canvas>
+                    <div style="font-weight: bold; font-size: 12px;">${unitType.charAt(0).toUpperCase() + unitType.slice(1)}</div>
+                    <div style="font-size: 11px; color: #ccc;">${costText}</div>
+                    <div class="progress-bar"><div class="progress-fill" style="width: 0%;"></div></div>
+                `;
+                
+                unitDiv.addEventListener('click', () => trainUnitFromBuilding(unitType, building));
+                unitList.appendChild(unitDiv);
+                
+                // Draw the icon
+                const canvas = unitDiv.querySelector(`canvas.unit-icon.${unitType}`);
+                const ctx = canvas.getContext('2d');
+                drawUnitIcon(ctx, unitType, 6);
+            });
+        }
+
+        function drawUnitIcon(ctx, unitType, scale) {
+            switch(unitType) {
+                case 'villager': drawVillagerIcon(ctx, scale); break;
+                case 'militia': drawMilitiaIcon(ctx, scale); break;
+                case 'archer': drawArcherIcon(ctx, scale); break;
+                case 'crossbowman': drawCrossbowmanIcon(ctx, scale); break;
+                case 'scout': drawScoutIcon(ctx, scale); break;
+                case 'knight': drawKnightIcon(ctx, scale); break;
+                case 'warrior': drawWarriorIcon(ctx, scale); break;
+                case 'soldier': drawSoldierIcon(ctx, scale); break;
+                case 'catapult': drawCatapultIcon(ctx, scale); break;
+                case 'ballista': drawBallistaIcon(ctx, scale); break;
+                case 'mangonel': drawMangonelIcon(ctx, scale); break;
+                case 'trebuchet': drawTrebuchetIcon(ctx, scale); break;
+                case 'fishingBoat':
+                case 'transportSmall':
+                case 'transportLarge':
+                case 'galley':
+                case 'warship':
+                    drawShipIcon(ctx, scale); break;
+            }
+        }
+
+        function trainUnitFromBuilding(type, building) {
+            if (!building || building.health <= 0) {
+                showNotification('Building is not available!');
+                return;
+            }
+            trainUnit(type, building);
+        }
+
+        function getAvailablePosition(x, y, radius = 18) {
+            const allUnits = [...gameState.units, ...gameState.enemyUnits];
+            let attempts = 0;
+            const maxAttempts = 50;
+            let currentX = x;
+            let currentY = y;
+            
+            while (attempts < maxAttempts) {
+                let foundCollision = false;
+                
+                for (const unit of allUnits) {
+                    const distance = Math.sqrt(Math.pow(currentX - unit.x, 2) + Math.pow(currentY - unit.y, 2));
+                    if (distance < radius) {
+                        foundCollision = true;
+                        break;
+                    }
+                }
+                
+                // Also check against buildings with smaller buffer
+                for (const building of [...gameState.buildings, ...gameState.enemyBuildings]) {
+                    if (currentX >= building.x - 15 && currentX <= building.x + building.width + 15 &&
+                        currentY >= building.y - 15 && currentY <= building.y + building.height + 15) {
+                        foundCollision = true;
+                        break;
+                    }
+                }
+                
+                if (!foundCollision) {
+                    return { x: currentX, y: currentY };
+                }
+                
+                // Try a new position in a spiral pattern
+                const angle = (attempts / maxAttempts) * Math.PI * 2 * 3; // 3 full rotations
+                const distance = Math.min((attempts / maxAttempts) * 80, 80); // Expand outward up to 80 pixels
+                currentX = x + Math.cos(angle) * distance;
+                currentY = y + Math.sin(angle) * distance;
+                
+                // Keep within world bounds
+                currentX = Math.max(20, Math.min(GAME_CONFIG.world.width - 20, currentX));
+                currentY = Math.max(20, Math.min(GAME_CONFIG.world.height - 20, currentY));
+                
+                attempts++;
+            }
+            
+            return { x: currentX, y: currentY }; // Return last attempt if no free space found
+        }
+
+        function isPositionOccupied(x, y, excludeUnit = null, radius = 15) {
+            const allUnits = [...gameState.units, ...gameState.enemyUnits];
+            
+            // For villagers, allow passing through other villagers but not stopping on them
+            if (excludeUnit && excludeUnit.type === 'villager') {
+                for (const unit of allUnits) {
+                    if (unit === excludeUnit) continue;
+                    
+                    // Allow villagers to pass through other villagers if they're moving
+                    if (unit.type === 'villager' && excludeUnit.state === 'moving') {
+                        continue;
+                    }
+                    
+                    const distance = Math.sqrt(Math.pow(x - unit.x, 2) + Math.pow(y - unit.y, 2));
+                    if (distance < radius) {
+                        return true;
+                    }
+                }
+            } else {
+                // For non-villagers, check all units
+                for (const unit of allUnits) {
+                    if (unit === excludeUnit) continue;
+                    const distance = Math.sqrt(Math.pow(x - unit.x, 2) + Math.pow(y - unit.y, 2));
+                    if (distance < radius) {
+                        return true;
+                    }
+                }
+            }
+            
+            // Strong building collision: do not allow units to pass through building rectangles
+            for (const building of [...gameState.buildings, ...gameState.enemyBuildings]) {
+                const buffer = 4; // small cushion so we stop slightly outside
+                if (x >= building.x - buffer && x <= building.x + building.width + buffer &&
+                    y >= building.y - buffer && y <= building.y + building.height + buffer) {
+                    return true;
+                }
+            }
+
+            // Water traversal rules: land units cannot enter water; vessels must stay in water
+            const inWater = gameState.worldObjects.some(obj => obj.type === 'water' &&
+                x >= obj.x && x <= obj.x + obj.width && y >= obj.y && y <= obj.y + obj.height);
+            const onBridge = gameState.worldObjects.some(obj => obj.type === 'bridge' &&
+                x >= obj.x && x <= obj.x + obj.width && y >= obj.y && y <= obj.y + obj.height);
+            if (excludeUnit) {
+                const isVessel = !!GAME_CONFIG.units[excludeUnit.type]?.vessel;
+                // Land units: block water and also last 1px of land touching water
+                if (!isVessel) {
+                    if (inWater && !onBridge) return true;
+                    if (isOnLandShoreBand(x, y, 1) && !onBridge) return true;
+                }
+                // Vessels: block land and outermost 1px of water
+                if (isVessel) {
+                    if (!inWater) return true;
+                    if (isInWaterInnerBand(x, y, 1)) return true;
+                }
+            }
+            
+            return false;
+        }
+
+        function startPlacingBuilding(type) {
+             if (gameState.placingBuilding) {
+                showNotification("Finish placing the current building first!");
+                return;
+            }
+            const buildingConfig = getBuildingConfig(type);
+            if (!canAfford(buildingConfig.cost)) {
+                showNotification(`Not enough resources to build ${type}!`);
+                return;
+            }
+            gameState.placingBuilding = type;
+            const canvas = document.getElementById('gameCanvas');
+            canvas.classList.add('placing-building');
+            showNotification(`Placing ${type}. Click to place. Press ESC to cancel.`);
+        }
+
+        function updateUnits(deltaTime) {
+            updateResourceRates();
+            gameState.units.forEach(unit => updateUnit(unit, deltaTime));
+            gameState.enemyUnits.forEach(unit => {
+                updateUnit(unit, deltaTime);
+                updateEnemyAI(unit);
+            });
+            updateTrainingQueue(deltaTime);
+        }
+
+        function updateUnit(unit, deltaTime) {
+            const config = GAME_CONFIG.units[unit.type];
+            // Auto-embark check for land units moving to a tagged transport
+            if (unit.embarkTargetId && unit.state === 'moving' && !GAME_CONFIG.units[unit.type]?.vessel) {
+                const t = gameState.units.find(u => u.id === unit.embarkTargetId && isTransport(u));
+                if (t) {
+                    const dist = Math.hypot(unit.x - t.x, unit.y - t.y);
+                    if (dist <= 20 && (t.cargo ? t.cargo.length : 0) < (GAME_CONFIG.units[t.type].capacity || 0)) {
+                        tryEmbarkUnitsToTransport([unit], t);
+                        unit.embarkTargetId = null;
+                        return; // unit removed from active list; stop updating
+                    }
+                } else {
+                    unit.embarkTargetId = null;
+                }
+            }
+            // Fishing boat: can move; only auto-gather when idle in water
+            if (unit.type === 'fishingBoat') {
+                const inWater = isPointInWater(unit.x, unit.y);
+                if (unit.state !== 'moving') {
+                    if (inWater) {
+                        unit.state = 'fishing';
+                        unit.gatherType = 'food';
+                        unit.gatheredAmount = (unit.gatheredAmount || 0) + (config.gatherRate || 2.5) * (deltaTime / 1000);
+                        if (unit.gatheredAmount >= 25) {
+                            gameState.resources.food += unit.gatheredAmount;
+                            showNotification(`+${Math.floor(unit.gatheredAmount)} food (fishing)`);
+                            unit.gatheredAmount = 0;
+                        }
+                    } else {
+                        // If drifting onto land somehow, set a target back to water edge
+                        const nearestWater = gameState.worldObjects.find(obj => obj.type === 'water');
+                        if (nearestWater) {
+                            const tx = Math.max(nearestWater.x, Math.min(unit.x, nearestWater.x + nearestWater.width));
+                            const ty = Math.max(nearestWater.y, Math.min(unit.y, nearestWater.y + nearestWater.height));
+                            unit.state = 'moving';
+                            unit.targetX = tx;
+                            unit.targetY = ty;
+                        }
+                    }
+                }
+            }
+            if (unit.state === 'moving') {
+                if (unit.targetX !== undefined && unit.targetY !== undefined) {
+                    const dx = unit.targetX - unit.x;
+                    const dy = unit.targetY - unit.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    if (distance > 5) {
+                        const moveSpeed = config.speed;
+                        const newX = unit.x + (dx / distance) * moveSpeed;
+                        const newY = unit.y + (dy / distance) * moveSpeed;
+                        
+                        // Use smaller collision radius for movement, allowing villagers to pass through
+                        if (!isPositionOccupied(newX, newY, unit, 8)) {
+                            unit.x = newX;
+                            unit.y = newY;
+                        } else {
+                            // Try to find alternative path by slightly adjusting direction
+                            const alternativeAngles = [-0.3, 0.3, -0.6, 0.6];
+                            let moved = false;
+                            
+                            for (const angleOffset of alternativeAngles) {
+                                const adjustedAngle = Math.atan2(dy, dx) + angleOffset;
+                                const altX = unit.x + Math.cos(adjustedAngle) * moveSpeed;
+                                const altY = unit.y + Math.sin(adjustedAngle) * moveSpeed;
+                                
+                                if (!isPositionOccupied(altX, altY, unit, 8)) {
+                                    unit.x = altX;
+                                    unit.y = altY;
+                                    moved = true;
+                                    break;
+                                }
+                            }
+                            
+                            // If still can't move, try a very small nudge respecting terrain
+                            if (!moved) {
+                                const nudgeX = unit.x + (dx / distance) * (moveSpeed * 0.3);
+                                const nudgeY = unit.y + (dy / distance) * (moveSpeed * 0.3);
+                                if (!isPositionOccupied(nudgeX, nudgeY, unit, 8)) {
+                                    unit.x = nudgeX;
+                                    unit.y = nudgeY;
+                                }
+                            }
+                        }
+                    } else {
+                        // When stopping, check for final position conflicts and adjust
+                        const finalX = unit.targetX;
+                        const finalY = unit.targetY;
+                        
+                        // Check if final position would overlap with another unit
+                        if (isPositionOccupied(finalX, finalY, unit, 15)) {
+                            // Find nearby free position
+                            const freePos = getAvailablePosition(finalX, finalY, 15);
+                            unit.x = freePos.x;
+                            unit.y = freePos.y;
+                        } else {
+                            unit.x = finalX;
+                            unit.y = finalY;
+                        }
+                        
+                        // For vessels, ensure we didn’t stop in the inner water band
+                        if (GAME_CONFIG.units[unit.type]?.vessel && isInWaterInnerBand(unit.x, unit.y, 1)) {
+                            // push 2px toward water center of containing rect
+                            const w = gameState.worldObjects.find(o => o.type === 'water' && unit.x >= o.x && unit.x <= o.x + o.width && unit.y >= o.y && unit.y <= o.y + o.height);
+                            if (w) {
+                                unit.x = clamp(unit.x, w.x + 2, w.x + w.width - 2);
+                                unit.y = clamp(unit.y, w.y + 2, w.y + w.height - 2);
+                            }
+                        }
+                        unit.state = 'idle';
+                        unit.targetX = undefined;
+                        unit.targetY = undefined;
+                    }
+                }
+            } else if (unit.state === 'attacking' && unit.target) {
+                const tx = unit.targetPoint ? unit.targetPoint.x : unit.target.x;
+                const ty = unit.targetPoint ? unit.targetPoint.y : unit.target.y;
+                const dx = tx - unit.x;
+                const dy = ty - unit.y;
+                let distance = Math.sqrt(dx * dx + dy * dy);
+                // If target is a building, measure distance to its edge for fair melee range
+                if (unit.target.width && unit.target.height) {
+                    const bx1 = unit.target.x;
+                    const by1 = unit.target.y;
+                    const bx2 = unit.target.x + unit.target.width;
+                    const by2 = unit.target.y + unit.target.height;
+                    const clampedX = Math.max(bx1, Math.min(unit.x, bx2));
+                    const clampedY = Math.max(by1, Math.min(unit.y, by2));
+                    const ex = clampedX - unit.x;
+                    const ey = clampedY - unit.y;
+                    distance = Math.sqrt(ex * ex + ey * ey);
+                }
+                if (unit.target.health <= 0) {
+                    unit.state = 'idle';
+                    unit.target = null;
+                    unit.targetPoint = undefined;
+                } else if (distance > config.attackRange) {
+                    // Move toward target but respect terrain constraints
+                    const tentativeX = unit.x + (dx / distance) * config.speed;
+                    const tentativeY = unit.y + (dy / distance) * config.speed;
+                    if (!isPositionOccupied(tentativeX, tentativeY, unit, 12)) {
+                        unit.x = tentativeX;
+                        unit.y = tentativeY;
+                    }
+                } else {
+                    if (!unit.lastAttack || Date.now() - unit.lastAttack > 1000) {
+                        unit.target.health -= config.attack;
+                        unit.lastAttack = Date.now();
+                        if (unit.target.health <= 0) {
+                            // Handle destruction of buildings or death of units
+                            if (unit.target.width && unit.target.height) {
+                                // It's a building
+                                handleBuildingDestruction(unit.target);
+                            } else {
+                                handleUnitDeath(unit.target);
+                            }
+                            unit.state = 'idle';
+                            unit.target = null;
+                            unit.targetPoint = undefined;
+                        }
+                    }
+                }
+          } else if (unit.state === 'gathering' && unit.targetResource) {
+              const targetX = unit.targetResource.x + unit.targetResource.width/2 + (unit.gatherOffset?.dx || 0);
+              const targetY = unit.targetResource.y + unit.targetResource.height/2 + (unit.gatherOffset?.dy || 0);
+              const dx = targetX - unit.x;
+              const dy = targetY - unit.y;
+                 const distance = Math.sqrt(dx * dx + dy * dy);
+              if (distance > 20) {
+                    const newX = unit.x + (dx / distance) * config.speed;
+                    const newY = unit.y + (dy / distance) * config.speed;
+                    
+                    // Check if new position would cause overlap - allow villagers to pass through
+                    if (!isPositionOccupied(newX, newY, unit, 8)) {
+                        unit.x = newX;
+                        unit.y = newY;
+                    } else {
+                        // Try alternative angles for villagers
+                        const alternativeAngles = [-0.5, 0.5, -1, 1];
+                        let moved = false;
+                        
+                        for (const angleOffset of alternativeAngles) {
+                            const adjustedAngle = Math.atan2(dy, dx) + angleOffset;
+                            const altX = unit.x + Math.cos(adjustedAngle) * config.speed;
+                            const altY = unit.y + Math.sin(adjustedAngle) * config.speed;
+                            
+                            if (!isPositionOccupied(altX, altY, unit, 8)) {
+                                unit.x = altX;
+                                unit.y = altY;
+                                moved = true;
+                                break;
+                            }
+                        }
+                        
+                        if (!moved) {
+                            unit.x += (dx / distance) * (config.speed * 0.3);
+                            unit.y += (dy / distance) * (config.speed * 0.3);
+                        }
+                    }
+                 } else {
+                     if (!unit.gatherStartTime) unit.gatherStartTime = Date.now();
+                     const gatherTime = (Date.now() - unit.gatherStartTime) / 1000; // seconds
+                     const gathered = Math.min(gatherTime * config.gatherRate, unit.targetResource.amount);
+                     unit.gatheredAmount = gathered;
+                     
+                     // Check if we've gathered enough or resource is depleted
+                     if (gathered >= unit.targetResource.amount || gathered >= 25) { // Cap at 25 per trip
+                         // Consume the resource
+                         unit.targetResource.amount -= unit.gatheredAmount;
+                         if (unit.targetResource.amount <= 0) {
+                             unit.targetResource.amount = 0;
+                         }
+                         
+                         unit.state = 'returning';
+                         unit.gatherStartTime = null;
+                         const tc = gameState.buildings.find(b => b.type === 'town-center' && b.player === 'player');
+                         if (tc) {
+                             let edge = getDropOffPointOutside(unit, tc, 8);
+                             // Avoid 1px land shoreline band for drop off by nudging further out if necessary
+                             if (isOnLandShoreBand(edge.x, edge.y, 1)) {
+                                 const dirX = Math.sign(edge.x - (tc.x + tc.width/2)) || 1;
+                                 const dirY = Math.sign(edge.y - (tc.y + tc.height/2)) || 1;
+                                 edge = { x: edge.x + dirX * 2, y: edge.y + dirY * 2 };
+                             }
+                             unit.dropOffX = edge.x;
+                             unit.dropOffY = edge.y;
+                         }
+                     }
+                 }
+            } else if (unit.state === 'returning' && unit.dropOffX !== undefined) {
+                 const dx = unit.dropOffX - unit.x;
+                 const dy = unit.dropOffY - unit.y;
+                 const distance = Math.sqrt(dx * dx + dy * dy);
+                 if (distance > 8) {
+                    const newX = unit.x + (dx / distance) * config.speed;
+                    const newY = unit.y + (dy / distance) * config.speed;
+                    
+                    // Check if new position would cause overlap - allow villagers to pass through
+                    if (!isPositionOccupied(newX, newY, unit, 8)) {
+                        unit.x = newX;
+                        unit.y = newY;
+                    } else {
+                        // Try alternative angles for villagers
+                        const alternativeAngles = [-0.5, 0.5];
+                        let moved = false;
+                        
+                        for (const angleOffset of alternativeAngles) {
+                            const adjustedAngle = Math.atan2(dy, dx) + angleOffset;
+                            const altX = unit.x + Math.cos(adjustedAngle) * config.speed;
+                            const altY = unit.y + Math.sin(adjustedAngle) * config.speed;
+                            
+                            if (!isPositionOccupied(altX, altY, unit, 8)) {
+                                unit.x = altX;
+                                unit.y = altY;
+                                moved = true;
+                                break;
+                            }
+                        }
+                        
+                        if (!moved) {
+                            unit.x += (dx / distance) * (config.speed * 0.3);
+                            unit.y += (dy / distance) * (config.speed * 0.3);
+                        }
+                    }
+                 } else {
+                     // Drop off resources at town center
+                     if (unit.gatheredAmount > 0 && unit.gatherType) {
+                         gameState.resources[unit.gatherType] += unit.gatheredAmount;
+                         showNotification(`+${Math.floor(unit.gatheredAmount)} ${unit.gatherType}`);
+                     }
+                     
+                     // Store the resource type before clearing it
+                     const lastGatherType = unit.gatherType;
+                     
+                     // Reset gathering state
+                     unit.gatheredAmount = 0;
+                     unit.gatherType = null;
+                     unit.dropOffX = undefined;
+                     unit.dropOffY = undefined;
+                     unit.state = 'idle';
+                     
+                     // Find nearby resource of the same type to continue gathering
+                     const nearbyResource = findNearestResource(unit, lastGatherType || 'food');
+                     if (nearbyResource && nearbyResource.amount > 0) {
+                         unit.state = 'gathering';
+                         unit.targetResource = nearbyResource;
+                         unit.gatherType = lastGatherType || nearbyResource.resourceType;
+                         // Keep spacing when returning to gather so villagers don't unify
+                         const angle = Math.random() * Math.PI * 2;
+                         const r = 18 + Math.random() * 10;
+                         unit.gatherOffset = { dx: Math.cos(angle) * r, dy: Math.sin(angle) * r };
+                     }
+                 }
+            }
+        }
+
+        function pushUnitsAway(centerUnit) {
+            // Simplified push-away system
+            const pushRadius = 25;
+            const pushForce = 2;
+            const allUnits = [...gameState.units, ...gameState.enemyUnits];
+            
+            allUnits.forEach(unit => {
+                if (unit === centerUnit) return;
+                
+                const dx = unit.x - centerUnit.x;
+                const dy = unit.y - centerUnit.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance < pushRadius && distance > 0) {
+                    const pushX = (dx / distance) * pushForce;
+                    const pushY = (dy / distance) * pushForce;
+                    
+                    unit.x += pushX;
+                    unit.y += pushY;
+                }
+            });
+        }
+
+        function updateEnemyAI(unit) {
+            if (unit.state === 'idle' || unit.state === 'patrol') {
+                // Prefer nearby player units first
+                let nearbyTarget = gameState.units.find(playerUnit =>
+                    getDistance(unit, playerUnit) < 200 && playerUnit.player === 'player'
+                );
+                // If none, target nearest player building (e.g., Town Center)
+                if (!nearbyTarget) {
+                    let closestBuilding = null;
+                    let bestDist = Infinity;
+                    gameState.buildings.forEach(b => {
+                        const d = getDistance(unit, { x: b.x + b.width / 2, y: b.y + b.height / 2 });
+                        if (d < bestDist) { bestDist = d; closestBuilding = b; }
+                    });
+                    if (closestBuilding && bestDist < 400) {
+                        nearbyTarget = closestBuilding;
+                    }
+                }
+                if (nearbyTarget) {
+                    unit.state = 'attacking';
+                    unit.target = nearbyTarget;
+                } else if (unit.state === 'patrol') {
+                    if (!unit.targetX || getDistance(unit, unit.patrolCenter) > unit.patrolRadius) {
+                        const angle = Math.random() * Math.PI * 2;
+                        unit.targetX = unit.patrolCenter.x + Math.cos(angle) * (unit.patrolRadius * 0.5);
+                        unit.targetY = unit.patrolCenter.y + Math.sin(angle) * (unit.patrolRadius * 0.5);
+                        unit.state = 'moving';
+                    }
+                }
+            }
+        }
+
+    function updateTrainingQueue(deltaTime) {
+            for (let i = gameState.trainingQueue.length - 1; i >= 0; i--) {
+                const training = gameState.trainingQueue[i];
+                training.timeRemaining -= deltaTime;
+                if (training.timeRemaining <= 0) {
+            spawnUnit(training.type, training.spawnAnchor);
+                    gameState.trainingQueue.splice(i, 1);
+                }
+            }
+        }
+
+        function spawnUnit(type, spawnAnchor) {
+            // Prefer building that queued this unit: selectedBuilding; fallback to first capable building or Town Center
+            let spawnBuilding = spawnAnchor || gameState.selectedBuilding;
+            if (!spawnBuilding || (spawnBuilding.player && spawnBuilding.player !== 'player')) {
+                // Try to find any player building that can produce this unit
+                const capable = {
+                    villager: ['town-center'],
+                    militia: ['barracks'], warrior: ['barracks'], soldier: ['barracks'], knight: ['barracks'],
+                    archer: ['archeryRange'], crossbowman: ['archeryRange'],
+                    ballista: ['craftery'], trebuchet: ['craftery'], catapult: ['craftery'], mangonel: ['craftery'],
+                    fishingBoat: ['navy'], transportSmall: ['navy'], transportLarge: ['navy'], galley: ['navy'], warship: ['navy']
+                };
+                const types = capable[type] || [];
+                const b = gameState.buildings.find(b => b.player === 'player' && types.includes(b.type));
+                spawnBuilding = b || gameState.buildings.find(b => b.type === 'town-center' && b.player === 'player');
+            }
+            if (!spawnBuilding) return;
+
+            const centerX = spawnBuilding.x + spawnBuilding.width / 2;
+            const centerY = spawnBuilding.y + spawnBuilding.height / 2;
+            // Try positions on a ring around the building to avoid spawning inside
+            const ringRadius = Math.max(spawnBuilding.width, spawnBuilding.height) / 2 + 18;
+            const tries = 24;
+            let position = null;
+            const isVessel = !!GAME_CONFIG.units[type]?.vessel;
+            for (let i = 0; i < tries; i++) {
+                const theta = (i / tries) * Math.PI * 2;
+                const tx = centerX + Math.cos(theta) * ringRadius;
+                const ty = centerY + Math.sin(theta) * ringRadius;
+                if (isVessel) {
+                    // Only accept water tiles
+                    const inWater = gameState.worldObjects.some(obj => obj.type === 'water' && tx >= obj.x && tx <= obj.x + obj.width && ty >= obj.y && ty <= obj.y + obj.height);
+                    if (!inWater) continue;
+                }
+                const free = getAvailablePosition(tx, ty, 15);
+                if (free) {
+                    if (!isVessel || gameState.worldObjects.some(obj => obj.type === 'water' && free.x >= obj.x && free.x <= obj.x + obj.width && free.y >= obj.y && free.y <= obj.y + obj.height)) {
+                        position = free; break;
+                    }
+                }
+            }
+            if (!position) position = { x: centerX, y: centerY + ringRadius };
+
+            gameState.units.push({
+                id: generateId(),
+                type,
+                player: 'player',
+                x: position.x,
+                y: position.y,
+                health: GAME_CONFIG.units[type].maxHealth,
+                state: 'idle',
+                target: null,
+                isSelected: false
+            });
+            gameState.population.current++;
+            showNotification(`${type} training complete!`);
+        }
+
+        function updateResourceRates() {
+            gameState.resourceRates = { food: 0, wood: 0, stone: 0, gold: 0 };
+            gameState.units.forEach(unit => {
+                if (unit.state === 'gathering' && unit.gatherType && unit.gatheredAmount > 0) {
+                    const config = GAME_CONFIG.units[unit.type];
+                    gameState.resourceRates[unit.gatherType] += config.gatherRate;
+                } else if (unit.type === 'fishingBoat' && unit.state === 'fishing') {
+                    const config = GAME_CONFIG.units[unit.type];
+                    gameState.resourceRates.food += (config.gatherRate || 2.5);
+                }
+            });
+            document.getElementById('food-rate').textContent = gameState.resourceRates.food.toFixed(1);
+            document.getElementById('wood-rate').textContent = gameState.resourceRates.wood.toFixed(1);
+            document.getElementById('stone-rate').textContent = gameState.resourceRates.stone.toFixed(1);
+            document.getElementById('gold-rate').textContent = gameState.resourceRates.gold.toFixed(1);
+        }
+
+        function findNearestResource(unit, resourceType) {
+             let closest = null;
+             let closestDist = Infinity;
+             gameState.worldObjects.forEach(obj => {
+                 if (obj.type === 'resource' && obj.resourceType === resourceType && obj.amount > 0) {
+                     const dist = getDistance(unit, {x: obj.x + obj.width/2, y: obj.y + obj.height/2});
+                     if (dist < closestDist) {
+                         closestDist = dist;
+                         closest = obj;
+                     }
+                 }
+             });
+             return closest;
+        }
+
+        function canPlaceBuilding(type, x, y) {
+            const config = getBuildingConfig(type);
+            const proposedX = x - config.width / 2;
+            const proposedY = y - config.height / 2;
+            if (proposedX < 0 || proposedY < 0 || proposedX + config.width > GAME_CONFIG.world.width || proposedY + config.height > GAME_CONFIG.world.height) {
+                return false;
+            }
+            // Placement rules depending on type
+            const intersectsWater = gameState.worldObjects.some(o => o.type === 'water' &&
+                !(proposedX + config.width < o.x || proposedX > o.x + o.width || proposedY + config.height < o.y || proposedY > o.y + o.height));
+            // Consider "near water" for shore placement (within 24px of water)
+            const nearWater = gameState.worldObjects.some(o => o.type === 'water' &&
+                !(proposedX + config.width + 5 < o.x || proposedX - 5 > o.x + o.width || proposedY + config.height + 5 < o.y || proposedY - 5 > o.y + o.height));
+            if (type === 'navy') {
+                // Navy must be on or very near water (shore). Make this easier by allowing near water.
+                if (!intersectsWater && !nearWater) return false;
+            }
+            if (type === 'bridge') {
+                if (!intersectsWater) return false; // Bridge must cross water
+            }
+            const allBuildings = [...gameState.buildings, ...gameState.enemyBuildings];
+            for (const building of allBuildings) {
+                if (!(proposedX + config.width < building.x || proposedX > building.x + building.width ||
+                      proposedY + config.height < building.y || proposedY > building.y + building.height)) {
+                    return false;
+                }
+            }
+            for (const obj of gameState.worldObjects) {
+                 if (!(proposedX + config.width < obj.x || proposedX > obj.x + obj.width ||
+                      proposedY + config.height < obj.y || proposedY > obj.y + obj.height)) {
+                    // Allow overlap with water if building is navy/bridge
+                    if (obj.type === 'water' && (type === 'navy' || type === 'bridge')) {
+                        // ok
+                    } else if (obj.type === 'bridge' && type === 'bridge') {
+                        // avoid stacking bridges
+                        return false;
+                    } else if (obj.type !== 'water') {
+                        return false;
+                    }
+                }
+            }
+            const playerTC = gameState.buildings.find(b => b.type === 'town-center' && b.player === 'player');
+            if (playerTC && type !== 'navy' && type !== 'bridge') {
+                const tcCenterX = playerTC.x + playerTC.width / 2;
+                const tcCenterY = playerTC.y + playerTC.height / 2;
+                const buildingCenterX = proposedX + config.width / 2;
+                const buildingCenterY = proposedY + config.height / 2;
+                const distToTC = Math.sqrt(Math.pow(buildingCenterX - tcCenterX, 2) + Math.pow(buildingCenterY - tcCenterY, 2));
+                if (distToTC > 400) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        function placeBuilding(type, x, y) {
+            const buildingConfig = getBuildingConfig(type);
+            if (!canAfford(buildingConfig.cost)) {
+                showNotification(`Not enough resources!`);
+                return;
+            }
+            deductResources(buildingConfig.cost);
+            const buildingX = x - buildingConfig.width / 2;
+            const buildingY = y - buildingConfig.height / 2;
+            if (type === 'bridge') {
+                gameState.worldObjects.push({
+                    ...GAME_CONFIG.worldObjects.bridgeSpan,
+                    x: buildingX,
+                    y: buildingY
+                });
+                showNotification('Bridge constructed!');
+                return;
+            }
+            gameState.buildings.push({
+                id: generateId(),
+                type: type,
+                player: 'player',
+                x: buildingX,
+                y: buildingY,
+                health: buildingConfig.maxHealth,
+                width: buildingConfig.width,
+                height: buildingConfig.height,
+                isSelected: false
+            });
+            if (type === 'house') {
+                gameState.population.max += buildingConfig.population;
+            }
+            showNotification(`${type.charAt(0).toUpperCase() + type.slice(1)} constructed!`);
+        }
+
+    function trainUnit(type, producingBuilding = null) {
+            const ageRestrictions = {
+                'knight': ['Feudal Age', 'Castle Age', 'Imperial Age'],
+                'catapult': ['Castle Age', 'Imperial Age'],
+                'ballista': ['Castle Age', 'Imperial Age'],
+                'mangonel': ['Castle Age', 'Imperial Age'],
+                'trebuchet': ['Imperial Age'],
+                'crossbowman': ['Feudal Age', 'Castle Age', 'Imperial Age']
+            };
+            
+            if (ageRestrictions[type] && !ageRestrictions[type].includes(gameState.currentAge)) {
+                showNotification(`Cannot train ${type} in ${gameState.currentAge}!`);
+                return;
+            }
+            
+            const unitConfig = GAME_CONFIG.units[type];
+            if (!canAfford(unitConfig.cost)) {
+                showNotification(`Not enough resources!`);
+                return;
+            }
+            if (gameState.population.current >= gameState.population.max) {
+                showNotification('Population limit reached. Build more houses.');
+                return;
+            }
+            deductResources(unitConfig.cost);
+            const spawnAnchor = producingBuilding ? { x: producingBuilding.x, y: producingBuilding.y, width: producingBuilding.width, height: producingBuilding.height } :
+                                (gameState.selectedBuilding ? { x: gameState.selectedBuilding.x, y: gameState.selectedBuilding.y, width: gameState.selectedBuilding.width, height: gameState.selectedBuilding.height } : null);
+            gameState.trainingQueue.push({
+                type,
+                timeRemaining: unitConfig.buildTime * 1000,
+                totalTime: unitConfig.buildTime * 1000,
+                spawnAnchor
+            });
+            showNotification(`Training ${type}...`);
+        }
+
+        function advanceAge() {
+             if (gameState.currentAge === 'Dark Age') {
+                if (gameState.resources.food >= 500) {
+                    gameState.resources.food -= 500;
+                    gameState.currentAge = 'Feudal Age';
+                    document.getElementById('age-display').textContent = gameState.currentAge;
+                    showNotification('Advanced to Feudal Age! Knights and Crossbowmen unlocked.');
+                    document.getElementById('btn-age-up').textContent = 'Advance to Castle Age (800 Food, 200 Gold)';
+                    
+                    // Refresh building actions if a building is selected
+                    if (gameState.selectedBuilding) {
+                        showBuildingActions(gameState.selectedBuilding);
+                    }
+                } else {
+                    showNotification('Not enough Food (need 500)!');
+                }
+             } else if (gameState.currentAge === 'Feudal Age') {
+                 if (gameState.resources.food >= 800 && gameState.resources.gold >= 200) {
+                    gameState.resources.food -= 800;
+                    gameState.resources.gold -= 200;
+                    gameState.currentAge = 'Castle Age';
+                    document.getElementById('age-display').textContent = gameState.currentAge;
+                    showNotification('Advanced to Castle Age! Siege weapons unlocked.');
+                    document.getElementById('btn-age-up').textContent = 'Advance to Imperial Age (1000 Food, 800 Gold)';
+                    
+                    // Refresh building actions if a building is selected
+                    if (gameState.selectedBuilding) {
+                        showBuildingActions(gameState.selectedBuilding);
+                    }
+                 } else {
+                     showNotification('Not enough resources (need 800 Food, 200 Gold)!');
+                 }
+             } else if (gameState.currentAge === 'Castle Age') {
+                  if (gameState.resources.food >= 1000 && gameState.resources.gold >= 800) {
+                    gameState.resources.food -= 1000;
+                    gameState.resources.gold -= 800;
+                    gameState.currentAge = 'Imperial Age';
+                    document.getElementById('age-display').textContent = gameState.currentAge;
+                    showNotification('Advanced to Imperial Age!');
+                    document.getElementById('btn-age-up').disabled = true;
+                    document.getElementById('btn-age-up').textContent = 'Max Age Reached';
+                 } else {
+                     showNotification('Not enough resources (need 1000 Food, 800 Gold)!');
+                 }
+             }
+        }
+
+        // ... (Drawing functions are already defined above) ...
+
+        function drawMinimap() {
+            const minimapCanvas = document.getElementById('minimapCanvas');
+            const ctx = minimapCanvas.getContext('2d');
+            ctx.clearRect(0, 0, minimapCanvas.width, minimapCanvas.height);
+            const scaleX = minimapCanvas.width / GAME_CONFIG.world.width;
+            const scaleY = minimapCanvas.height / GAME_CONFIG.world.height;
+            ctx.fillStyle = '#2a8f52';
+            ctx.fillRect(0, 0, minimapCanvas.width, minimapCanvas.height);
+
+            gameState.worldObjects.forEach(obj => {
+                 if (obj.type === 'resource' || obj.type === 'water' || obj.type === 'bridge') {
+                    ctx.fillStyle = obj.color;
+                 } else {
+                     ctx.fillStyle = '#696969';
+                 }
+                 ctx.fillRect(obj.x * scaleX, obj.y * scaleY,
+                           Math.max(1, obj.width * scaleX), Math.max(1, obj.height * scaleY));
+            });
+            gameState.units.forEach(unit => {
+                ctx.fillStyle = '#00ff00';
+                ctx.fillRect(unit.x * scaleX - 1, unit.y * scaleY - 1, 2, 2);
+            });
+            gameState.enemyUnits.forEach(unit => {
+                ctx.fillStyle = '#ff0000';
+                ctx.fillRect(unit.x * scaleX - 1, unit.y * scaleY - 1, 2, 2);
+            });
+            [...gameState.buildings, ...gameState.enemyBuildings].forEach(building => {
+                ctx.fillStyle = building.player === 'player' ? '#0066ff' : '#ff6600';
+                ctx.fillRect(building.x * scaleX, building.y * scaleY,
+                           Math.max(2, building.width * scaleX), Math.max(2, building.height * scaleY));
+            });
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(gameState.camera.x * scaleX, gameState.camera.y * scaleY,
+                          GAME_CONFIG.canvas.width * scaleX, GAME_CONFIG.canvas.height * scaleY);
+        }
+
+        function gameLoop() {
+            const now = Date.now();
+            const deltaTime = now - gameState.lastUpdate;
+            gameState.lastUpdate = now;
+            handleInput();
+            updateUnits(deltaTime);
+            checkWinConditions();
+            const canvas = document.getElementById('gameCanvas');
+            const ctx = canvas.getContext('2d');
+            const dpr = window.devicePixelRatio || 1;
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            ctx.imageSmoothingEnabled = false;
+            ctx.clearRect(0, 0, GAME_CONFIG.canvas.width, GAME_CONFIG.canvas.height);
+
+            const gradient = ctx.createLinearGradient(0, 0, GAME_CONFIG.canvas.width, GAME_CONFIG.canvas.height);
+            gradient.addColorStop(0, '#2a8f52');
+            gradient.addColorStop(1, '#1e6b3d');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, GAME_CONFIG.canvas.width, GAME_CONFIG.canvas.height);
+            drawWorldObjects(ctx);
+            drawBuildings(ctx);
+            drawUnits(ctx);
+            drawPlacingBuilding(ctx);
+            drawMinimap();
+            updateUI();
+            updateTrainingQueueUI();
+            if (!gameState.gameOver) {
+                requestAnimationFrame(gameLoop);
+            }
+        }
+
+        function handleInput() {
+            const cameraSpeed = 5;
+            if (gameState.keys['w']) {
+                gameState.camera.y = Math.max(0, gameState.camera.y - cameraSpeed);
+            }
+            if (gameState.keys['s']) {
+                gameState.camera.y = Math.min(GAME_CONFIG.world.height - GAME_CONFIG.canvas.height,
+                                             gameState.camera.y + cameraSpeed);
+            }
+            if (gameState.keys['a']) {
+                gameState.camera.x = Math.max(0, gameState.camera.x - cameraSpeed);
+            }
+            if (gameState.keys['d']) {
+                gameState.camera.x = Math.min(GAME_CONFIG.world.width - GAME_CONFIG.canvas.width,
+                                             gameState.camera.x + cameraSpeed);
+            }
+        }
+
+        function updateUI() {
+            document.getElementById('food-count').textContent = Math.floor(gameState.resources.food);
+            document.getElementById('wood-count').textContent = Math.floor(gameState.resources.wood);
+            document.getElementById('stone-count').textContent = Math.floor(gameState.resources.stone);
+            document.getElementById('gold-count').textContent = Math.floor(gameState.resources.gold);
+            document.getElementById('population').textContent = `${gameState.population.current}/${gameState.population.max}`;
+            document.getElementById('enemy-units').textContent = gameState.enemyUnits.length;
+            document.getElementById('enemy-buildings').textContent = gameState.enemyBuildings.length;
+        }
+
+        function updateTrainingQueueUI() {
+             // Update progress bars for units in the building actions menu
+             document.querySelectorAll('#building-unit-list .unit').forEach(unitEl => {
+                const type = unitEl.dataset.type;
+                const trainingItem = gameState.trainingQueue.find(t => t.type === type);
+                const progressBar = unitEl.querySelector('.progress-fill');
+                if (trainingItem && progressBar) {
+                    const progress = 1 - (trainingItem.timeRemaining / trainingItem.totalTime);
+                    progressBar.style.width = `${Math.max(0, Math.min(100, progress * 100))}%`;
+                } else if (progressBar) {
+                    progressBar.style.width = '0%';
+                }
+            });
+        }
+
+        function updateSelectionBox(start, end) {
+            const box = document.getElementById('selectionBox');
+            const left = Math.min(start.x, end.x);
+            const top = Math.min(start.y, end.y);
+            const width = Math.abs(end.x - start.x);
+            const height = Math.abs(end.y - start.y);
+            box.style.left = left + 'px';
+            box.style.top = top + 'px';
+            box.style.width = width + 'px';
+            box.style.height = height + 'px';
+            box.style.display = 'block';
+        }
+
+        function finishSelection(start, end) {
+            const left = Math.min(start.x, end.x) + gameState.camera.x;
+            const top = Math.min(start.y, end.y) + gameState.camera.y;
+            const right = Math.max(start.x, end.x) + gameState.camera.x;
+            const bottom = Math.max(start.y, end.y) + gameState.camera.y;
+            
+            // Clear previous selections
+            gameState.selectedUnits.forEach(unit => unit.isSelected = false);
+            gameState.buildings.forEach(building => building.isSelected = false);
+            gameState.selectedUnits = [];
+            gameState.selectedBuilding = null;
+            
+            // Hide building actions menu
+            document.getElementById('building-actions').style.display = 'none';
+            document.getElementById('general-units').style.display = 'block';
+            
+            // Select units
+            gameState.units.forEach(unit => {
+                if (unit.player === 'player' &&
+                    unit.x >= left && unit.x <= right &&
+                    unit.y >= top && unit.y <= bottom) {
+                    unit.isSelected = true;
+                    gameState.selectedUnits.push(unit);
+                }
+            });
+            
+            updateSelectionInfo();
+        }
+
+        function hideSelectionBox() {
+            document.getElementById('selectionBox').style.display = 'none';
+        }
+
+        function updateSelectionInfo() {
+            const info = document.getElementById('selection-info');
+            
+            if (gameState.selectedBuilding) {
+                const building = gameState.selectedBuilding;
+                info.innerHTML = `
+                    <div><strong>${building.type.charAt(0).toUpperCase() + building.type.slice(1)}</strong></div>
+                    <div>Health: ${building.health}/${getBuildingConfig(building.type).maxHealth}</div>
+                    <div>Player: ${building.player}</div>
+                `;
+            } else if (gameState.selectedUnits.length === 0) {
+                info.textContent = 'No units or buildings selected';
+            } else if (gameState.selectedUnits.length === 1) {
+                const unit = gameState.selectedUnits[0];
+                info.innerHTML = `
+                    <div><strong>${unit.type.charAt(0).toUpperCase() + unit.type.slice(1)}</strong></div>
+                    <div>Health: ${unit.health}/${GAME_CONFIG.units[unit.type].maxHealth}</div>
+                    <div>State: ${unit.state}</div>
+                `;
+                // Transport UI
+                const cfg = GAME_CONFIG.units[unit.type];
+                if (cfg && unit.type && (unit.type === 'transportSmall' || unit.type === 'transportLarge')) {
+                    unit.cargo = unit.cargo || [];
+                    const cap = cfg.capacity || 0;
+                    const used = unit.cargo.length;
+                    const remain = Math.max(0, cap - used);
+                    const btns = document.createElement('div');
+                    btns.style.marginTop = '6px';
+                    btns.innerHTML = `<div>Cargo: ${used}/${cap}</div>`;
+                    const disembarkBtn = document.createElement('button');
+                    disembarkBtn.textContent = 'Disembark';
+                    disembarkBtn.style.marginTop = '4px';
+                    disembarkBtn.onclick = () => disembarkCargo(unit);
+                    btns.appendChild(disembarkBtn);
+                    info.appendChild(btns);
+                }
+            } else {
+                info.innerHTML = `
+                    <div><strong>${gameState.selectedUnits.length} units selected</strong></div>
+                `;
+            }
+        }
+
+        function isTransport(unit) { return unit && (unit.type === 'transportSmall' || unit.type === 'transportLarge'); }
+        function canEmbark(unit) { return !GAME_CONFIG.units[unit.type]?.vessel; }
+        function tryEmbarkUnitsToTransport(units, transport) {
+            if (!isTransport(transport)) return;
+            transport.cargo = transport.cargo || [];
+            const cap = GAME_CONFIG.units[transport.type].capacity || 0;
+            for (const u of units) {
+                if (u === transport) continue;
+                if (!canEmbark(u)) continue; // only land units
+                // Must be adjacent (within 18px) and on shoreline or bridge next to water
+                const dist = getDistance(u, transport);
+                if (dist > 24) continue;
+                if (transport.cargo.length >= cap) break;
+                // Embark: hide unit on map, store in cargo
+                u._saved = { x: u.x, y: u.y, state: u.state };
+                u.state = 'embarked';
+                transport.cargo.push(u);
+                // Remove from active units list for rendering and collisions
+                gameState.units = gameState.units.filter(x => x !== u);
+            }
+        }
+        function disembarkCargo(transport) {
+            if (!isTransport(transport) || !transport.cargo || transport.cargo.length === 0) return;
+            const placed = [];
+            const origin = { x: transport.x, y: transport.y };
+            const around = [0, 0.5, -0.5, 1.0, -1.0, 1.5, -1.5, 2.0].map(a => a * Math.PI);
+            for (const u of [...transport.cargo]) {
+                // Find nearest shore or bridge tile to drop this unit
+                let drop = null;
+                // Try ring positions
+                const r = 20;
+                for (let i = 0; i < 16; i++) {
+                    const ang = (i / 16) * Math.PI * 2;
+                    const tx = origin.x + Math.cos(ang) * r;
+                    const ty = origin.y + Math.sin(ang) * r;
+                    // Landable if not water OR is a bridge
+                    if (!isPointInWater(tx, ty) || isPointOnBridge(tx, ty)) {
+                        if (!isOnLandShoreBand(tx, ty, 1) && !isPositionOccupied(tx, ty, null, 12)) { drop = { x: tx, y: ty }; break; }
+                    }
+                }
+                if (!drop) continue;
+                u.x = drop.x; u.y = drop.y; u.state = 'idle';
+                placed.push(u);
+                // Re-add to active units list
+                gameState.units.push(u);
+                transport.cargo = transport.cargo.filter(x => x !== u);
+            }
+            if (placed.length > 0) showNotification(`Disembarked ${placed.length} unit(s).`);
+        }
+
+        function handleRightClick(x, y) {
+            if (gameState.selectedUnits.length === 0) return;
+            // Friendly transport embark: if clicking on a friendly transport, embark selected land units
+            const clickedTransport = gameState.units.find(u => isTransport(u) && Math.hypot(u.x - x, u.y - y) < 32);
+            if (clickedTransport) {
+                const landUnits = gameState.selectedUnits.filter(u => canEmbark(u));
+                if (landUnits.length > 0) {
+                    // If in range, embark immediately; otherwise move toward and tag for auto-embark
+                    for (const u of landUnits) {
+                        const dist = Math.hypot(u.x - clickedTransport.x, u.y - clickedTransport.y);
+                        const cap = (clickedTransport.cargo ? clickedTransport.cargo.length : 0) < (GAME_CONFIG.units[clickedTransport.type].capacity || 0);
+                        if (dist <= 28 && cap) {
+                            tryEmbarkUnitsToTransport([u], clickedTransport);
+                        } else {
+                            u.state = 'moving';
+                            u.targetX = clickedTransport.x;
+                            u.targetY = clickedTransport.y;
+                            u.embarkTargetId = clickedTransport.id;
+                        }
+                    }
+                    updateSelectionInfo();
+                    return;
+                }
+            }
+            const enemyUnit = gameState.enemyUnits.find(unit => getDistance(unit, {x, y}) < 20);
+            const enemyBuilding = gameState.enemyBuildings.find(building =>
+                x >= building.x && x <= building.x + building.width &&
+                y >= building.y && y <= building.y + building.height
+            );
+            const enemyTarget = enemyUnit || enemyBuilding;
+            if (enemyTarget) {
+                gameState.selectedUnits.forEach(unit => {
+                    unit.state = 'attacking';
+                    unit.target = enemyTarget; // keep reference to live object
+                    if (enemyTarget.width && enemyTarget.height) {
+                        unit.targetPoint = {
+                            x: enemyTarget.x + enemyTarget.width / 2,
+                            y: enemyTarget.y + enemyTarget.height / 2
+                        };
+                    } else {
+                        unit.targetPoint = undefined;
+                    }
+                });
+                showNotification('Attack command issued!');
+                return;
+            }
+            const resource = gameState.worldObjects.find(obj =>
+                obj.type === 'resource' && obj.amount > 0 &&
+                x >= obj.x && x <= obj.x + obj.width &&
+                y >= obj.y && y <= obj.y + obj.height
+            );
+          if (resource) {
+              const offsets = computeFormationOffsets(gameState.selectedUnits.length, 24);
+              gameState.selectedUnits.forEach((unit, idx) => {
+                    if (unit.type === 'villager') {
+                        unit.state = 'gathering';
+                        unit.targetResource = resource;
+                        unit.gatherType = resource.resourceType;
+                        unit.gatherStartTime = null;
+                    unit.gatheredAmount = 0;
+                    const off = offsets[idx] || {dx:0, dy:0};
+                    unit.gatherOffset = { dx: off.dx, dy: off.dy };
+                    } else {
+                        unit.state = 'moving';
+                        const off = offsets[idx] || {dx:0, dy:0};
+                        const clamped = clampTargetToAllowed(unit, resource.x + resource.width / 2 + off.dx, resource.y + resource.height / 2 + off.dy);
+                        unit.targetX = clamped.x;
+                        unit.targetY = clamped.y;
+                        unit.target = null;
+                    }
+                });
+                if (gameState.selectedUnits.some(u => u.type === 'villager')) {
+                     showNotification('Gather command issued!');
+                } else {
+                     showNotification('Move command issued!');
+                }
+                return;
+            }
+            // If a transport ship is part of selection and others are land units nearby, try embark first
+            const transports = gameState.selectedUnits.filter(isTransport);
+            if (transports.length === 1) {
+                const t = transports[0];
+                // If right-clicked near the transport, attempt embark of other selected land units
+                if (getDistance({x, y}, t) < 30) {
+                    const others = gameState.selectedUnits.filter(u => u !== t);
+                    tryEmbarkUnitsToTransport(others, t);
+                    updateSelectionInfo();
+                    return;
+                }
+                // If right-clicked on land near shore/bridge, try disembark
+                if (!isPointInWater(x, y) || isPointOnBridge(x, y)) {
+                    if (t.cargo && t.cargo.length > 0) {
+                        disembarkCargo(t);
+                        return;
+                    }
+                }
+            }
+            const offsets = computeFormationOffsets(gameState.selectedUnits.length, 24);
+            gameState.selectedUnits.forEach((unit, idx) => {
+                unit.state = 'moving';
+                const off = offsets[idx] || {dx:0, dy:0};
+                // Clamp the target to allowed terrain based on unit type
+                let clamped = clampTargetToAllowed(unit, x + off.dx, y + off.dy);
+                // Avoid 1px shoreline bands
+                const isVessel = !!GAME_CONFIG.units[unit.type]?.vessel;
+                if (isVessel && isInWaterInnerBand(clamped.x, clamped.y, 1)) {
+                    // Nudge inward by 2px toward water center
+                    for (const w of gameState.worldObjects) {
+                        if (w.type !== 'water') continue;
+                        if (clamped.x >= w.x - 2 && clamped.x <= w.x + w.width + 2 && clamped.y >= w.y - 2 && clamped.y <= w.y + w.height + 2) {
+                            const cx = clamp(clamped.x, w.x + 2, w.x + w.width - 2);
+                            const cy = clamp(clamped.y, w.y + 2, w.y + w.height - 2);
+                            clamped = { x: cx, y: cy };
+                            break;
+                        }
+                    }
+                } else if (!isVessel && isOnLandShoreBand(clamped.x, clamped.y, 1)) {
+                    // Nudge outward by 2px away from water
+                    for (const w of gameState.worldObjects) {
+                        if (w.type !== 'water') continue;
+                        if (clamped.x >= w.x - 2 && clamped.x <= w.x + w.width + 2 && clamped.y >= w.y - 2 && clamped.y <= w.y + w.height + 2) {
+                            // push to nearest outside point
+                            if (clamped.x < w.x) clamped.x = w.x - 2; else if (clamped.x > w.x + w.width) clamped.x = w.x + w.width + 2;
+                            if (clamped.y < w.y) clamped.y = w.y - 2; else if (clamped.y > w.y + w.height) clamped.y = w.y + w.height + 2;
+                            break;
+                        }
+                    }
+                }
+                const free = getAvailablePosition(clamped.x, clamped.y, 15);
+                unit.targetX = free.x;
+                unit.targetY = free.y;
+                unit.target = null;
+            });
+        }
+
+        function computeFormationOffsets(count, spacing = 24) {
+            const offsets = [];
+            const goldenAngle = 2.399963229728653; // radians
+            for (let i = 0; i < count; i++) {
+                const r = spacing * Math.sqrt(i);
+                const theta = i * goldenAngle;
+                const dx = Math.cos(theta) * r;
+                const dy = Math.sin(theta) * r;
+                offsets.push({ dx, dy });
+            }
+            return offsets;
+        }
+
+        function generateId() {
+            return Date.now() + Math.random();
+        }
+
+        function getDistance(obj1, obj2) {
+            const dx = (obj1.x || obj1.x + (obj1.width||0)/2) - (obj2.x || obj2.x + (obj2.width||0)/2);
+            const dy = (obj1.y || obj1.y + (obj1.height||0)/2) - (obj2.y || obj2.y + (obj2.height||0)/2);
+            return Math.sqrt(dx * dx + dy * dy);
+        }
+
+        // Terrain helpers
+        function isPointInWater(x, y) {
+            return gameState.worldObjects.some(o => o.type === 'water' && x >= o.x && x <= o.x + o.width && y >= o.y && y <= o.y + o.height);
+        }
+        function isPointOnBridge(x, y) {
+            return gameState.worldObjects.some(o => o.type === 'bridge' && x >= o.x && x <= o.x + o.width && y >= o.y && y <= o.y + o.height);
+        }
+        // 1px shoreline bands: land can't enter last 1px of land near water; ships can't enter outermost 1px of water
+        function isOnLandShoreBand(x, y, pad = 1) {
+            if (isPointInWater(x, y)) return false;
+            for (const w of gameState.worldObjects) {
+                if (w.type !== 'water') continue;
+                const withinX = x >= w.x - pad && x <= w.x + w.width + pad;
+                const withinY = y >= w.y - pad && y <= w.y + w.height + pad;
+                if (!withinX || !withinY) continue;
+                const nearLeft = x >= w.x - pad && x < w.x;
+                const nearRight = x > w.x + w.width && x <= w.x + w.width + pad;
+                const nearTop = y >= w.y - pad && y < w.y;
+                const nearBottom = y > w.y + w.height && y <= w.y + w.height + pad;
+                if ((nearLeft || nearRight) && y >= w.y - pad && y <= w.y + w.height + pad) return true;
+                if ((nearTop || nearBottom) && x >= w.x - pad && x <= w.x + w.width + pad) return true;
+            }
+            return false;
+        }
+        function isInWaterInnerBand(x, y, pad = 1) {
+            for (const w of gameState.worldObjects) {
+                if (w.type !== 'water') continue;
+                if (x >= w.x && x <= w.x + w.width && y >= w.y && y <= w.y + w.height) {
+                    const dLeft = x - w.x;
+                    const dRight = (w.x + w.width) - x;
+                    const dTop = y - w.y;
+                    const dBottom = (w.y + w.height) - y;
+                    if (dLeft <= pad || dRight <= pad || dTop <= pad || dBottom <= pad) return true;
+                }
+            }
+            return false;
+        }
+        function clampTargetToAllowed(unit, tx, ty) {
+            const isVessel = !!GAME_CONFIG.units[unit.type]?.vessel;
+            if (isVessel) {
+                // Keep targets in water. If clicked on land, snap to nearest water edge.
+                if (isPointInWater(tx, ty)) return { x: tx, y: ty };
+                let best = null;
+                let bestDist = Infinity;
+                for (const w of gameState.worldObjects) {
+                    if (w.type !== 'water') continue;
+                    // Clamp inside by 2px to avoid inner band
+                    const cx = Math.max(w.x + 2, Math.min(tx, w.x + w.width - 2));
+                    const cy = Math.max(w.y + 2, Math.min(ty, w.y + w.height - 2));
+                    const dx = cx - tx;
+                    const dy = cy - ty;
+                    const d = dx*dx + dy*dy;
+                    if (d < bestDist) { bestDist = d; best = { x: cx, y: cy }; }
+                }
+                return best || { x: tx, y: ty };
+            } else {
+                // Land units: avoid water unless it's a bridge tile. If inside water, snap to nearest shore just outside.
+                if (!isPointInWater(tx, ty) || isPointOnBridge(tx, ty)) return { x: tx, y: ty };
+                // Find containing water rect
+                const w = gameState.worldObjects.find(o => o.type === 'water' && tx >= o.x && tx <= o.x + o.width && ty >= o.y && ty <= o.y + o.height);
+                if (!w) return { x: tx, y: ty };
+                const leftDist = Math.abs(tx - w.x);
+                const rightDist = Math.abs((w.x + w.width) - tx);
+                const topDist = Math.abs(ty - w.y);
+                const bottomDist = Math.abs((w.y + w.height) - ty);
+                const minDist = Math.min(leftDist, rightDist, topDist, bottomDist);
+                if (minDist === leftDist) return { x: w.x - 3, y: Math.max(w.y, Math.min(ty, w.y + w.height)) };
+                if (minDist === rightDist) return { x: w.x + w.width + 3, y: Math.max(w.y, Math.min(ty, w.y + w.height)) };
+                if (minDist === topDist) return { x: Math.max(w.x, Math.min(tx, w.x + w.width)), y: w.y - 3 };
+                return { x: Math.max(w.x, Math.min(tx, w.x + w.width)), y: w.y + w.height + 3 };
+            }
+        }
+
+        function clamp(val, min, max) { return Math.max(min, Math.min(max, val)); }
+        function getDropOffPointOutside(unit, building, margin = 6) {
+            const leftDist = Math.abs(unit.x - building.x);
+            const rightDist = Math.abs((building.x + building.width) - unit.x);
+            const topDist = Math.abs(unit.y - building.y);
+            const bottomDist = Math.abs((building.y + building.height) - unit.y);
+            const minDist = Math.min(leftDist, rightDist, topDist, bottomDist);
+            if (minDist === leftDist) return { x: building.x - margin, y: clamp(unit.y, building.y, building.y + building.height) };
+            if (minDist === rightDist) return { x: building.x + building.width + margin, y: clamp(unit.y, building.y, building.y + building.height) };
+            if (minDist === topDist) return { x: clamp(unit.x, building.x, building.x + building.width), y: building.y - margin };
+            return { x: clamp(unit.x, building.x, building.x + building.width), y: building.y + building.height + margin };
+        }
+
+        function getBuildingConfig(type) {
+            // Map gameState type to config keys
+            if (type === 'town-center') return GAME_CONFIG.buildings.townCenter;
+            return GAME_CONFIG.buildings[type];
+        }
+
+        function canAfford(cost) {
+            for (const [resource, amount] of Object.entries(cost)) {
+                if (gameState.resources[resource] < amount) return false;
+            }
+            return true;
+        }
+
+        function deductResources(cost) {
+            for (const [resource, amount] of Object.entries(cost)) {
+                gameState.resources[resource] -= amount;
+            }
+        }
+
+        function handleUnitDeath(unit) {
+            if (unit.player === 'player') {
+                const index = gameState.units.indexOf(unit);
+                if (index > -1) {
+                    gameState.units.splice(index, 1);
+                    gameState.population.current--;
+                }
+            } else {
+                const index = gameState.enemyUnits.indexOf(unit);
+                if (index > -1) gameState.enemyUnits.splice(index, 1);
+            }
+             if (unit.type === 'resource' && unit.amount !== undefined) {
+                 unit.amount = 0;
+            }
+        }
+
+        function handleBuildingDestruction(building) {
+            // Remove or mark destroyed building
+            building.health = 0;
+            if (building.player === 'player') {
+                const idx = gameState.buildings.indexOf(building);
+                if (idx > -1) gameState.buildings.splice(idx, 1);
+            } else {
+                const idx = gameState.enemyBuildings.indexOf(building);
+                if (idx > -1) gameState.enemyBuildings.splice(idx, 1);
+            }
+            // Check win/lose immediately after destruction
+            checkWinConditions();
+        }
+
+        function checkWinConditions() {
+            const enemyTownCenters = gameState.enemyBuildings.filter(b =>
+                b.type === 'town-center' && b.health > 0
+            );
+            if (enemyTownCenters.length === 0) {
+                endGame(true, 'Victory! You have destroyed the enemy!');
+                return;
+            }
+            const playerTownCenters = gameState.buildings.filter(b =>
+                b.type === 'town-center' && b.health > 0
+            );
+            if (playerTownCenters.length === 0) {
+                endGame(false, 'Defeat! Your empire has fallen!');
+                return;
+            }
+        }
+
+        function endGame(victory, message) {
+            gameState.gameOver = true;
+            const gameOverDiv = document.getElementById('gameOver');
+            const gameOverText = document.getElementById('gameOverText');
+            const gameOverSubtext = document.getElementById('gameOverSubtext');
+            gameOverText.textContent = victory ? 'Victory!' : 'Defeat!';
+            gameOverText.style.color = victory ? '#4CAF50' : '#F44336';
+            gameOverSubtext.textContent = message;
+            gameOverDiv.style.display = 'flex';
+        }
+
+        function showNotification(message) {
+            const notification = document.getElementById('notification');
+            notification.textContent = message;
+            notification.style.display = 'block';
+            setTimeout(() => {
+                notification.style.display = 'none';
+            }, 3000);
+        }
+
+        function centerOnTownCenter() {
+            const townCenter = gameState.buildings.find(b => b.type === 'town-center' && b.player === 'player');
+            if (townCenter) {
+                gameState.camera.x = townCenter.x + townCenter.width/2 - GAME_CONFIG.canvas.width/2;
+                gameState.camera.y = townCenter.y + townCenter.height/2 - GAME_CONFIG.canvas.height/2;
+            }
+        }
+
+        window.addEventListener('load', initGame);
+    </script>
+</body>
+</html>

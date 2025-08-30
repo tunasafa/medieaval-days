@@ -52,16 +52,14 @@ body {
 .resource-icon {
     width: 28px;
     height: 28px;
+    display: block;
+    image-rendering: pixelated;
 }
 .game-title {
-    font-size: 32px;
-    font-weight: bold;
-    text-shadow: 3px 3px 6px rgba(0, 0, 0, 0.8);
+    font-size: 36px;
+    font-weight: 700;
+    font-family: 'Almendra SC', 'Times New Roman', serif;
     color: #f0c040;
-    background: linear-gradient(45deg, #f0c040, #ffd700);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
 }
 .main-content {
     display: flex;

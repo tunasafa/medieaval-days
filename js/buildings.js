@@ -1,23 +1,19 @@
 // Building-related Functions
 function createInitialBuildings() {
-    const centerX = GAME_CONFIG.world.width / 4;
-    const centerY = GAME_CONFIG.world.height / 2;
-    const river = gameState.worldObjects.find(o => o.type === 'water' && o.width > o.height);
-    let spawnY = centerY;
-    if (river) {
-        const riverMidY = river.y + river.height / 2;
-        spawnY = riverMidY - (river.height / 2) - GAME_CONFIG.buildings.townCenter.height - 40;
-        spawnY = Math.max(0, spawnY);
-    }
+    // Always place the player's Town Center at the top-left corner with a small edge padding
+    const edgePad = 24;
+    const tcCfg = getBuildingConfig('town-center');
+    const spawnX = edgePad;
+    const spawnY = edgePad;
     gameState.buildings.push({
         id: generateId(),
         type: 'town-center',
         player: 'player',
-        x: centerX - getBuildingConfig('town-center').width/2,
+        x: spawnX,
         y: spawnY,
-        health: getBuildingConfig('town-center').maxHealth,
-        width: getBuildingConfig('town-center').width,
-        height: getBuildingConfig('town-center').height
+        health: tcCfg.maxHealth,
+        width: tcCfg.width,
+        height: tcCfg.height
     });
 }
 
@@ -39,22 +35,85 @@ function startPlacingBuilding(type) {
 
 function placeBuilding(type, x, y) {
     const buildingConfig = getBuildingConfig(type);
-    if (!canAfford(buildingConfig.cost)) {
-        showNotification(`Not enough resources!`);
-        return;
+    // For bridge block placement, we validate first then deduct cost
+    if (type !== 'bridge') {
+        if (!canAfford(buildingConfig.cost)) {
+            showNotification(`Not enough resources!`);
+            return;
+        }
+        deductResources(buildingConfig.cost);
     }
-    deductResources(buildingConfig.cost);
     const buildingX = x - buildingConfig.width / 2;
     const buildingY = y - buildingConfig.height / 2;
     if (type === 'bridge') {
+        // Place a single tile-sized bridge block; reject lakes; align to grid
+        const blk = computeBridgeBlockAt(x, y);
+        if (!blk.ok) {
+            showNotification(blk.isLake ? 'Cannot build bridge blocks on lakes.' : 'Bridge blocks must be placed over river water tiles.');
+            return;
+        }
+        if (!canAfford(buildingConfig.cost)) {
+            showNotification('Not enough resources for bridge block!');
+            return;
+        }
+        deductResources(buildingConfig.cost);
         gameState.worldObjects.push({
-            ...GAME_CONFIG.worldObjects.bridgeSpan,
-            x: buildingX,
-            y: buildingY
+            type: 'bridge',
+            x: blk.x,
+            y: blk.y,
+            width: blk.width,
+            height: blk.height,
+            color: '#C8A165'
         });
-        showNotification('Bridge constructed!');
+        if (typeof updatePathfindingGrid === 'function') {
+            updatePathfindingGrid();
+        }
+        showNotification('Bridge block placed.');
         return;
     }
+    // Before placing, ensure no unit is inside the footprint; evict any overlapping units outward
+    const footprint = { x: buildingX, y: buildingY, width: buildingConfig.width, height: buildingConfig.height };
+    const allUnits = [...gameState.units, ...gameState.enemyUnits];
+    for (const u of allUnits) {
+        if (u.state === 'embarked') continue;
+        const inside = (
+            u.x >= footprint.x && u.x <= footprint.x + footprint.width &&
+            u.y >= footprint.y && u.y <= footprint.y + footprint.height
+        );
+        if (inside) {
+            // Compute a safe edge point outside the new building with ample clearance
+            let edge = getDropOffPointOutside(u, footprint, (typeof EDGE_CLEARANCE !== 'undefined' ? EDGE_CLEARANCE : 20) + 5);
+            let px = edge.x, py = edge.y;
+            // Clamp within world bounds
+            px = Math.max(8, Math.min(GAME_CONFIG.world.width - 8, px));
+            py = Math.max(8, Math.min(GAME_CONFIG.world.height - 8, py));
+            // If spot intersects any existing building buffer OR the new building buffer, nudge outward
+            const cx = footprint.x + footprint.width / 2;
+            const cy = footprint.y + footprint.height / 2;
+            let vx = (px - cx) || 1;
+            let vy = (py - cy) || 0;
+            let vm = Math.hypot(vx, vy) || 1;
+            let nx = vx / vm, ny = vy / vm;
+            const collidesWithAny = () => (
+                isPointInRoundedRectangle(px, py, footprint, 17) ||
+                [...gameState.buildings, ...gameState.enemyBuildings].some(b => isPointInRoundedRectangle(px, py, b, 17))
+            );
+            let attempts = 0;
+            while (collidesWithAny() && attempts < 5) {
+                px = px + nx * 6;
+                py = py + ny * 6;
+                attempts++;
+            }
+            // Find a nearby available free point to avoid unit-unit overlap
+            const free = getAvailablePosition(px, py, 16);
+            px = free.x; py = free.y;
+            // Avoid water for land units
+            if (!isPointInWater(px, py)) {
+                u.x = px; u.y = py; u.state = 'idle';
+            }
+        }
+    }
+
     gameState.buildings.push({
         id: generateId(),
         type: type,
@@ -92,6 +151,8 @@ function canPlaceBuilding(type, x, y) {
             return false; // Overlaps with existing building
         }
     }
+
+    // Note: We allow placing over units; units will be evicted outward in placeBuilding() to avoid trapping.
     
     // Check for overlaps with resources (prevent building on top of resources)
     for (const obj of gameState.worldObjects) {
@@ -104,13 +165,48 @@ function canPlaceBuilding(type, x, y) {
     }
     
     // Special rules for water-related buildings
-    const intersectsWater = gameState.worldObjects.some(o => o.type === 'water' &&
-        !(proposedX + config.width <= o.x || proposedX >= o.x + o.width || 
-          proposedY + config.height <= o.y || proposedY >= o.y + o.height));
+    let intersectsWater = false;
+    let nearWater = false;
     
-    const nearWater = gameState.worldObjects.some(o => o.type === 'water' &&
-        !(proposedX + config.width + 50 <= o.x || proposedX - 50 >= o.x + o.width || 
-          proposedY + config.height + 50 <= o.y || proposedY - 50 >= o.y + o.height));
+    if (tilemap && tilemap.isLoaded) {
+        // Use tilemap for water detection
+        const buildingWidthInTiles = Math.ceil(config.width / tilemap.tileSize);
+        const buildingHeightInTiles = Math.ceil(config.height / tilemap.tileSize);
+        
+        // Check if building intersects water tiles
+        for (let tileY = 0; tileY < buildingHeightInTiles; tileY++) {
+            for (let tileX = 0; tileX < buildingWidthInTiles; tileX++) {
+                const worldX = proposedX + tileX * tilemap.tileSize;
+                const worldY = proposedY + tileY * tilemap.tileSize;
+                if (tilemap.isWater(worldX, worldY)) {
+                    intersectsWater = true;
+                    break;
+                }
+            }
+            if (intersectsWater) break;
+        }
+        
+        // Check if building is near water (within 50px)
+        const checkRadius = 50;
+        for (let checkY = proposedY - checkRadius; checkY <= proposedY + config.height + checkRadius; checkY += tilemap.tileSize) {
+            for (let checkX = proposedX - checkRadius; checkX <= proposedX + config.width + checkRadius; checkX += tilemap.tileSize) {
+                if (tilemap.isWater(checkX, checkY)) {
+                    nearWater = true;
+                    break;
+                }
+            }
+            if (nearWater) break;
+        }
+    } else {
+        // Fallback to old method if tilemap not available
+        intersectsWater = gameState.worldObjects.some(o => o.type === 'water' &&
+            !(proposedX + config.width <= o.x || proposedX >= o.x + o.width || 
+              proposedY + config.height <= o.y || proposedY >= o.y + o.height));
+        
+        nearWater = gameState.worldObjects.some(o => o.type === 'water' &&
+            !(proposedX + config.width + 50 <= o.x || proposedX - 50 >= o.x + o.width || 
+              proposedY + config.height + 50 <= o.y || proposedY - 50 >= o.y + o.height));
+    }
     
     if (type === 'navy') {
         // Navy buildings must be near or on water
@@ -118,8 +214,8 @@ function canPlaceBuilding(type, x, y) {
     }
     
     if (type === 'bridge') {
-        // Bridges must be built on water
-        return intersectsWater;
+        const blk = computeBridgeBlockAt(x, y);
+        return blk.ok; // must be on river and tile-aligned
     }
     
     // Land buildings cannot be built on water
@@ -167,10 +263,10 @@ function showBuildingActions(building) {
     
     const buildingUnits = {
         'town-center': ['villager'],
-        'barracks': ['militia', 'warrior', 'soldier', 'knight'],
+    'barracks': ['militia', 'warrior', 'axeman'],
         'archeryRange': ['archer', 'crossbowman'],
-        'craftery': ['ballista', 'trebuchet'],
-        'navy': ['fishingBoat', 'transportSmall', 'transportLarge', 'galley', 'warship']
+        'craftery': ['ballista', 'catapult'],
+        'navy': ['fishingBoat', 'transportLarge', 'warship']
     };
     
     let availableUnits = buildingUnits[building.type] || [];
@@ -201,11 +297,9 @@ function showBuildingActions(building) {
         if (!unitConfig) return;
         
         const ageRestrictions = {
-            'knight': ['Feudal Age', 'Castle Age', 'Imperial Age'],
+            'axeman': ['Feudal Age', 'Castle Age', 'Imperial Age'],
             'catapult': ['Castle Age', 'Imperial Age'],
             'ballista': ['Castle Age', 'Imperial Age'],
-            'mangonel': ['Castle Age', 'Imperial Age'],
-            'trebuchet': ['Imperial Age'],
             'crossbowman': ['Feudal Age', 'Castle Age', 'Imperial Age']
         };
         
@@ -244,11 +338,21 @@ function showBuildingActions(building) {
             .map(([resource, amount]) => `${amount}${resource.charAt(0).toUpperCase()}`)
             .join(', ');
         
+        // Determine queue info for this building and unit type
+        const q = (building.trainingQueue || []).filter(t => t.type === unitType);
+        const queuedCount = q.length;
+        const current = (building.trainingQueue || [])[0];
+        const isCurrentThisType = current && current.type === unitType;
+        const progressPct = isCurrentThisType ? Math.max(0, Math.min(100, (1 - (current.timeRemaining / current.totalTime)) * 100)) : 0;
+
         unitDiv.innerHTML = `
             <canvas class="unit-icon ${unitType}" width="40" height="40"></canvas>
-            <div style="font-weight: bold; font-size: 12px;">${unitType.charAt(0).toUpperCase() + unitType.slice(1)}</div>
+            <div style="display:flex; align-items:center; gap:6px;">
+                <div style="font-weight: bold; font-size: 12px;">${unitType.charAt(0).toUpperCase() + unitType.slice(1)}</div>
+                <div class="queue-pill" style="display:${queuedCount>0?'inline-flex':'none'}; background:#333; color:#fff; border-radius:10px; padding:0 6px; font-size:10px; line-height:16px; height:16px;">x${queuedCount}</div>
+            </div>
             <div style="font-size: 11px; color: #ccc;">${costText}</div>
-            <div class="progress-bar"><div class="progress-fill" style="width: 0%;"></div></div>
+            <div class="progress-bar" data-type="${unitType}"><div class="progress-fill" style="width: ${progressPct}%;"></div></div>
         `;
         
         unitDiv.addEventListener('click', () => trainUnitFromBuilding(unitType, building));

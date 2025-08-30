@@ -3,6 +3,33 @@ function setupEventListeners() {
     const canvas = document.getElementById('gameCanvas');
     let mouseDown = false;
     let dragStart = { x: 0, y: 0 };
+    // Minimap click-to-navigate support
+    const minimap = document.getElementById('minimapCanvas');
+    if (minimap) {
+        let mmDown = false;
+        const moveCameraToMinimap = (e) => {
+            const rect = minimap.getBoundingClientRect();
+            const mx = e.clientX - rect.left;
+            const my = e.clientY - rect.top;
+            const worldX = (mx / Math.max(1, minimap.width)) * GAME_CONFIG.world.width;
+            const worldY = (my / Math.max(1, minimap.height)) * GAME_CONFIG.world.height;
+            // Center camera on clicked world position
+            gameState.camera.x = worldX - GAME_CONFIG.canvas.width / 2;
+            gameState.camera.y = worldY - GAME_CONFIG.canvas.height / 2;
+            if (typeof clampCameraToBounds === 'function') clampCameraToBounds();
+        };
+        minimap.addEventListener('mousedown', (e) => {
+            if (e.button !== 0) return;
+            mmDown = true;
+            moveCameraToMinimap(e);
+        });
+        window.addEventListener('mouseup', () => { mmDown = false; });
+        minimap.addEventListener('mousemove', (e) => {
+            if (!mmDown) return;
+            moveCameraToMinimap(e);
+        });
+        minimap.addEventListener('click', (e) => moveCameraToMinimap(e));
+    }
     canvas.addEventListener('mousedown', (e) => {
         if (e.button === 0) {
             if (gameState.placingBuilding) {
@@ -338,11 +365,13 @@ function handleRightClick(x, y) {
         const landUnits = gameState.selectedUnits.filter(u => canEmbark(u));
         if (landUnits.length > 0) {
             for (const u of landUnits) {
-                const dist = Math.hypot(u.x - clickedTransport.x, u.y - clickedTransport.y);
                 const cap = (clickedTransport.cargo ? clickedTransport.cargo.length : 0) < (GAME_CONFIG.units[clickedTransport.type].capacity || 0);
-                if (dist <= 28 && cap) {
+                const pickupRadius = 24;
+                const dist = Math.hypot(u.x - clickedTransport.x, u.y - clickedTransport.y);
+                if (dist <= pickupRadius && cap) {
                     tryEmbarkUnitsToTransport([u], clickedTransport);
                 } else {
+                    // Move straight toward the transport center and tag for auto-embark
                     u.state = 'moving';
                     u.targetX = clickedTransport.x;
                     u.targetY = clickedTransport.y;

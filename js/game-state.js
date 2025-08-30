@@ -17,7 +17,6 @@ const gameState = {
     lastUpdate: Date.now(),
     gameOver: false,
     keys: {},
-    trainingQueue: [],
     currentAge: 'Dark Age',
     placingBuilding: null,
     placingBuildingPosition: { x: 0, y: 0 }

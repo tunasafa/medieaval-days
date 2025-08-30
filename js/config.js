@@ -1,7 +1,7 @@
 // Game Configuration
 const GAME_CONFIG = {
-    canvas: { width: 1400, height: 700 },
-    world: { width: 8400, height: 4200 }, // 2800 * 3 = 8400, 1400 * 3 = 4200
+    canvas: { width: 5000, height: 2500 },
+    world: { width: 6500, height: 2500 }, // 2800 * 3 = 8400, 1400 * 3 = 4200
     units: {
         villager: {
             cost: { food: 50 },
@@ -13,21 +13,18 @@ const GAME_CONFIG = {
             gatherRate: 3,
             buildTime: 25,
             sprite: {
-                sheet: 'villager',   // assets/units/villager.png
+                sheet: 'villager',   // assets/units/villager.gif (units use GIF now)
                 // If you know exact frame sizes, set them here. If left null, code will compute from a 1x4 sheet.
-                frameWidth: null,
-                frameHeight: null,
-                columns: 8,
+                columns: 6,
                 rows: 1,
                 spacing: 0,
                 margin: 0,
                 autoDetect: false,
-                renderScale: 3,
                 animations: {
                     // Idle will use the first frame of the only row
                     idle: { row: 0, frames: 1, fps: 1 },
-                    // Simple walk cycle: 1 row, 8 columns
-                    walk: { row: 0, frames: 8, fps: 8 }
+                    // Simple walk cycle: 1 row, 6 columns
+                    walk: { row: 1, frames: 6, fps: 10 } // Increased FPS for smoother animation
                 }
             }
         },
@@ -46,7 +43,7 @@ const GAME_CONFIG = {
             maxHealth: 30,
             attack: 4,
             speed: 1.0,
-            attackRange: 120,
+            attackRange: 1200,
             buildTime: 35
         },
         crossbowman: {
@@ -58,16 +55,7 @@ const GAME_CONFIG = {
             attackRange: 140,
             buildTime: 40
         },
-        scout: {
-            cost: { food: 80 },
-            health: 45,
-            maxHealth: 45,
-            attack: 3,
-            speed: 2.5,
-            attackRange: 20,
-            buildTime: 30
-        },
-        knight: {
+        axeman: {
             cost: { food: 60, gold: 75 },
             health: 100,
             maxHealth: 100,
@@ -84,15 +72,6 @@ const GAME_CONFIG = {
             speed: 1.3,
             attackRange: 30,
             buildTime: 35
-        },
-        soldier: {
-            cost: { food: 70, gold: 30 },
-            health: 50,
-            maxHealth: 50,
-            attack: 7,
-            speed: 1.2,
-            attackRange: 25,
-            buildTime: 30
         },
         catapult: {
             cost: { wood: 200, gold: 200 },
@@ -112,72 +91,33 @@ const GAME_CONFIG = {
             attackRange: 180,
             buildTime: 50
         },
-        mangonel: {
-            cost: { wood: 180, gold: 180 },
-            health: 120,
-            maxHealth: 120,
-            attack: 35,
-            speed: 0.8,
-            attackRange: 190,
-            buildTime: 55
-        },
-        trebuchet: {
-            cost: { wood: 300, gold: 250 },
-            health: 200,
-            maxHealth: 200,
-            attack: 50,
-            speed: 0.6,
-            attackRange: 250,
-            buildTime: 80
-        },
-        transportSmall: {
-            cost: { wood: 120 },
-            health: 120,
-            maxHealth: 120,
-            attack: 0,
-            speed: 1.2,
-            attackRange: 0,
-            buildTime: 35,
-            vessel: true,
-            capacity: 4
-        },
-        transportLarge: {
+    transportLarge: {
             cost: { wood: 220 },
             health: 200,
             maxHealth: 200,
             attack: 0,
-            speed: 1.0,
+            speed: 1.5,
             attackRange: 0,
             buildTime: 50,
             vessel: true,
             capacity: 8
         },
-        galley: {
-            cost: { wood: 150, gold: 50 },
-            health: 150,
-            maxHealth: 150,
-            attack: 10,
-            speed: 1.0,
-            attackRange: 160,
-            buildTime: 45,
-            vessel: true
-        },
-        warship: {
+    warship: {
             cost: { wood: 220, gold: 120 },
             health: 220,
             maxHealth: 220,
             attack: 18,
-            speed: 0.9,
+            speed: 1.4,
             attackRange: 180,
             buildTime: 55,
             vessel: true
         },
-        fishingBoat: {
+    fishingBoat: {
             cost: { wood: 90 },
             health: 110,
             maxHealth: 110,
             attack: 0,
-            speed: 1.0,
+            speed: 1.5,
             attackRange: 0,
             buildTime: 30,
             vessel: true,
@@ -225,15 +165,16 @@ const GAME_CONFIG = {
             cost: { wood: 200, stone: 50 },
             health: 1000,
             maxHealth: 1000,
-            width: 315,  // 210 * 1.5 = 315
-            height: 270  // 180 * 1.5 = 270
+            width: 252,  // 20% smaller than 315
+            height: 216  // 20% smaller than 270
         },
         bridge: {
-            cost: { wood: 150, stone: 50 },
-            health: 800,
-            maxHealth: 800,
-            width: 360,  // 240 * 1.5 = 360
-            height: 54   // 36 * 1.5 = 54
+            // Per-block cost; adjust as needed
+            cost: { wood: 15, stone: 5 },
+            health: 200,
+            maxHealth: 200,
+            width: 32,   // ignored for preview; block uses tileSize
+            height: 32
         }
     },
     worldObjects: {
@@ -243,7 +184,8 @@ const GAME_CONFIG = {
         goldMine: { type: 'resource', resourceType: 'gold', amount: 100, width: 50, height: 50, color: '#FFD700' },
         rock: { type: 'obstacle', width: 30, height: 30, color: '#696969' },
         water: { type: 'water', width: 1200, height: 100, color: '#1e90ff' },
-        lake: { type: 'water', width: 500, height: 400, color: '#1c86ee' },
-        bridgeSpan: { type: 'bridge', width: 160, height: 24, color: '#8B4513' }
+    lake: { type: 'water', width: 1000, height: 800, color: '#1c86ee' },
+    // Deprecated: large span template removed; each bridge is placed as single blocks now
+    // bridgeSpan removed
     }
 };

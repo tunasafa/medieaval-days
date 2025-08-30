@@ -1,5 +1,5 @@
-// --- PNG Asset-Based Drawing System ---
-// All sprites are now loaded from PNG files in the assets folder
+// --- Asset-Based Drawing System ---
+// Units are GIF (animated) by default, buildings/resources are PNG. Asset manager resolves extensions.
 
 // Generic function to draw any sprite from PNG assets fitted to target dimensions
 function drawSprite(ctx, category, name, targetWidth, targetHeight) {
@@ -54,23 +54,13 @@ function drawArcherIcon(ctx, targetWidth, targetHeight) {
     }
 }
 
-function drawScoutIcon(ctx, targetWidth, targetHeight) {
+function drawAxemanIcon(ctx, targetWidth, targetHeight) {
     if (arguments.length === 2 && typeof targetHeight === 'undefined') {
-        drawSpriteScaled(ctx, 'units', 'scout', targetWidth);
+        drawSpriteScaled(ctx, 'units', 'axeman', targetWidth);
     } else if (arguments.length >= 2) {
-        drawSprite(ctx, 'units', 'scout', targetWidth, targetHeight);
+        drawSprite(ctx, 'units', 'axeman', targetWidth, targetHeight);
     } else {
-        drawSpriteScaled(ctx, 'units', 'scout', 1);
-    }
-}
-
-function drawKnightIcon(ctx, targetWidth, targetHeight) {
-    if (arguments.length === 2 && typeof targetHeight === 'undefined') {
-        drawSpriteScaled(ctx, 'units', 'knight', targetWidth);
-    } else if (arguments.length >= 2) {
-        drawSprite(ctx, 'units', 'knight', targetWidth, targetHeight);
-    } else {
-        drawSpriteScaled(ctx, 'units', 'knight', 1);
+        drawSpriteScaled(ctx, 'units', 'axeman', 1);
     }
 }
 
@@ -94,23 +84,15 @@ function drawWarriorIcon(ctx, targetWidth, targetHeight) {
     }
 }
 
-function drawSoldierIcon(ctx, targetWidth, targetHeight) {
-    if (arguments.length === 2 && typeof targetHeight === 'undefined') {
-        drawSpriteScaled(ctx, 'units', 'soldier', targetWidth);
-    } else if (arguments.length >= 2) {
-        drawSprite(ctx, 'units', 'soldier', targetWidth, targetHeight);
-    } else {
-        drawSpriteScaled(ctx, 'units', 'soldier', 1);
-    }
-}
-
 function drawBallistaIcon(ctx, targetWidth, targetHeight) {
+    // Use a known-existing idle south sprite as the icon source
+    const name = 'ballista/idle/ballista_south';
     if (arguments.length === 2 && typeof targetHeight === 'undefined') {
-        drawSpriteScaled(ctx, 'units', 'ballista', targetWidth);
+        drawSpriteScaled(ctx, 'units', name, targetWidth);
     } else if (arguments.length >= 2) {
-        drawSprite(ctx, 'units', 'ballista', targetWidth, targetHeight);
+        drawSprite(ctx, 'units', name, targetWidth, targetHeight);
     } else {
-        drawSpriteScaled(ctx, 'units', 'ballista', 1);
+        drawSpriteScaled(ctx, 'units', name, 1);
     }
 }
 
@@ -124,41 +106,13 @@ function drawCatapultIcon(ctx, targetWidth, targetHeight) {
     }
 }
 
-function drawMangonelIcon(ctx, targetWidth, targetHeight) {
-    if (arguments.length === 2 && typeof targetHeight === 'undefined') {
-        drawSpriteScaled(ctx, 'units', 'mangonel', targetWidth);
-    } else if (arguments.length >= 2) {
-        drawSprite(ctx, 'units', 'mangonel', targetWidth, targetHeight);
-    } else {
-        drawSpriteScaled(ctx, 'units', 'mangonel', 1);
-    }
-}
-
-function drawTrebuchetIcon(ctx, targetWidth, targetHeight) {
-    if (arguments.length === 2 && typeof targetHeight === 'undefined') {
-        drawSpriteScaled(ctx, 'units', 'trebuchet', targetWidth);
-    } else if (arguments.length >= 2) {
-        drawSprite(ctx, 'units', 'trebuchet', targetWidth, targetHeight);
-    } else {
-        drawSpriteScaled(ctx, 'units', 'trebuchet', 1);
-    }
-}
-
 // Naval units
 function drawFishingBoatIcon(ctx, scale = 1) {
     drawSprite(ctx, 'units', 'fishingBoat', scale);
 }
 
-function drawTransportSmallIcon(ctx, scale = 1) {
-    drawSprite(ctx, 'units', 'transportSmall', scale);
-}
-
 function drawTransportLargeIcon(ctx, scale = 1) {
     drawSprite(ctx, 'units', 'transportLarge', scale);
-}
-
-function drawGalleyIcon(ctx, scale = 1) {
-    drawSprite(ctx, 'units', 'galley', scale);
 }
 
 function drawWarshipIcon(ctx, scale = 1) {
@@ -226,8 +180,23 @@ function drawNavyIcon(ctx, widthOrScale, height) {
     }
 }
 
-function drawShipIcon(ctx, scale = 1) {
-    drawSprite(ctx, 'units', 'ship', scale);
+function drawShipIcon(ctx, unitTypeOrScale = 1, height) {
+    // Overload: if two args, it's explicit size; if one, it's scale
+    let unitType = 'warship';
+    let scale = 1;
+    if (typeof unitTypeOrScale === 'string') {
+        unitType = unitTypeOrScale;
+        scale = 1;
+    } else if (typeof height === 'undefined') {
+        scale = unitTypeOrScale;
+    }
+    if (unitType === 'fishingBoat') {
+        drawSpriteScaled(ctx, 'units', 'FishingBoat/fishingboat_south', scale);
+    } else if (unitType === 'transportLarge') {
+        drawSpriteScaled(ctx, 'units', 'TransportLarge/transport_south', scale);
+    } else {
+        drawSpriteScaled(ctx, 'units', 'warship/warship_south', scale);
+    }
 }
 
 // Resource drawing functions - now load from assets/resources/

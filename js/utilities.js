@@ -1,4 +1,6 @@
 // Utility Functions
+// Minimum clearance from building edges for edge placements (must exceed movement/building buffer)
+const EDGE_CLEARANCE = 20;
 function generateId() {
     return Date.now() + Math.random();
 }
@@ -32,7 +34,29 @@ function clamp(val, min, max) {
 }
 
 function isPointInWater(x, y) {
-    return gameState.worldObjects.some(o => o.type === 'water' && x >= o.x && x <= o.x + o.width && y >= o.y && y <= o.y + o.height);
+    // Use tilemap if available, otherwise fallback to world objects
+    if (tilemap && tilemap.isLoaded) {
+        return tilemap.isWater(x, y);
+    }
+    // Fallback to old method
+    return gameState.worldObjects.some(o => (o.type === 'water' || o.type === 'lake') &&
+        x >= o.x && x <= o.x + o.width && y >= o.y && y <= o.y + o.height);
+}
+
+// Check that an entire rectangle is on land (no water) by sampling corners and edges
+function isRectOnLand(x, y, w, h) {
+    // Sample corners
+    const pts = [
+        [x, y], [x + w, y], [x, y + h], [x + w, y + h],
+        // Mid-edges
+        [x + w / 2, y], [x + w / 2, y + h], [x, y + h / 2], [x + w, y + h / 2],
+        // Center
+        [x + w / 2, y + h / 2]
+    ];
+    for (const [px, py] of pts) {
+        if (isPointInWater(px, py)) return false;
+    }
+    return true;
 }
 
 function isPointOnBridge(x, y) {
@@ -70,8 +94,34 @@ function isInWaterInnerBand(x, y, pad = 1) {
     return false;
 }
 
+// Selection ring radius used in drawing (currently constant 18px)
+function getSelectionRadius(unitOrType) {
+    // If called with a string type, keep consistent behavior
+    const type = typeof unitOrType === 'string' ? unitOrType : unitOrType?.type;
+    // Could be customized per type; for now all units share the same radius as drawUnits()
+    return 18;
+}
+
+// Compute edge-to-edge distance between selection rings of two units
+function selectionEdgeDistance(a, b) {
+    const ra = getSelectionRadius(a);
+    const rb = getSelectionRadius(b);
+    const dx = (a.x || 0) - (b.x || 0);
+    const dy = (a.y || 0) - (b.y || 0);
+    return Math.hypot(dx, dy) - (ra + rb);
+}
+
+// Simplified approach: we’ll rely on clampTargetToAllowed() for embark target clamping
+
 function clampTargetToAllowed(unit, tx, ty) {
     const isVessel = !!GAME_CONFIG.units[unit.type]?.vessel;
+    // If target is inside any building footprint, clamp to a safe point outside
+    if (!isVessel) {
+        const bld = [...gameState.buildings, ...gameState.enemyBuildings].find(b => tx >= b.x && tx <= b.x + b.width && ty >= b.y && ty <= b.y + b.height);
+        if (bld) {
+            return getDropOffPointOutside(unit, bld, EDGE_CLEARANCE);
+        }
+    }
     if (isVessel) {
         if (isPointInWater(tx, ty)) return { x: tx, y: ty };
         let best = null;
@@ -102,7 +152,7 @@ function clampTargetToAllowed(unit, tx, ty) {
     }
 }
 
-function getDropOffPointOutside(unit, building, margin = 6) {
+function getDropOffPointOutside(unit, building, margin = EDGE_CLEARANCE) {
     const leftDist = Math.abs(unit.x - building.x);
     const rightDist = Math.abs((building.x + building.width) - unit.x);
     const topDist = Math.abs(unit.y - building.y);
@@ -128,9 +178,39 @@ function computeFormationOffsets(count, spacing = 24) {
 }
 
 function isTransport(unit) { 
-    return unit && (unit.type === 'transportSmall' || unit.type === 'transportLarge'); 
+    return unit && (unit.type === 'transportLarge' || unit.type === 'transportSmall'); 
 }
 
 function canEmbark(unit) { 
     return !GAME_CONFIG.units[unit.type]?.vessel; 
+}
+
+
+// Compute a single bridge block aligned to the tile grid
+// Returns { ok, isLake, x, y, width, height }
+function computeBridgeBlockAt(cx, cy) {
+    const tileSize = (tilemap && tilemap.tileSize) ? tilemap.tileSize : 32;
+    const tx = Math.floor(cx / tileSize);
+    const ty = Math.floor(cy / tileSize);
+    const x = tx * tileSize;
+    const y = ty * tileSize;
+    const centerX = x + tileSize / 2;
+    const centerY = y + tileSize / 2;
+    const onWater = isPointInWater(centerX, centerY);
+    let isLake = false;
+    if (tilemap && tilemap.isLoaded && tilemap.waterKinds) {
+        const kind = tilemap.waterKinds?.[ty]?.[tx] || null;
+        if (kind === 'lake') isLake = true;
+    }
+    // Cannot place on existing building footprints
+    const collidesBuilding = [...gameState.buildings, ...gameState.enemyBuildings].some(b =>
+        !(x + tileSize <= b.x || x >= b.x + b.width || y + tileSize <= b.y || y >= b.y + b.height)
+    );
+    // Avoid placing twice on same bridge tile
+    const collidesBridge = gameState.worldObjects.some(o => o.type === 'bridge' &&
+        !(x + tileSize <= o.x || x >= o.x + o.width || y + tileSize <= o.y || y >= o.y + o.height)
+    );
+    const withinWorld = x >= 0 && y >= 0 && (x + tileSize) <= GAME_CONFIG.world.width && (y + tileSize) <= GAME_CONFIG.world.height;
+    const ok = withinWorld && onWater && !isLake && !collidesBuilding && !collidesBridge;
+    return { ok, isLake, x, y, width: tileSize, height: tileSize };
 }

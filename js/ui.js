@@ -10,15 +10,28 @@ function updateUI() {
 }
 
 function updateTrainingQueueUI() {
-     document.querySelectorAll('#building-unit-list .unit').forEach(unitEl => {
+    const b = gameState.selectedBuilding;
+    if (!b) return;
+    const current = (b.trainingQueue || [])[0] || null;
+    const list = document.querySelector('#building-unit-list');
+    if (!list) return;
+    list.querySelectorAll('.unit').forEach(unitEl => {
         const type = unitEl.dataset.type;
-        const trainingItem = gameState.trainingQueue.find(t => t.type === type);
-        const progressBar = unitEl.querySelector('.progress-fill');
-        if (trainingItem && progressBar) {
-            const progress = 1 - (trainingItem.timeRemaining / trainingItem.totalTime);
-            progressBar.style.width = `${Math.max(0, Math.min(100, progress * 100))}%`;
-        } else if (progressBar) {
-            progressBar.style.width = '0%';
+        const progressFill = unitEl.querySelector('.progress-bar .progress-fill');
+        const pill = unitEl.querySelector('.queue-pill');
+        const items = (b.trainingQueue || []).filter(t => t.type === type);
+        const queuedCount = items.length;
+        if (pill) {
+            pill.style.display = queuedCount > 0 ? 'inline-flex' : 'none';
+            if (queuedCount > 0) pill.textContent = `x${queuedCount}`;
+        }
+        if (progressFill) {
+            if (current && current.type === type) {
+                const pct = 1 - (current.timeRemaining / current.totalTime);
+                progressFill.style.width = `${Math.max(0, Math.min(100, pct * 100))}%`;
+            } else {
+                progressFill.style.width = '0%';
+            }
         }
     });
 }
@@ -43,7 +56,7 @@ function updateSelectionInfo() {
             <div>State: ${unit.state}</div>
         `;
         const cfg = GAME_CONFIG.units[unit.type];
-        if (cfg && unit.type && (unit.type === 'transportSmall' || unit.type === 'transportLarge')) {
+        if (cfg && unit.type && (unit.type === 'transportLarge')) {
             unit.cargo = unit.cargo || [];
             const cap = cfg.capacity || 0;
             const used = unit.cargo.length;
@@ -71,7 +84,7 @@ function advanceAge() {
             gameState.resources.food -= 500;
             gameState.currentAge = 'Feudal Age';
             document.getElementById('age-display').textContent = gameState.currentAge;
-            showNotification('Advanced to Feudal Age! Knights and Crossbowmen unlocked.');
+            showNotification('Advanced to Feudal Age! Axemen and Crossbowmen unlocked.');
             document.getElementById('btn-age-up').textContent = 'Advance to Castle Age (800 Food, 200 Gold)';
             
             if (gameState.selectedBuilding) {
@@ -147,6 +160,98 @@ function showNotification(message) {
     }, 3000);
 }
 
+// Add sprite debugging function
+function debugSpriteLoading() {
+    console.log('Checking sprite assets...');
+    
+    // Check if villager sprite is loaded
+    if (GAME_CONFIG.units.villager && GAME_CONFIG.units.villager.sprite) {
+        const spriteSrc = GAME_CONFIG.units.villager.sprite.src;
+        console.log('Villager sprite source:', spriteSrc);
+        
+        // Test if the image loads
+        const testImg = new Image();
+        testImg.onload = () => {
+            console.log('✓ Villager sprite loaded successfully:', spriteSrc);
+            console.log('Image dimensions:', testImg.width, 'x', testImg.height);
+        };
+        testImg.onerror = () => {
+            console.error('✗ Failed to load villager sprite:', spriteSrc);
+            showNotification('Error: Villager sprite failed to load!');
+        };
+        testImg.src = spriteSrc;
+    } else {
+        console.error('✗ Villager sprite configuration missing!');
+        showNotification('Error: Villager sprite configuration missing!');
+    }
+}
+
+// Enhanced asset preloading function
+function preloadGameAssets(callback) {
+    const assetsToLoad = [];
+    const loadedAssets = {};
+    let loadedCount = 0;
+    
+    // Collect all sprite assets that need to be loaded
+    Object.keys(GAME_CONFIG.units).forEach(unitType => {
+        const unit = GAME_CONFIG.units[unitType];
+        if (unit.sprite && unit.sprite.src) {
+            assetsToLoad.push({
+                type: 'unit',
+                key: unitType,
+                src: unit.sprite.src
+            });
+        }
+    });
+    
+    // Add building sprites if they exist
+    Object.keys(GAME_CONFIG.buildings || {}).forEach(buildingType => {
+        const building = GAME_CONFIG.buildings[buildingType];
+        if (building.sprite && building.sprite.src) {
+            assetsToLoad.push({
+                type: 'building',
+                key: buildingType,
+                src: building.sprite.src
+            });
+        }
+    });
+    
+    if (assetsToLoad.length === 0) {
+        console.log('No assets to preload, proceeding...');
+        if (callback) callback();
+        return;
+    }
+    
+    console.log(`Preloading ${assetsToLoad.length} assets...`);
+    
+    const checkComplete = () => {
+        if (loadedCount >= assetsToLoad.length) {
+            console.log('All assets loaded successfully!');
+            if (callback) callback();
+        }
+    };
+    
+    assetsToLoad.forEach(asset => {
+        const img = new Image();
+        img.onload = () => {
+            loadedAssets[asset.key] = img;
+            loadedCount++;
+            console.log(`✓ Loaded ${asset.type}: ${asset.key} (${loadedCount}/${assetsToLoad.length})`);
+            checkComplete();
+        };
+        img.onerror = () => {
+            console.error(`✗ Failed to load ${asset.type}: ${asset.key} from ${asset.src}`);
+            loadedCount++; // Still count as "processed" to avoid hanging
+            showNotification(`Failed to load ${asset.key} sprite!`);
+            checkComplete();
+        };
+        img.src = asset.src;
+    });
+    
+    // Store loaded assets globally for access by rendering system
+    window.gameAssets = loadedAssets;
+}
+
 function centerOnTownCenter() {
     const townCenter = gameState.buildings.find(b => b.type === 'town-center' && b.player === 'player');
     if (townCenter) {
@@ -157,5 +262,14 @@ function centerOnTownCenter() {
 
 // Initialize the game when the page loads
 document.addEventListener('DOMContentLoaded', function() {
-    initGame();
+    console.log('dw loaded, initializing game...');
+    
+    // Debug sprite loading first
+    debugSpriteLoading();
+    
+    // Preload assets then initialize game
+    preloadGameAssets(() => {
+        console.log('Assets preloaded, starting game...');
+        initGame();
+    });
 });

@@ -1,39 +1,116 @@
 // Drawing Functions
+// Simple DOM overlay for animated GIF units so they animate like regular images
+let __unitOverlayDiv = null;
+function getUnitOverlay() {
+    if (!__unitOverlayDiv) {
+        __unitOverlayDiv = document.createElement('div');
+        __unitOverlayDiv.id = 'unit-overlay';
+        __unitOverlayDiv.style.position = 'absolute';
+        __unitOverlayDiv.style.left = '0px';
+        __unitOverlayDiv.style.top = '0px';
+        __unitOverlayDiv.style.width = '0px';
+        __unitOverlayDiv.style.height = '0px';
+        __unitOverlayDiv.style.pointerEvents = 'none';
+        __unitOverlayDiv.style.zIndex = '2'; // above canvas
+        document.body.appendChild(__unitOverlayDiv);
+    }
+    return __unitOverlayDiv;
+}
+
+function syncOverlayToCanvas() {
+    const canvas = document.getElementById('gameCanvas');
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const overlay = getUnitOverlay();
+    overlay.style.left = `${rect.left + window.scrollX}px`;
+    overlay.style.top = `${rect.top + window.scrollY}px`;
+    overlay.style.width = `${rect.width}px`;
+    overlay.style.height = `${rect.height}px`;
+}
 function drawWorldObjects(ctx) {
     gameState.worldObjects.forEach(obj => {
+        // Skip drawing depleted resources entirely
+        if (obj.type === 'resource' && (obj.amount === 0 || obj.amount <= 0)) {
+            return;
+        }
         const drawX = obj.x - gameState.camera.x;
         const drawY = obj.y - gameState.camera.y;
         if (drawX + obj.width < 0 || drawX > GAME_CONFIG.canvas.width ||
             drawY + obj.height < 0 || drawY > GAME_CONFIG.canvas.height) return;
 
-        if (obj.type === 'resource') {
+    if (obj.type === 'resource') {
             ctx.save();
             ctx.translate(drawX, drawY);
-            if (obj.resourceType === 'food') {
-                drawFoodIcon(ctx, obj.width / 8);
-            } else if (obj.resourceType === 'wood') {
-                drawWoodIcon(ctx, obj.width / 8);
-            } else if (obj.resourceType === 'stone') {
-                drawStoneIcon(ctx, obj.width / 8);
-            } else if (obj.resourceType === 'gold') {
-                drawGoldIcon(ctx, obj.width / 8);
+            const isGold = obj.resourceType === 'gold';
+            const isBigFoodVariant = obj.resourceType === 'food' && (obj.spriteName === 'food4' || obj.spriteName === 'food5');
+            let scaleW = obj.width;
+            let scaleH = obj.height;
+            if (isGold) {
+                scaleW *= 0.5;
+                scaleH *= 0.5;
+            }
+            if (isBigFoodVariant) {
+                scaleW *= 2;
+                scaleH *= 2;
+            }
+            const offsetX = (obj.width - scaleW) / 2;
+            const offsetY = (obj.height - scaleH) / 2;
+            if (obj.spriteName) {
+                // Use the specific resource sprite variant; gold drawn at 50% size
+                drawAssetFitted(ctx, 'resources', obj.spriteName, offsetX, offsetY, scaleW, scaleH);
+            } else {
+                if (obj.resourceType === 'food') {
+                    const scale = isBigFoodVariant ? (obj.width / 8) * 2 : (obj.width / 8);
+                    drawFoodIcon(ctx, scale);
+                } else if (obj.resourceType === 'wood') {
+                    drawWoodIcon(ctx, obj.width / 8);
+                } else if (obj.resourceType === 'stone') {
+                    drawStoneIcon(ctx, obj.width / 8);
+                } else if (obj.resourceType === 'gold') {
+                    // Gold drawn at half-size when using fallback icon path
+                    drawGoldIcon(ctx, (obj.width / 8) * 0.5);
+                }
             }
             ctx.restore();
-
-            if (obj.amount > 0) {
-                ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
-                ctx.font = '10px Arial';
-                ctx.textAlign = 'center';
-                ctx.fillText(Math.floor(obj.amount), drawX + obj.width/2, drawY + obj.height/2 + 3);
+            // No numeric overlays on resources
+        } else if (obj.type === 'decoration') {
+            // Environmental decorations (bushes/trees)
+            const offsetX = 0;
+            const offsetY = 0;
+            // Always use textures/ assets for decorations (no vector fallbacks)
+            if (obj.spriteName) {
+                drawAssetFitted(ctx, 'textures', obj.spriteName, drawX + offsetX, drawY + offsetY, obj.width, obj.height);
             }
         } else if (obj.type === 'water') {
-            ctx.fillStyle = obj.color;
-            ctx.globalAlpha = 0.85;
-            ctx.fillRect(drawX, drawY, obj.width, obj.height);
-            ctx.globalAlpha = 1;
+            // Water is drawn by the tilemap system. Skip rectangle overlay.
+            return;
         } else if (obj.type === 'bridge') {
-            ctx.fillStyle = obj.color;
-            ctx.fillRect(drawX, drawY, obj.width, obj.height);
+            // Draw a lighter wood bridge with subtle texture planks
+            const w = obj.width, h = obj.height;
+            const x = drawX, y = drawY;
+            const cornerRadius = Math.min(24, Math.min(w, h) * 0.3);
+            // Base
+            ctx.fillStyle = obj.color || '#C8A165';
+            drawRoundedRect(ctx, x, y, w, h, cornerRadius, true, false);
+            // Grain lines
+            ctx.strokeStyle = 'rgba(94, 62, 26, 0.25)';
+            ctx.lineWidth = 1;
+            for (let i = 0; i < 6; i++) {
+                const gx = x + (i + 1) * (w / 7);
+                ctx.beginPath();
+                ctx.moveTo(gx, y + 4);
+                ctx.lineTo(gx, y + h - 4);
+                ctx.stroke();
+            }
+            // Plank seams
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+            for (let j = 0; j < Math.max(2, Math.floor(h / 10)); j++) {
+                const gy = y + (j + 1) * (h / (Math.max(2, Math.floor(h / 10)) + 1));
+                ctx.beginPath();
+                ctx.moveTo(x + 6, gy);
+                ctx.lineTo(x + w - 6, gy);
+                ctx.stroke();
+            }
         } else {
             ctx.fillStyle = obj.color;
             ctx.fillRect(drawX, drawY, obj.width, obj.height);
@@ -41,16 +118,41 @@ function drawWorldObjects(ctx) {
     });
 }
 
+// Stable DOM id for units (works even if unit.id is missing)
+function getUnitDomId(unit) {
+    if (!unit.__uid) {
+        unit.__uid = unit.id != null ? String(unit.id) : `${unit.type}-${Math.random().toString(36).slice(2)}`;
+    }
+    return unit.__uid;
+}
+
 function drawUnits(ctx) {
+    // Make sure overlay follows the canvas
+    syncOverlayToCanvas();
     gameState.units.forEach(unit => drawUnit(ctx, unit));
     gameState.enemyUnits.forEach(unit => drawUnit(ctx, unit));
+    // Prune overlay images for units that no longer exist
+    const overlay = getUnitOverlay();
+    const validIds = new Set([
+        ...gameState.units.map(u => getUnitDomId(u)),
+        ...gameState.enemyUnits.map(u => getUnitDomId(u))
+    ]);
+    overlay.querySelectorAll('img[data-unit-id]').forEach(img => {
+        if (!validIds.has(img.dataset.unitId)) {
+            if (img.parentNode) img.parentNode.removeChild(img);
+        }
+    });
 }
 
 function drawUnit(ctx, unit) {
     const drawX = unit.x - gameState.camera.x;
     const drawY = unit.y - gameState.camera.y;
-    if (drawX < -30 || drawX > GAME_CONFIG.canvas.width + 30 ||
-        drawY < -30 || drawY > GAME_CONFIG.canvas.height + 30) return;
+    const inView = !(drawX < -30 || drawX > GAME_CONFIG.canvas.width + 30 ||
+        drawY < -30 || drawY > GAME_CONFIG.canvas.height + 30);
+    if (!inView) {
+        if (unit._domGif) unit._domGif.style.display = 'none';
+        return;
+    }
 
     ctx.save();
     ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
@@ -59,78 +161,688 @@ function drawUnit(ctx, unit) {
 
     ctx.translate(drawX, drawY);
     const unitSize = 24; // Standard unit size in pixels
-    if (unit.type === 'villager' && GAME_CONFIG.units.villager.sprite) {
-        const spr = GAME_CONFIG.units.villager.sprite;
-        const anim = unit.anim || { action: 'idle', frame: 0 };
-        const def = spr.animations[anim.action] || spr.animations.idle || { row: 0, frames: 4, fps: 8 };
-        const img = assetManager.getAsset('units', spr.sheet);
-        const spacing = spr.spacing || 0;
-        const margin = spr.margin || 0;
-        // Determine frame width/height. If not set, infer for 1 row x 4 columns from image.
-        let fw = spr.frameWidth;
-        let fh = spr.frameHeight;
-        if ((!fw || !fh) && img && img.width && img.height) {
-            const cols = Math.max(1, spr.columns || def.frames || 4);
-            const rows = Math.max(1, spr.rows || (def.row || 0) + 1);
-            fw = Math.floor((img.width - margin * 2 - spacing * (cols - 1)) / cols) || img.width;
-            fh = Math.floor((img.height - margin * 2 - spacing * (rows - 1)) / rows) || img.height;
+    // If a unit image exists (GIF), render via DOM overlay to ensure animation
+    let baseImg = assetManager.getAsset('units', unit.type);
+    let hasGif = baseImg && (baseImg.src || '').toLowerCase().endsWith('.gif');
+    // Villager/Archer/Militia/Warrior/Axeman: choose directional GIFs by movement direction
+    let img = baseImg;
+    if (unit.type === 'villager' || unit.type === 'archer' || unit.type === 'militia' || unit.type === 'warrior' || unit.type === 'axeman') {
+        const prevX = unit.__drawPrevX ?? unit.x;
+        const prevY = unit.__drawPrevY ?? unit.y;
+        const dx = unit.x - prevX;
+        const dy = unit.y - prevY;
+        unit.__drawPrevX = unit.x;
+        unit.__drawPrevY = unit.y;
+        const moving = Math.hypot(dx, dy) > 0.15;
+        const dirs = ['east','northeast','north','northwest','west','southwest','south','southeast'];
+        if (!unit._faceDir) unit._faceDir = 'south';
+        if (moving) {
+            const angle = Math.atan2(dy, dx); // -PI..PI
+            const idx = (Math.round(((angle + Math.PI) / (Math.PI / 4))) % 8 + 8) % 8; // 0..7
+            unit._faceDir = dirs[idx];
         }
-        // Safety: if frame size still equals whole sheet (bad), force per-column/row split
-        if (img && img.width && img.height) {
-            const cols = Math.max(1, spr.columns || def.frames || 4);
-            const rows = Math.max(1, spr.rows || (def.row || 0) + 1);
-            const idealFW = Math.floor(img.width / cols);
-            const idealFH = Math.floor(img.height / rows);
-            if (!fw || fw <= 0 || fw >= img.width) fw = idealFW;
-            if (!fh || fh <= 0 || fh >= img.height) fh = idealFH;
+        // Invert horizontals and diagonals; keep north/south the same
+        const invertMap = {
+            east: 'west', west: 'east',
+            northeast: 'northwest', northwest: 'northeast',
+            southeast: 'southwest', southwest: 'southeast',
+            north: 'north', south: 'south'
+        };
+    // Start with movement-based direction for walk/gather; idle uses natural facing
+    let dir = invertMap[unit._faceDir] || unit._faceDir;
+    // Track last natural facing (non-inverted) to use for idle
+    unit._lastFaceNatural = unit._faceDir;
+
+        // Gathering logic: only switch to gather animation when within harvesting distance
+        let useGather = false;
+        if (unit.type === 'villager' && unit.state === 'gathering' && unit.targetResource) {
+            const rx = unit.targetResource.x + unit.targetResource.width / 2 + (unit.gatherOffset?.dx || 0);
+            const ry = unit.targetResource.y + unit.targetResource.height / 2 + (unit.gatherOffset?.dy || 0);
+            const gdx = rx - unit.x;
+            const gdy = ry - unit.y;
+            const dist = Math.hypot(gdx, gdy);
+            if (dist <= 20) {
+                // At resource: face the resource and use gather sprites
+                const gAngle = Math.atan2(gdy, gdx);
+                const gIdx = (Math.round(((gAngle + Math.PI) / (Math.PI / 4))) % 8 + 8) % 8;
+                const faceToward = dirs[gIdx];
+                dir = invertMap[faceToward] || faceToward;
+                useGather = true;
+            }
         }
-        let col = anim.frame % (def.frames || 4);
-        let row = def.row || 0;
-        if (spr.columns && col >= spr.columns) col = spr.columns - 1;
-        if (spr.rows && row >= spr.rows) row = spr.rows - 1;
-        let sx = margin + col * (fw + spacing);
-        let sy = margin + row * (fh + spacing);
-        if (img && img.width && img.height) {
-            if (sx < 0) sx = 0;
-            if (sy < 0) sy = 0;
-            if (sx + fw > img.width) sx = Math.max(0, img.width - fw);
-            if (sy + fh > img.height) sy = Math.max(0, img.height - fh);
+
+        const prefix = unit.type;
+    let fileBase;
+    let altBase;
+    let fileCandidates = null; // optional array of candidate asset names for multi-try lookups
+        // Attack logic for archer/militia/warrior/axeman: use attack sprites only when in range and attacking
+        let useAttack = false;
+    if ((unit.type === 'archer' || unit.type === 'militia' || unit.type === 'warrior' || unit.type === 'axeman') && unit.state === 'attacking' && unit.target) {
+            const cfg = GAME_CONFIG.units[unit.type] || {};
+            const range = cfg.attackRange || 40;
+            const tx = unit.targetPoint ? unit.targetPoint.x : (unit.target.x + (unit.target.width ? unit.target.width/2 : 0));
+            const ty = unit.targetPoint ? unit.targetPoint.y : (unit.target.y + (unit.target.height ? unit.target.height/2 : 0));
+            const adx = tx - unit.x;
+            const ady = ty - unit.y;
+            const dist = Math.hypot(adx, ady);
+            if (dist <= range + 2) { // small tolerance
+                // Pick 8-way direction toward target
+                const aAngle = Math.atan2(ady, adx);
+                const aIdx = (Math.round(((aAngle + Math.PI) / (Math.PI / 4))) % 8 + 8) % 8;
+                dir = dirs[aIdx];
+                useAttack = true;
+            }
         }
-        if (fw <= 0 || fh <= 0) { ctx.restore(); return; }
-        // Fit inside selection circle
+        if (unit.type === 'villager' && useGather) {
+            // Use hyphenated diagonals for gather assets
+            const hyphenDir = dir.replace('northeast','north-east')
+                                 .replace('northwest','north-west')
+                                 .replace('southeast','south-east')
+                                 .replace('southwest','south-west');
+            fileBase = `villager/gather/villager_gathering_${hyphenDir}`;
+            altBase = fileBase;
+        } else if (useAttack) {
+            // Militia, Warrior, and Archer attack
+            if (unit.type === 'militia') {
+                // Invert west and east for militia attack; keep north/south unchanged
+                const militiaAttackInvert = { east: 'west', west: 'east' };
+                const attackDir = militiaAttackInvert[dir] || dir;
+                const hyphenDir = attackDir.replace('northeast','north-east')
+                                     .replace('northwest','north-west')
+                                     .replace('southeast','south-east')
+                                     .replace('southwest','south-west');
+                fileBase = `militia/attack/militia_attack_${hyphenDir}`;
+            } else if (unit.type === 'warrior') {
+                // Invert west and east for warrior attack; keep north/south unchanged
+                const warriorAttackInvert = { east: 'west', west: 'east' };
+                const attackDir = warriorAttackInvert[dir] || dir;
+                const hyphenDir = attackDir.replace('northeast','north-east')
+                                     .replace('northwest','north-west')
+                                     .replace('southeast','south-east')
+                                     .replace('southwest','south-west');
+                fileCandidates = [
+                    `warrior/attack/warrior_attack_${hyphenDir}`,
+                    `warrior/attack/warrior_attack_${attackDir}`
+                ];
+            } else if (unit.type === 'axeman') {
+                // Melee similar to warrior/militia; support hyphen and no-hyphen
+                const axemanAttackInvert = { east: 'west', west: 'east' };
+                const attackDir = axemanAttackInvert[dir] || dir;
+                const hyphenDir = attackDir.replace('northeast','north-east')
+                                     .replace('northwest','north-west')
+                                     .replace('southeast','south-east')
+                                     .replace('southwest','south-west');
+                fileCandidates = [
+                    `axeman/attack/axeman_attack_${hyphenDir}`,
+                    `axeman/attack/axeman_attack_${attackDir}`
+                ];
+            } else {
+                // Invert west/east and reverse diagonals for archer attack to match sprite orientation
+                const archerAttackInvert = {
+                    east: 'west', west: 'east',
+                    northeast: 'northwest', northwest: 'northeast',
+                    southeast: 'southwest', southwest: 'southeast'
+                };
+                const attackDir = archerAttackInvert[dir] || dir;
+                const hyphenDir = attackDir.replace('northeast','north-east')
+                                     .replace('northwest','north-west')
+                                     .replace('southeast','south-east')
+                                     .replace('southwest','south-west');
+                // Try both non-hyphenated and hyphenated diagonals to match available files
+                fileCandidates = [
+                    `archer/attack/archer_attack_${attackDir}`,
+                    `archer/attack/archer_attack_${hyphenDir}`
+                ];
+            }
+            altBase = fileBase;
+        } else if (unit.type === 'villager' && unit.state === 'idle') {
+            // Villager idle: use last natural facing, but invert diagonals only
+            const idleFaceRaw = unit._lastFaceNatural || 'south';
+            const idleDiagInvert = {
+                // Invert diagonals and horizontals; keep N/S the same
+                northeast: 'northwest', northwest: 'northeast',
+                southeast: 'southwest', southwest: 'southeast',
+                east: 'west', west: 'east'
+            };
+            const idleFace = idleDiagInvert[idleFaceRaw] || idleFaceRaw;
+            const idleDir = idleFace
+                .replace('northeast','north-east')
+                .replace('northwest','north-west')
+                .replace('southeast','south-east')
+                .replace('southwest','south-west');
+            fileBase = `villager/idle/villager-idle_${idleDir}`;
+            altBase = fileBase;
+    } else if (unit.type === 'militia' && unit.state === 'idle') {
+            // Militia idle: default south on spawn, use last natural facing; invert diag+E/W like villager idle
+            const idleFaceRaw = unit._lastFaceNatural || 'south';
+            const idleInvert = {
+                northeast: 'northwest', northwest: 'northeast',
+                southeast: 'southwest', southwest: 'southeast',
+                east: 'west', west: 'east'
+            };
+            const idleFace = idleInvert[idleFaceRaw] || idleFaceRaw;
+            const idleDir = idleFace
+                .replace('northeast','north-east')
+                .replace('northwest','north-west')
+                .replace('southeast','south-east')
+                .replace('southwest','south-west');
+            fileBase = `militia/idle/militia_idle-idle_${idleDir}`;
+            altBase = fileBase;
+    } else if (unit.type === 'warrior' && unit.state === 'idle') {
+            // Warrior idle: follow villager/militia idle facing logic
+            const idleFaceRaw = unit._lastFaceNatural || 'south';
+            const idleInvert = {
+                northeast: 'northwest', northwest: 'northeast',
+                southeast: 'southwest', southwest: 'southeast',
+                east: 'west', west: 'east'
+            };
+            const idleFace = idleInvert[idleFaceRaw] || idleFaceRaw;
+            const hyphenDir = idleFace
+                .replace('northeast','north-east')
+                .replace('northwest','north-west')
+                .replace('southeast','south-east')
+                .replace('southwest','south-west');
+            fileCandidates = [
+                `warrior/idle/warrior_idle_${hyphenDir}`
+            ];
+    } else if (unit.type === 'archer' && unit.state === 'idle') {
+            // Archer idle: similar to militia/villager; support both hyphen and no-hyphen diagonals
+            const idleFaceRaw = unit._lastFaceNatural || 'south';
+            const idleInvert = {
+                northeast: 'northwest', northwest: 'northeast',
+                southeast: 'southwest', southwest: 'southeast',
+                east: 'west', west: 'east'
+            };
+            const idleFace = idleInvert[idleFaceRaw] || idleFaceRaw;
+            const hyphenDir = idleFace
+                .replace('northeast','north-east')
+                .replace('northwest','north-west')
+                .replace('southeast','south-east')
+                .replace('southwest','south-west');
+            fileCandidates = [
+                `archer/idle/archer_idle_${idleFace}`,
+                `archer/idle/archer_idle_${hyphenDir}`
+            ];
+        } else if (unit.type === 'axeman' && unit.state === 'idle') {
+            // Axeman idle: mirror warrior logic
+            const idleFaceRaw = unit._lastFaceNatural || 'south';
+            const idleInvert = {
+                northeast: 'northwest', northwest: 'northeast',
+                southeast: 'southwest', southwest: 'southeast',
+                east: 'west', west: 'east'
+            };
+            const idleFace = idleInvert[idleFaceRaw] || idleFaceRaw;
+            const hyphenDir = idleFace
+                .replace('northeast','north-east')
+                .replace('northwest','north-west')
+                .replace('southeast','south-east')
+                .replace('southwest','south-west');
+            fileCandidates = [
+                `axeman/idle/axeman_idle_${hyphenDir}`,
+                `axeman/idle/axeman_idle_${idleFace}`
+            ];
+        } else {
+            // Walking animations
+            if (prefix === 'archer' && dir === 'south') {
+                // South walking GIF has a non-standard filename in assets; map explicitly
+                fileBase = `archer/walk/cfb79a2e-dcbb-41cb-a46c-91002f2414d5_walking-10_south`;
+                altBase = fileBase;
+            } else if (prefix === 'militia') {
+                const hyphenDir = dir.replace('northeast','north-east')
+                                     .replace('northwest','north-west')
+                                     .replace('southeast','south-east')
+                                     .replace('southwest','south-west');
+                fileBase = `militia/walking/militia_walking_${hyphenDir}`;
+                altBase = fileBase;
+            } else if (prefix === 'warrior') {
+                const hyphenDir = dir.replace('northeast','north-east')
+                                     .replace('northwest','north-west')
+                                     .replace('southeast','south-east')
+                                     .replace('southwest','south-west');
+                // Mirror militia walking folder and naming
+                fileCandidates = [
+                    `warrior/walking/warrior_walking_${hyphenDir}`
+                ];
+            } else if (prefix === 'axeman') {
+                const hyphenDir = dir.replace('northeast','north-east')
+                                     .replace('northwest','north-west')
+                                     .replace('southeast','south-east')
+                                     .replace('southwest','south-west');
+                fileCandidates = [
+                    `axeman/walking/axeman_walking_${hyphenDir}`,
+                    `axeman/walking/axeman_walking_${dir}`
+                ];
+            } else {
+                fileBase = `${prefix}/walk/${prefix}_walk_${dir}`;
+                altBase = (prefix === 'villager' && dir === 'north') ? `${prefix}/walk/${prefix}_walk_noth` : fileBase;
+            }
+        }
+        const isRealGif = (name) => name && assetManager.isLoaded('units', name) && assetManager.isGifAsset('units', name);
+        // Build a unified candidate list (supports warrior arrays + fileBase/altBase strings)
+        const candidates = [];
+        if (fileCandidates && Array.isArray(fileCandidates)) candidates.push(...fileCandidates);
+        if (fileBase) candidates.push(fileBase);
+        if (altBase) candidates.push(altBase);
+        let chosen = null;
+        for (const name of candidates) {
+            if (isRealGif(name)) { chosen = name; break; }
+        }
+        if (chosen) {
+            img = assetManager.getAsset('units', chosen);
+            hasGif = true;
+        } else {
+            // Begin loading all candidates; whichever resolves first will be used next frame
+            candidates.forEach(name => {
+                if (name) assetManager.loadAsset('units', name).catch(() => {});
+            });
+        }
+    } else if (unit.type === 'crossbowman') {
+        // Crossbowman: 8-direction idle/walk/attack using files crossbowman/{state}/crossbowman_{dir}.gif
+        const prevX = unit.__drawPrevX ?? unit.x;
+        const prevY = unit.__drawPrevY ?? unit.y;
+        const dx = unit.x - prevX;
+        const dy = unit.y - prevY;
+        unit.__drawPrevX = unit.x;
+        unit.__drawPrevY = unit.y;
+        const moving = Math.hypot(dx, dy) > 0.15;
+        const dirs = ['east','northeast','north','northwest','west','southwest','south','southeast'];
+        if (!unit._faceDir) unit._faceDir = 'south';
+        if (moving) {
+            const angle = Math.atan2(dy, dx);
+            const idx = (Math.round(((angle + Math.PI) / (Math.PI / 4))) % 8 + 8) % 8;
+            unit._faceDir = dirs[idx];
+            unit._lastFaceNatural = unit._faceDir;
+        }
+        // Attack direction when in range
+        const cfg = GAME_CONFIG.units[unit.type] || {};
+        let useAttack = false;
+        let dir = unit._faceDir;
+        if (unit.state === 'attacking' && unit.target) {
+            const range = cfg.attackRange || 60;
+            const tx = unit.targetPoint ? unit.targetPoint.x : (unit.target.x + (unit.target.width ? unit.target.width/2 : 0));
+            const ty = unit.targetPoint ? unit.targetPoint.y : (unit.target.y + (unit.target.height ? unit.target.height/2 : 0));
+            const adx = tx - unit.x;
+            const ady = ty - unit.y;
+            const dist = Math.hypot(adx, ady);
+            if (dist <= range + 2) {
+                const aAngle = Math.atan2(ady, adx);
+                const aIdx = (Math.round(((aAngle + Math.PI) / (Math.PI / 4))) % 8 + 8) % 8;
+                dir = dirs[aIdx];
+                useAttack = true;
+            }
+        }
+        // Crossbowman sprite set is mirrored horizontally vs. our world directions.
+        // Map our computed direction to the filename direction by swapping E/W and diagonals; keep N/S.
+        const invertExceptNS = (d) => ({
+            east: 'west', west: 'east',
+            northeast: 'northwest', northwest: 'northeast',
+            southeast: 'southwest', southwest: 'southeast'
+        })[d] || d;
+        const renderDir = invertExceptNS(dir);
+        const hyphenDir = (d) => d.replace('northeast','north-east')
+                                   .replace('northwest','north-west')
+                                   .replace('southeast','south-east')
+                                   .replace('southwest','south-west');
+        let candidates = [];
+        if (useAttack) {
+            candidates = [
+                `crossbowman/attack/crossbowman_${renderDir}`,
+                `crossbowman/attack/crossbowman_${hyphenDir(renderDir)}`
+            ];
+        } else if (unit.state === 'idle') {
+            const idleDir = invertExceptNS(unit._lastFaceNatural || 'south');
+            candidates = [
+                `crossbowman/idle/crossbowman_${idleDir}`,
+                `crossbowman/idle/crossbowman_${hyphenDir(idleDir)}`
+            ];
+        } else {
+            const moveDir = invertExceptNS(unit._faceDir);
+            candidates = [
+                `crossbowman/walk/crossbowman_${moveDir}`,
+                `crossbowman/walk/crossbowman_${hyphenDir(moveDir)}`
+            ];
+        }
+        const isRealGif = (name) => name && assetManager.isLoaded('units', name) && assetManager.isGifAsset('units', name);
+        let chosen = null;
+        for (const name of candidates) { if (isRealGif(name)) { chosen = name; break; } }
+        if (chosen) {
+            img = assetManager.getAsset('units', chosen);
+            hasGif = true;
+        } else {
+            candidates.forEach(name => { if (name) assetManager.loadAsset('units', name).catch(() => {}); });
+        }
+    } else if (unit.type === 'ballista') {
+        // Directional GIF selection for Ballista (8-way idle/move/attack). No left/right inversion.
+        const prevX = unit.__drawPrevX ?? unit.x;
+        const prevY = unit.__drawPrevY ?? unit.y;
+        const dx = unit.x - prevX;
+        const dy = unit.y - prevY;
+        unit.__drawPrevX = unit.x;
+        unit.__drawPrevY = unit.y;
+        const moving = Math.hypot(dx, dy) > 0.15;
+        const dirs = ['east','northeast','north','northwest','west','southwest','south','southeast'];
+        if (!unit._faceDir) unit._faceDir = 'south';
+        if (moving) {
+            const angle = Math.atan2(dy, dx);
+            const idx = (Math.round(((angle + Math.PI) / (Math.PI / 4))) % 8 + 8) % 8;
+            unit._faceDir = dirs[idx];
+        }
+    let dir = unit._faceDir;
+        // Attack direction when in range
+        let useAttack = false;
+        if (unit.state === 'attacking' && unit.target) {
+            const cfg = GAME_CONFIG.units[unit.type] || {};
+            const range = cfg.attackRange || 40;
+            const tx = unit.targetPoint ? unit.targetPoint.x : (unit.target.x + (unit.target.width ? unit.target.width/2 : 0));
+            const ty = unit.targetPoint ? unit.targetPoint.y : (unit.target.y + (unit.target.height ? unit.target.height/2 : 0));
+            const adx = tx - unit.x;
+            const ady = ty - unit.y;
+            const dist = Math.hypot(adx, ady);
+            if (dist <= range + 2) {
+                const aAngle = Math.atan2(ady, adx);
+                const aIdx = (Math.round(((aAngle + Math.PI) / (Math.PI / 4))) % 8 + 8) % 8;
+                dir = dirs[aIdx];
+                useAttack = true;
+            }
+        }
+        // Apply requested inversions for ballista directions
+        const invertAll = (d) => ({
+            east: 'west', west: 'east',
+            northeast: 'northwest', northwest: 'northeast',
+            southeast: 'southwest', southwest: 'southeast',
+            north: 'south', south: 'north'
+        })[d] || d;
+        const isDiagonal = (d) => d === 'northeast' || d === 'northwest' || d === 'southeast' || d === 'southwest';
+        const invertDiagonalOnly = (d) => ({
+            northeast: 'northwest', northwest: 'northeast',
+            southeast: 'southwest', southwest: 'southeast'
+        })[d] || d;
+
+        let renderDir = dir;
+        if (useAttack) {
+            // All diagonal attacks are inverse; keep cardinals as-is
+            renderDir = isDiagonal(dir) ? invertDiagonalOnly(dir) : dir;
+        } else if (unit.state === 'idle') {
+            // Idle: inverse all directions
+            renderDir = invertAll(dir);
+        } else {
+            // Walking: invert diagonals; swap east<->west; keep north/south as-is
+            if (isDiagonal(dir)) {
+                renderDir = invertDiagonalOnly(dir);
+            } else if (dir === 'east') {
+                renderDir = 'west';
+            } else if (dir === 'west') {
+                renderDir = 'east';
+            } else {
+                renderDir = dir; // north/south
+            }
+        }
+
+        const hyphenDir = renderDir.replace('northeast','north-east')
+                                   .replace('northwest','north-west')
+                                   .replace('southeast','south-east')
+                                   .replace('southwest','south-west');
+        let candidates = [];
+        if (useAttack) {
+            candidates = [
+                `ballista/attack/ballista_attack_${hyphenDir}`,
+                `ballista/attack/ballista_attack_${renderDir}`
+            ];
+        } else if (unit.state === 'idle') {
+            // Actual files are ballista/idle/ballista_{dir}.gif (no "idle" in filename)
+            candidates = [
+                `ballista/idle/ballista_${renderDir}`,
+                `ballista/idle/ballista_${hyphenDir}`,
+                // Fall back to previously assumed naming just in case
+                `ballista/idle/ballista_idle_${renderDir}`,
+                `ballista/idle/ballista_idle_${hyphenDir}`
+            ];
+        } else {
+            // Movement: actual files are ballista/walk/ballista_{dir}.gif
+            candidates = [
+                `ballista/walk/ballista_${renderDir}`,
+                `ballista/walk/ballista_${hyphenDir}`
+            ];
+        }
+        const isRealGif = (name) => name && assetManager.isLoaded('units', name) && assetManager.isGifAsset('units', name);
+        let chosen = null;
+        for (const name of candidates) {
+            if (isRealGif(name)) { chosen = name; break; }
+        }
+        if (chosen) {
+            img = assetManager.getAsset('units', chosen);
+            hasGif = true;
+        } else {
+            candidates.forEach(name => { if (name) assetManager.loadAsset('units', name).catch(() => {}); });
+        }
+    } else if (unit.type === 'catapult') {
+        // Catapult directional selection (8-way idle/move/attack).
+        const prevX = unit.__drawPrevX ?? unit.x;
+        const prevY = unit.__drawPrevY ?? unit.y;
+        const dx = unit.x - prevX;
+        const dy = unit.y - prevY;
+        unit.__drawPrevX = unit.x;
+        unit.__drawPrevY = unit.y;
+        const moving = Math.hypot(dx, dy) > 0.15;
+        const dirs = ['east','northeast','north','northwest','west','southwest','south','southeast'];
+        if (!unit._faceDir) unit._faceDir = 'south';
+        if (moving) {
+            const angle = Math.atan2(dy, dx);
+            const idx = (Math.round(((angle + Math.PI) / (Math.PI / 4))) % 8 + 8) % 8;
+            unit._faceDir = dirs[idx];
+        }
+    let dir = unit._faceDir;
+        // Reverse all directions (including diagonals) for catapult
+        const invertAll = (d) => ({
+            east: 'west', west: 'east',
+            northeast: 'northwest', northwest: 'northeast',
+            southeast: 'southwest', southwest: 'southeast',
+            north: 'south', south: 'north'
+        })[d] || d;
+        // If attacking, we already recompute dir toward target below; apply inversion after that too
+        let renderDir = dir;
+        let candidates = [];
+        const cfg = GAME_CONFIG.units[unit.type] || {};
+        let useAttack = false;
+        if (unit.state === 'attacking' && unit.target) {
+            const range = cfg.attackRange || 40;
+            const tx = unit.targetPoint ? unit.targetPoint.x : (unit.target.x + (unit.target.width ? unit.target.width/2 : 0));
+            const ty = unit.targetPoint ? unit.targetPoint.y : (unit.target.y + (unit.target.height ? unit.target.height/2 : 0));
+            const adx = tx - unit.x;
+            const ady = ty - unit.y;
+            const dist = Math.hypot(adx, ady);
+            if (dist <= range + 2) {
+                const aAngle = Math.atan2(ady, adx);
+                const aIdx = (Math.round(((aAngle + Math.PI) / (Math.PI / 4))) % 8 + 8) % 8;
+        dir = dirs[aIdx];
+                useAttack = true;
+            }
+        }
+    renderDir = invertAll(dir);
+    const hyphenDir = renderDir.replace('northeast','north-east')
+                   .replace('northwest','north-west')
+                   .replace('southeast','south-east')
+                   .replace('southwest','south-west');
+    if (useAttack) {
+            candidates = [
+        `catapult/attack/catapult_attack_${renderDir}`,
+                `catapult/attack/catapult_attack_${hyphenDir}`
+            ];
+        } else if (unit.state === 'idle') {
+            candidates = [
+        `catapult/idle/catapult_idle_${renderDir}`,
+                `catapult/idle/catapult_idle_${hyphenDir}`
+            ];
+        } else {
+            candidates = [
+        `catapult/move/catapult_move_${renderDir}`,
+                `catapult/move/catapult_move_${hyphenDir}`
+            ];
+        }
+        const isRealGif = (name) => name && assetManager.isLoaded('units', name) && assetManager.isGifAsset('units', name);
+        let chosen = null;
+        for (const name of candidates) {
+            if (isRealGif(name)) { chosen = name; break; }
+        }
+        if (chosen) {
+            img = assetManager.getAsset('units', chosen);
+            hasGif = true;
+        } else {
+            candidates.forEach(name => { if (name) assetManager.loadAsset('units', name).catch(() => {}); });
+        }
+    } else if (unit.type === 'fishingBoat' || unit.type === 'transportLarge' || unit.type === 'warship') {
+        // Navy units: use the same directional GIFs for all states (idle/move/attack/fishing)
+        const prevX = unit.__drawPrevX ?? unit.x;
+        const prevY = unit.__drawPrevY ?? unit.y;
+        const dx = unit.x - prevX;
+        const dy = unit.y - prevY;
+        unit.__drawPrevX = unit.x;
+        unit.__drawPrevY = unit.y;
+        const moving = Math.hypot(dx, dy) > 0.15;
+        const dirs = ['east','northeast','north','northwest','west','southwest','south','southeast'];
+        if (!unit._faceDir) unit._faceDir = 'south';
+        if (moving) {
+            const angle = Math.atan2(dy, dx);
+            const idx = (Math.round(((angle + Math.PI) / (Math.PI / 4))) % 8 + 8) % 8;
+            unit._faceDir = dirs[idx];
+        }
+        let dir = unit._faceDir;
+        // Reverse all directions except south and north
+        const invertExceptNS = (d) => ({
+            east: 'west', west: 'east',
+            northeast: 'northwest', northwest: 'northeast',
+            southeast: 'southwest', southwest: 'southeast'
+        })[d] || d; // keep north/south as-is
+        const renderDir = invertExceptNS(dir);
+        const hyphenDir = renderDir.replace('northeast','north-east')
+                             .replace('northwest','north-west')
+                             .replace('southeast','south-east')
+                             .replace('southwest','south-west');
+        // Folder and filename base per unit type
+        let folder, base;
+        if (unit.type === 'fishingBoat') { folder = 'FishingBoat'; base = 'fishingboat_'; }
+        else if (unit.type === 'transportLarge') { folder = 'TransportLarge'; base = 'transport_'; }
+        else { folder = 'warship'; base = 'warship_'; }
+        const candidates = [
+            `${folder}/${base}${renderDir}`,
+            `${folder}/${base}${hyphenDir}`
+        ];
+        const isRealGif = (name) => name && assetManager.isLoaded('units', name) && assetManager.isGifAsset('units', name);
+        let chosen = null;
+        for (const name of candidates) { if (isRealGif(name)) { chosen = name; break; } }
+        if (chosen) {
+            img = assetManager.getAsset('units', chosen);
+            hasGif = true;
+        } else {
+            candidates.forEach(name => { if (name) assetManager.loadAsset('units', name).catch(() => {}); });
+        }
+    }
+    if (hasGif) {
+        const nW = img.naturalWidth || img.width || 2;
+        const nH = img.naturalHeight || img.height || 2;
         const circleRadius = 18;
         const maxD = circleRadius * 2 - 4;
-    const scale = Math.min(maxD / fw, maxD / fh);
-    const renderScale = (spr.renderScale || 1);
-    const dw = Math.floor(fw * scale * renderScale);
-    const dh = Math.floor(fh * scale * renderScale);
-        const dx = -Math.floor(dw / 2);
-        const dy = -Math.floor(dh / 2);
-        drawAssetSprite(ctx, 'units', spr.sheet, sx, sy, fw, fh, dx, dy, dw, dh);
-    } else if (unit.type === 'militia') {
-        drawMilitiaIcon(ctx, unitSize, unitSize);
-    } else if (unit.type === 'archer') {
-        drawArcherIcon(ctx, unitSize, unitSize);
-    } else if (unit.type === 'crossbowman') {
+        const scale = Math.min(maxD / nW, maxD / nH);
+        let dw = Math.max(1, Math.floor(nW * scale));
+        let dh = Math.max(1, Math.floor(nH * scale));
+    // Scale units: Axeman 6x (2x bigger than current 3x), other infantry 3x
+    if (unit.type === 'axeman') {
+            dw = Math.max(1, Math.floor(dw * 6));
+            dh = Math.max(1, Math.floor(dh * 6));
+    } else if (unit.type === 'villager' || unit.type === 'archer' || unit.type === 'militia' || unit.type === 'warrior' || unit.type === 'crossbowman') {
+            dw = Math.max(1, Math.floor(dw * 3));
+            dh = Math.max(1, Math.floor(dh * 3));
+        } else if (unit.type === 'ballista') {
+            // Make ballista 3x bigger
+            dw = Math.max(1, Math.floor(dw * 3));
+            dh = Math.max(1, Math.floor(dh * 3));
+        } else if (unit.type === 'catapult') {
+            // Make catapult 3x bigger
+            dw = Math.max(1, Math.floor(dw * 3));
+            dh = Math.max(1, Math.floor(dh * 3));
+        } else if (unit.type === 'fishingBoat' || unit.type === 'transportLarge' || unit.type === 'warship') {
+            // Navy per-unit scaling
+            if (unit.type === 'fishingBoat') {
+                dw = Math.max(1, Math.floor(dw * 2));
+                dh = Math.max(1, Math.floor(dh * 2));
+            } else if (unit.type === 'transportLarge') {
+                dw = Math.max(1, Math.floor(dw * 4));
+                dh = Math.max(1, Math.floor(dh * 4));
+            } else {
+                dw = Math.max(1, Math.floor(dw * 7));
+                dh = Math.max(1, Math.floor(dh * 7));
+            }
+        }
+        const screenX = drawX; // overlay is aligned to canvas CSS pixels
+        const screenY = drawY;
+        // Create/update a DOM <img> for this unit
+        if (!unit._domGif) {
+            const el = document.createElement('img');
+            el.src = img.src;
+            el.style.position = 'absolute';
+            el.style.pointerEvents = 'none';
+            el.style.willChange = 'transform';
+            el.dataset.unitId = getUnitDomId(unit);
+            unit._domGif = el;
+            getUnitOverlay().appendChild(el);
+        }
+        const el = unit._domGif;
+        // Swap source when direction changes
+        if (el.src !== img.src) el.src = img.src;
+        el.style.display = 'block';
+        el.style.width = `${dw}px`;
+        el.style.height = `${dh}px`;
+        el.style.transform = `translate(${Math.round(screenX - dw/2)}px, ${Math.round(screenY - dh/2)}px)`;
+        // Skip canvas image draw; we still draw selection/health below
+    } else {
+        // No GIF: hide any existing overlay for this unit and draw fallback icons
+        if (unit.type === 'militia') {
+            // Show militia using a safe idle GIF directly, even if not preloaded
+            const idleFaceRaw = unit._lastFaceNatural || 'south';
+            const idleInvert = { northeast: 'northwest', northwest: 'northeast', southeast: 'southwest', southwest: 'southeast', east: 'west', west: 'east' };
+            const idleFace = idleInvert[idleFaceRaw] || idleFaceRaw;
+            const idleDir = idleFace.replace('northeast','north-east').replace('northwest','north-west').replace('southeast','south-east').replace('southwest','south-west');
+            const src = `${assetManager.basePath}units/militia/idle/militia_idle-idle_${idleDir}.gif`;
+            if (!unit._domGif) {
+                const el = document.createElement('img');
+                el.style.position = 'absolute';
+                el.style.pointerEvents = 'none';
+                el.style.willChange = 'transform';
+                el.dataset.unitId = getUnitDomId(unit);
+                unit._domGif = el;
+                getUnitOverlay().appendChild(el);
+            }
+            const el = unit._domGif;
+            if (el.src !== src) el.src = src;
+            el.style.display = 'block';
+            const dw = 24 * 3; // default 3x size
+            const dh = 24 * 3;
+            const screenX = drawX;
+            const screenY = drawY;
+            el.style.width = `${dw}px`;
+            el.style.height = `${dh}px`;
+            el.style.transform = `translate(${Math.round(screenX - dw/2)}px, ${Math.round(screenY - dh/2)}px)`;
+            // Also queue the asset in manager for cache
+            assetManager.loadAsset('units', `militia/idle/militia_idle-idle_${idleDir}`).catch(() => {});
+        } else {
+            // Hide overlay for this unit and draw fallback icons
+            if (unit._domGif) unit._domGif.style.display = 'none';
+            if (unit.type === 'archer') {
+                drawArcherIcon(ctx, unitSize, unitSize);
+            } else if (unit.type === 'crossbowman') {
         drawCrossbowmanIcon(ctx, unitSize, unitSize);
-    } else if (unit.type === 'scout') {
-        drawScoutIcon(ctx, unitSize, unitSize);
-    } else if (unit.type === 'knight') {
-        drawKnightIcon(ctx, unitSize, unitSize);
+    } else if (unit.type === 'axeman') {
+        drawAxemanIcon(ctx, unitSize, unitSize);
     } else if (unit.type === 'warrior') {
         drawWarriorIcon(ctx, unitSize, unitSize);
-    } else if (unit.type === 'soldier') {
-        drawSoldierIcon(ctx, unitSize, unitSize);
     } else if (unit.type === 'catapult') {
         drawCatapultIcon(ctx, unitSize * 1.5, unitSize * 1.5); // Siege units slightly larger
     } else if (unit.type === 'ballista') {
         drawBallistaIcon(ctx, unitSize * 1.5, unitSize * 1.5);
-    } else if (unit.type === 'mangonel') {
-        drawMangonelIcon(ctx, unitSize * 1.5, unitSize * 1.5);
-    } else if (unit.type === 'trebuchet') {
-        drawTrebuchetIcon(ctx, unitSize * 1.5, unitSize * 1.5);
-    } else if (unit.type === 'fishingBoat' || unit.type === 'transportSmall' || unit.type === 'transportLarge' || unit.type === 'galley' || unit.type === 'warship') {
-        drawShipIcon(ctx, unitSize * 1.2, unitSize * 1.2); // Naval units slightly larger
+    } else if (unit.type === 'fishingBoat' || unit.type === 'transportLarge' || unit.type === 'warship') {
+        drawShipIcon(ctx, unit.type, 1.2); // Use specific navy sprite as fallback
+    }
+        }
     }
 
     if (unit.isSelected) {
@@ -184,7 +896,18 @@ function drawBuildings(ctx) {
         if (building.isSelected) {
             ctx.strokeStyle = '#00ff00';
             ctx.lineWidth = 3;
-            ctx.strokeRect(0, 0, building.width, building.height);
+            // Draw rounded selection rectangle with much more rounded corners
+            const cornerRadius = Math.min(32, Math.min(building.width, building.height) * 0.4);
+            drawRoundedRect(ctx, 0, 0, building.width, building.height, cornerRadius, false, true);
+        }
+
+        // Draw collision border for debugging (optional)
+        if (gameState.showBuildingCollision) {
+            ctx.strokeStyle = 'rgba(255, 0, 0, 0.3)';
+            ctx.lineWidth = 1;
+            const buffer = 12;
+            const cornerRadius = Math.min(32, Math.min(building.width, building.height) * 0.4);
+            drawRoundedRect(ctx, -buffer, -buffer, building.width + 2*buffer, building.height + 2*buffer, cornerRadius, false, true);
         }
 
         const bcfg = getBuildingConfig(building.type);
@@ -209,40 +932,81 @@ function drawBuildings(ctx) {
 
 function drawPlacingBuilding(ctx) {
     if (gameState.placingBuilding) {
-        const config = getBuildingConfig(gameState.placingBuilding);
-        const drawX = gameState.placingBuildingPosition.x - gameState.camera.x - config.width / 2;
-        const drawY = gameState.placingBuildingPosition.y - gameState.camera.y - config.height / 2;
-        const isValidPlacement = canPlaceBuilding(gameState.placingBuilding, gameState.placingBuildingPosition.x, gameState.placingBuildingPosition.y);
-        
+        const type = gameState.placingBuilding;
+        const config = getBuildingConfig(type);
+        let ghostX = gameState.placingBuildingPosition.x;
+        let ghostY = gameState.placingBuildingPosition.y;
+        let ghostW = config.width;
+        let ghostH = config.height;
+        let isValidPlacement = canPlaceBuilding(type, ghostX, ghostY);
+        if (type === 'bridge') {
+            // Preview is exactly one tile; snap to tile center
+            const tileSize = (tilemap && tilemap.tileSize) ? tilemap.tileSize : 32;
+            const tx = Math.floor(ghostX / tileSize);
+            const ty = Math.floor(ghostY / tileSize);
+            ghostW = tileSize;
+            ghostH = tileSize;
+            ghostX = tx * tileSize + tileSize / 2;
+            ghostY = ty * tileSize + tileSize / 2;
+            const blk = computeBridgeBlockAt(ghostX, ghostY);
+            isValidPlacement = blk.ok;
+        }
+        const drawX = ghostX - gameState.camera.x - ghostW / 2;
+        const drawY = ghostY - gameState.camera.y - ghostH / 2;
+
         ctx.save();
         ctx.translate(drawX, drawY);
-        
+
         // Draw the building asset with ghost effect
-        if (gameState.placingBuilding === 'house') {
+        if (type === 'house') {
             drawSpriteGhost(ctx, 'buildings', 'house', config.width, config.height, isValidPlacement);
-        } else if (gameState.placingBuilding === 'barracks') {
+        } else if (type === 'barracks') {
             drawSpriteGhost(ctx, 'buildings', 'barracks', config.width, config.height, isValidPlacement);
-        } else if (gameState.placingBuilding === 'archeryRange') {
+        } else if (type === 'archeryRange') {
             drawSpriteGhost(ctx, 'buildings', 'archeryRange', config.width, config.height, isValidPlacement);
-        } else if (gameState.placingBuilding === 'craftery') {
+        } else if (type === 'craftery') {
             drawSpriteGhost(ctx, 'buildings', 'craftery', config.width, config.height, isValidPlacement);
-        } else if (gameState.placingBuilding === 'town-center') {
+        } else if (type === 'town-center') {
             drawSpriteGhost(ctx, 'buildings', 'townCenter', config.width, config.height, isValidPlacement);
-        } else if (gameState.placingBuilding === 'navy') {
+        } else if (type === 'navy') {
             drawSpriteGhost(ctx, 'buildings', 'navy', config.width, config.height, isValidPlacement);
-        } else if (gameState.placingBuilding === 'bridge') {
+        } else if (type === 'bridge') {
             ctx.save();
-            ctx.globalAlpha = 0.7;
-            ctx.fillStyle = isValidPlacement ? 'rgba(139, 69, 19, 0.7)' : 'rgba(255, 0, 0, 0.7)';
-            ctx.fillRect(0, 0, config.width, config.height);
+            ctx.globalAlpha = 0.75;
+            const w = ghostW, h = ghostH;
+            const cornerRadius = Math.min(24, Math.min(w, h) * 0.3);
+            // Base ghost
+            ctx.fillStyle = isValidPlacement ? '#C8A165' : 'rgba(255,0,0,0.6)';
+            drawRoundedRect(ctx, 0, 0, w, h, cornerRadius, true, false);
+            if (isValidPlacement) {
+                // Wood grain preview
+                ctx.strokeStyle = 'rgba(94, 62, 26, 0.25)';
+                ctx.lineWidth = 1;
+                for (let i = 0; i < 4; i++) {
+                    const gx = (i + 1) * (w / 5);
+                    ctx.beginPath();
+                    ctx.moveTo(gx, 4);
+                    ctx.lineTo(gx, h - 4);
+                    ctx.stroke();
+                }
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+                for (let j = 0; j < Math.max(1, Math.floor(h / 12)); j++) {
+                    const gy = (j + 1) * (h / (Math.max(1, Math.floor(h / 12)) + 1));
+                    ctx.beginPath();
+                    ctx.moveTo(6, gy);
+                    ctx.lineTo(w - 6, gy);
+                    ctx.stroke();
+                }
+            }
             ctx.restore();
         }
         
-        // Draw placement validity outline
+        // Draw placement validity outline with rounded corners
         ctx.strokeStyle = isValidPlacement ? '#00ff00' : '#ff0000';
         ctx.lineWidth = 2;
-        ctx.strokeRect(0, 0, config.width, config.height);
-        
+        const cornerRadius = Math.min(32, Math.min(ghostW, ghostH) * 0.4);
+        drawRoundedRect(ctx, 0, 0, ghostW, ghostH, cornerRadius, false, true);
+
         ctx.restore();
     }
 }
@@ -257,13 +1021,15 @@ function drawMinimap() {
     ctx.fillRect(0, 0, minimapCanvas.width, minimapCanvas.height);
 
     gameState.worldObjects.forEach(obj => {
-         if (obj.type === 'resource' || obj.type === 'water' || obj.type === 'bridge') {
+    // Do not mark resources or decorations on the minimap
+    if (obj.type === 'resource' || obj.type === 'decoration') return;
+        if (obj.type === 'water' || obj.type === 'bridge') {
             ctx.fillStyle = obj.color;
-         } else {
-             ctx.fillStyle = '#696969';
-         }
-         ctx.fillRect(obj.x * scaleX, obj.y * scaleY,
-                   Math.max(1, obj.width * scaleX), Math.max(1, obj.height * scaleY));
+        } else {
+            ctx.fillStyle = '#696969';
+        }
+        ctx.fillRect(obj.x * scaleX, obj.y * scaleY,
+            Math.max(1, obj.width * scaleX), Math.max(1, obj.height * scaleY));
     });
     gameState.units.forEach(unit => {
         ctx.fillStyle = '#00ff00';
@@ -290,19 +1056,146 @@ function drawUnitIcon(ctx, unitType, scale) {
         case 'militia': drawMilitiaIcon(ctx, scale); break;
         case 'archer': drawArcherIcon(ctx, scale); break;
         case 'crossbowman': drawCrossbowmanIcon(ctx, scale); break;
-        case 'scout': drawScoutIcon(ctx, scale); break;
-        case 'knight': drawKnightIcon(ctx, scale); break;
+    case 'axeman': drawAxemanIcon(ctx, scale); break;
         case 'warrior': drawWarriorIcon(ctx, scale); break;
-        case 'soldier': drawSoldierIcon(ctx, scale); break;
         case 'catapult': drawCatapultIcon(ctx, scale); break;
         case 'ballista': drawBallistaIcon(ctx, scale); break;
-        case 'mangonel': drawMangonelIcon(ctx, scale); break;
-        case 'trebuchet': drawTrebuchetIcon(ctx, scale); break;
         case 'fishingBoat':
-        case 'transportSmall':
         case 'transportLarge':
-        case 'galley':
         case 'warship':
             drawShipIcon(ctx, scale); break;
+    }
+}
+
+// --- Unit Menu Icon Drawing Helpers ---
+function __iconSetup(ctx) {
+    const c = ctx.canvas;
+    const w = c.width, h = c.height;
+    ctx.save();
+    ctx.clearRect(0, 0, w, h);
+    ctx.imageSmoothingEnabled = false;
+    return { w, h };
+}
+
+function drawVillagerIcon(ctx, scale = 6) {
+    const { w, h } = __iconSetup(ctx);
+    const cx = w / 2, cy = h / 2;
+    // Head
+    ctx.fillStyle = '#f2d2b6';
+    ctx.beginPath(); ctx.arc(cx, cy - 6, 5, 0, Math.PI * 2); ctx.fill();
+    // Body
+    ctx.fillStyle = '#3a7bd5';
+    ctx.fillRect(cx - 5, cy - 2, 10, 12);
+    // Tool
+    ctx.strokeStyle = '#8b5a2b'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(cx + 6, cy - 2); ctx.lineTo(cx + 12, cy - 10); ctx.stroke();
+    ctx.restore();
+}
+
+function drawMilitiaIcon(ctx, scale = 6) {
+    const { w, h } = __iconSetup(ctx); const cx = w/2, cy = h/2;
+    ctx.fillStyle = '#f2d2b6'; ctx.beginPath(); ctx.arc(cx, cy - 7, 4.5, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#5c6bc0'; ctx.fillRect(cx - 6, cy - 2, 12, 13);
+    // Sword
+    ctx.strokeStyle = '#cfd8dc'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(cx + 6, cy + 1); ctx.lineTo(cx + 12, cy - 8); ctx.stroke();
+    ctx.restore();
+}
+
+function drawWarriorIcon(ctx, scale = 6) {
+    const { w, h } = __iconSetup(ctx); const cx = w/2, cy = h/2;
+    ctx.fillStyle = '#f2d2b6'; ctx.beginPath(); ctx.arc(cx, cy - 7, 4.5, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#8d6e63'; ctx.fillRect(cx - 6, cy - 2, 12, 13);
+    // Shield
+    ctx.fillStyle = '#b0bec5'; ctx.beginPath(); ctx.arc(cx - 10, cy + 3, 5, Math.PI*0.5, Math.PI*1.5); ctx.fill();
+    // Spear
+    ctx.strokeStyle = '#cfd8dc'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(cx + 5, cy + 4); ctx.lineTo(cx + 13, cy - 8); ctx.stroke();
+    ctx.restore();
+}
+
+function drawAxemanIcon(ctx, scale = 6) {
+    const { w, h } = __iconSetup(ctx); const cx = w/2, cy = h/2;
+    ctx.fillStyle = '#f2d2b6'; ctx.beginPath(); ctx.arc(cx, cy - 7, 4.5, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#6d4c41'; ctx.fillRect(cx - 6, cy - 2, 12, 13);
+    // Axe
+    ctx.strokeStyle = '#8b5a2b'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(cx + 4, cy + 4); ctx.lineTo(cx + 12, cy - 6); ctx.stroke();
+    ctx.fillStyle = '#cfd8dc'; ctx.fillRect(cx + 10, cy - 9, 5, 6);
+    ctx.restore();
+}
+
+function drawArcherIcon(ctx, scale = 6) {
+    const { w, h } = __iconSetup(ctx); const cx = w/2, cy = h/2;
+    ctx.fillStyle = '#f2d2b6'; ctx.beginPath(); ctx.arc(cx, cy - 7, 4.5, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#388e3c'; ctx.fillRect(cx - 6, cy - 2, 12, 13);
+    // Bow
+    ctx.strokeStyle = '#8b5a2b'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(cx + 7, cy + 1, 8, -Math.PI/3, Math.PI/3); ctx.stroke();
+    // Arrow string
+    ctx.beginPath(); ctx.moveTo(cx + 7, cy - 6); ctx.lineTo(cx + 7, cy + 8); ctx.stroke();
+    ctx.restore();
+}
+
+function drawCrossbowmanIcon(ctx, scale = 6) {
+    const { w, h } = __iconSetup(ctx); const cx = w/2, cy = h/2;
+    ctx.fillStyle = '#f2d2b6'; ctx.beginPath(); ctx.arc(cx, cy - 7, 4.5, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#00796b'; ctx.fillRect(cx - 6, cy - 2, 12, 13);
+    // Crossbow
+    ctx.strokeStyle = '#8b5a2b'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(cx + 6, cy + 1); ctx.lineTo(cx + 12, cy + 1); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx + 9, cy - 5); ctx.lineTo(cx + 9, cy + 7); ctx.stroke();
+    ctx.restore();
+}
+
+function drawCatapultIcon(ctx, scale = 6) {
+    const { w, h } = __iconSetup(ctx);
+    // Base
+    ctx.fillStyle = '#8b5a2b'; ctx.fillRect(6, h - 14, w - 12, 10);
+    // Arm
+    ctx.strokeStyle = '#a1887f'; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(10, h - 14); ctx.lineTo(w - 8, 10); ctx.stroke();
+    // Sling
+    ctx.fillStyle = '#cfd8dc'; ctx.beginPath(); ctx.arc(w - 8, 10, 4, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+}
+
+function drawBallistaIcon(ctx, scale = 6) {
+    const { w, h } = __iconSetup(ctx);
+    // Base
+    ctx.fillStyle = '#795548'; ctx.fillRect(8, h - 16, w - 16, 12);
+    // Bow arms
+    ctx.strokeStyle = '#a1887f'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(10, h - 16); ctx.lineTo(w/2, 10); ctx.lineTo(w - 10, h - 16); ctx.stroke();
+    // Bolt
+    ctx.strokeStyle = '#cfd8dc'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(w/2, 10); ctx.lineTo(w/2, h - 16); ctx.stroke();
+    ctx.restore();
+}
+
+function drawShipIcon(ctx, arg1 = 6, arg2) {
+    const scale = (typeof arg1 === 'number') ? arg1 : (arg2 || 6);
+    const { w, h } = __iconSetup(ctx);
+    // Water base
+    ctx.fillStyle = '#1976d2'; ctx.fillRect(0, h - 8, w, 8);
+    // Hull
+    ctx.fillStyle = '#6d4c41'; ctx.beginPath();
+    ctx.moveTo(6, h - 10); ctx.lineTo(w - 6, h - 10); ctx.lineTo(w - 12, h - 4); ctx.lineTo(12, h - 4); ctx.closePath(); ctx.fill();
+    // Mast & sail
+    ctx.strokeStyle = '#795548'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(w/2, h - 10); ctx.lineTo(w/2, 8); ctx.stroke();
+    ctx.fillStyle = '#fafafa'; ctx.beginPath(); ctx.moveTo(w/2, 10); ctx.lineTo(w/2 + 10, 18); ctx.lineTo(w/2, 26); ctx.closePath(); ctx.fill();
+    ctx.restore();
+}
+
+// Helper function to draw rounded rectangles
+function drawRoundedRect(ctx, x, y, width, height, radius, fill = false, stroke = false) {
+    ctx.beginPath();
+    ctx.moveTo(x + radius, y);
+    ctx.lineTo(x + width - radius, y);
+    ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+    ctx.lineTo(x + width, y + height - radius);
+    ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+    ctx.lineTo(x + radius, y + height);
+    ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+    ctx.lineTo(x, y + radius);
+    ctx.quadraticCurveTo(x, y, x + radius, y);
+    ctx.closePath();
+    
+    if (fill) {
+        ctx.fill();
+    }
+    if (stroke) {
+        ctx.stroke();
     }
 }

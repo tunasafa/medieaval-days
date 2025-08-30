@@ -51,6 +51,7 @@ class PathfindingGrid {
                 this.grid[y][x].walkable = true;
                 this.grid[y][x].cost = 1;
                 this.grid[y][x].isWater = false; // Reset water flag
+                this.grid[y][x].clearance = Infinity; // distance in cells to nearest obstacle
             }
         }
 
@@ -74,17 +75,38 @@ class PathfindingGrid {
             }
         });
 
-        // Mark large buildings as obstacles
+        // Bridges convert their footprint into walkable land for land units
+        gameState.worldObjects.forEach(obj => {
+            if (obj.type === 'bridge') {
+                const startX = Math.floor(obj.x / this.cellSize);
+                const startY = Math.floor(obj.y / this.cellSize);
+                const endX = Math.ceil((obj.x + obj.width) / this.cellSize);
+                const endY = Math.ceil((obj.y + obj.height) / this.cellSize);
+                for (let y = startY; y < endY; y++) {
+                    for (let x = startX; x < endX; x++) {
+                        if (this.isValidCell(x, y)) {
+                            this.grid[y][x].walkable = true;
+                            this.grid[y][x].isWater = false; // treat as land for grid logic
+                            this.grid[y][x].cost = Math.max(1, this.grid[y][x].cost); // ensure reasonable cost
+                        }
+                    }
+                }
+            }
+        });
+
+        // Mark large buildings as obstacles with extra padding to avoid hugging walls
         gameState.buildings.forEach(building => {
-            const startX = Math.floor((building.x - 8) / this.cellSize);
-            const startY = Math.floor((building.y - 8) / this.cellSize);
-            const endX = Math.ceil((building.x + building.width + 8) / this.cellSize);
-            const endY = Math.ceil((building.y + building.height + 8) / this.cellSize);
+            const margin = Math.max(16, this.cellSize); // at least one whole cell around buildings
+            const startX = Math.floor((building.x - margin) / this.cellSize);
+            const startY = Math.floor((building.y - margin) / this.cellSize);
+            const endX = Math.ceil((building.x + building.width + margin) / this.cellSize);
+            const endY = Math.ceil((building.y + building.height + margin) / this.cellSize);
 
             for (let y = startY; y < endY; y++) {
                 for (let x = startX; x < endX; x++) {
                     if (this.isValidCell(x, y)) {
                         this.grid[y][x].walkable = false;
+                        this.grid[y][x].clearance = 0;
                     }
                 }
             }
@@ -107,6 +129,46 @@ class PathfindingGrid {
                 this.grid[y][x].cost = Math.min(10, 1 + unitDensity[key]);
             }
         });
+
+        // Compute clearance distance (in cells) from obstacles via BFS
+        const q = [];
+        for (let y = 0; y < this.height; y++) {
+            for (let x = 0; x < this.width; x++) {
+                if (!this.grid[y][x].walkable) {
+                    this.grid[y][x].clearance = 0;
+                    q.push({ x, y });
+                }
+            }
+        }
+        const dirs = [ [1,0], [-1,0], [0,1], [0,-1] ];
+        while (q.length > 0) {
+            const { x, y } = q.shift();
+            const base = this.grid[y][x];
+            for (const [dx, dy] of dirs) {
+                const nx = x + dx, ny = y + dy;
+                if (!this.isValidCell(nx, ny)) continue;
+                const ncell = this.grid[ny][nx];
+                const cand = base.clearance + 1;
+                if (cand < ncell.clearance) {
+                    ncell.clearance = cand;
+                    q.push({ x: nx, y: ny });
+                }
+            }
+        }
+
+    // Increase cost near obstacles to prefer the middle of corridors
+    const influenceRadius = 5; // cells (broader influence)
+    const proximityWeight = 5.0; // stronger penalty near walls/corners
+        for (let y = 0; y < this.height; y++) {
+            for (let x = 0; x < this.width; x++) {
+                const cell = this.grid[y][x];
+                if (!cell.walkable) continue;
+                const d = Math.min(cell.clearance, influenceRadius);
+                const proximity = 1 - (d / influenceRadius); // 0 far from walls, 1 at the wall
+                const extra = proximity > 0 ? proximity * proximityWeight : 0;
+                cell.cost = Math.max(1, cell.cost + extra);
+            }
+        }
     }
 }
 
@@ -149,7 +211,7 @@ class AStarPathfinder {
         fScore.set(startKey, this.heuristic(start, end));
         openList.push(start);
 
-        while (openList.length > 0) {
+    while (openList.length > 0) {
             // Find node with lowest fScore
             let currentIndex = 0;
             for (let i = 1; i < openList.length; i++) {
@@ -172,7 +234,11 @@ class AStarPathfinder {
                     path.unshift(worldPos);
                     temp = cameFrom.get(`${temp.x},${temp.y}`);
                 }
-                return path;
+                // Post-process for smoother paths
+                const simplified = this.simplifyPathLOS(path, isShip);
+                const rounded = this.roundCorners(simplified, isShip);
+                const curved = this.splineSmooth(rounded, isShip);
+                return curved;
             }
 
             openList.splice(currentIndex, 1);
@@ -182,12 +248,24 @@ class AStarPathfinder {
             const neighbors = this.getNeighbors(current.x, current.y);
             for (const neighbor of neighbors) {
                 const neighborKey = `${neighbor.x},${neighbor.y}`;
-
+                // Prevent diagonal corner-cutting through tight gaps
+                const isDiag = (neighbor.x !== current.x) && (neighbor.y !== current.y);
+                if (isDiag) {
+                    const nx = neighbor.x, ny = neighbor.y;
+                    const b1 = this.isWalkable(current.x, ny, isShip);
+                    const b2 = this.isWalkable(nx, current.y, isShip);
+                    if (!b1 || !b2) {
+                        continue; // skip diagonals that pass between two blocked orthogonals
+                    }
+                }
                 if (closedList.has(neighborKey) || !this.isWalkable(neighbor.x, neighbor.y, isShip)) {
                     continue;
                 }
 
-                const tentativeGScore = gScore.get(currentKey) + this.getMoveCost(current, neighbor, isShip);
+                const moveCost = this.getMoveCost(current, neighbor, isShip);
+                const parent = cameFrom.get(currentKey) || null;
+                const turnCost = this.getTurnPenalty(parent, current, neighbor, isShip);
+                const tentativeGScore = gScore.get(currentKey) + moveCost + turnCost;
 
                 if (!gScore.has(neighborKey) || tentativeGScore < gScore.get(neighborKey)) {
                     cameFrom.set(neighborKey, current);
@@ -202,6 +280,126 @@ class AStarPathfinder {
         }
 
         return null; // No path found
+    }
+
+    // Check line of sight between two world points using grid walkability
+    hasLineOfSight(x0, y0, x1, y1, isShip = false) {
+        const dx = x1 - x0;
+        const dy = y1 - y0;
+        const dist = Math.hypot(dx, dy);
+        if (dist === 0) return true;
+        // Slightly denser sampling to avoid corner clipping
+        const steps = Math.max(3, Math.ceil(dist / (this.grid.cellSize * 0.4)));
+        for (let i = 0; i <= steps; i++) {
+            const t = i / steps;
+            const sx = x0 + dx * t;
+            const sy = y0 + dy * t;
+            const cell = this.grid.worldToGrid(sx, sy);
+            if (!this.grid.isValidCell(cell.x, cell.y)) return false;
+            if (!this.isWalkable(cell.x, cell.y, isShip)) return false;
+        }
+        return true;
+    }
+
+    // Simplify path by removing unnecessary waypoints using LOS
+    simplifyPathLOS(path, isShip = false) {
+        if (!path || path.length <= 2) return path || [];
+        const result = [];
+        let i = 0;
+        result.push(path[0]);
+        while (i < path.length - 1) {
+            let j = path.length - 1;
+            // Find farthest j visible from i
+            for (; j > i + 1; j--) {
+                if (this.hasLineOfSight(path[i].x, path[i].y, path[j].x, path[j].y, isShip)) {
+                    break;
+                }
+            }
+            result.push(path[j]);
+            i = j;
+        }
+        return result;
+    }
+
+    // Round corners by inserting short in/out points at turns
+    roundCorners(path, isShip = false) {
+        if (!path || path.length <= 2) return path || [];
+        // Adaptive rounding: bigger arcs near bridges and narrow corridors
+        const baseRadius = Math.max(8, this.grid.cellSize * 1.1);
+        const out = [path[0]];
+        for (let i = 1; i < path.length - 1; i++) {
+            const p0 = path[i - 1];
+            const p1 = path[i];
+            const p2 = path[i + 1];
+            const v1x = p1.x - p0.x, v1y = p1.y - p0.y;
+            const v2x = p2.x - p1.x, v2y = p2.y - p1.y;
+            const len1 = Math.hypot(v1x, v1y) || 1;
+            const len2 = Math.hypot(v2x, v2y) || 1;
+            const n1x = v1x / len1, n1y = v1y / len1;
+            const n2x = v2x / len2, n2y = v2y / len2;
+            // Determine local environment to scale rounding
+            const gridP1 = this.grid.worldToGrid(p1.x, p1.y);
+            let localRadius = baseRadius;
+            if (this.grid.isValidCell(gridP1.x, gridP1.y)) {
+                const cell = this.grid.grid[gridP1.y][gridP1.x];
+                // If close to obstacles (low clearance), increase rounding to avoid hugging corners
+                if (Number.isFinite(cell.clearance)) {
+                    const nearWall = Math.max(0, (4 - Math.min(4, cell.clearance)));
+                    localRadius += nearWall * (this.grid.cellSize * 0.5);
+                }
+            }
+            // If the corner lies on a bridge footprint, prefer an even larger arc for smooth transition
+            const onBridge = (typeof isPointOnBridge === 'function') && isPointOnBridge(p1.x, p1.y);
+            if (!isShip && onBridge) {
+                localRadius = Math.max(localRadius, this.grid.cellSize * 2.0);
+            }
+            const r = Math.min(localRadius, len1 * 0.45, len2 * 0.45);
+            const inPt = { x: p1.x - n1x * r, y: p1.y - n1y * r };
+            const outPt = { x: p1.x + n2x * r, y: p1.y + n2y * r };
+            // Ensure the rounded segment has LOS
+            if (this.hasLineOfSight(inPt.x, inPt.y, outPt.x, outPt.y, isShip)) {
+                out.push(inPt);
+                out.push(outPt);
+            } else {
+                out.push(p1);
+            }
+        }
+        out.push(path[path.length - 1]);
+        return out;
+    }
+
+    // Additional smoothing using a Catmull-Rom-like spline with LOS checks
+    splineSmooth(path, isShip = false) {
+        if (!path || path.length < 3) return path || [];
+        const pts = path;
+        const result = [pts[0]];
+        const step = 0.25; // sampling resolution
+        for (let i = 0; i < pts.length - 1; i++) {
+            const p0 = pts[Math.max(0, i - 1)];
+            const p1 = pts[i];
+            const p2 = pts[i + 1];
+            const p3 = pts[Math.min(pts.length - 1, i + 2)];
+            for (let t = step; t < 1 + 1e-6; t += step) {
+                const t2 = t * t;
+                const t3 = t2 * t;
+                const x = 0.5 * ((2 * p1.x) + (-p0.x + p2.x) * t + (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 + (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3);
+                const y = 0.5 * ((2 * p1.y) + (-p0.y + p2.y) * t + (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 + (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3);
+                const prev = result[result.length - 1];
+                const dist = Math.hypot(x - prev.x, y - prev.y);
+                if (dist >= this.grid.cellSize * 0.5 && this.hasLineOfSight(prev.x, prev.y, x, y, isShip)) {
+                    result.push({ x, y });
+                }
+            }
+        }
+        // Ensure exact final point
+        const last = pts[pts.length - 1];
+        const prev = result[result.length - 1];
+        if (!prev || this.hasLineOfSight(prev.x, prev.y, last.x, last.y, isShip)) {
+            result.push(last);
+        } else {
+            result.push(last);
+        }
+        return result;
     }
 
     isWalkable(x, y, isShip = false) {
@@ -234,6 +432,24 @@ class AStarPathfinder {
         }
 
         return cost;
+    }
+
+    // Penalize sharp turns to encourage smoother paths during search
+    getTurnPenalty(parent, current, next, isShip = false) {
+        if (!parent) return 0;
+        const v1x = current.x - parent.x;
+        const v1y = current.y - parent.y;
+        const v2x = next.x - current.x;
+        const v2y = next.y - current.y;
+        const len1 = Math.hypot(v1x, v1y);
+        const len2 = Math.hypot(v2x, v2y);
+        if (len1 === 0 || len2 === 0) return 0;
+        const dot = (v1x * v2x + v1y * v2y) / (len1 * len2);
+        const clamped = Math.max(-1, Math.min(1, dot));
+        const angle = Math.acos(clamped); // 0..pi
+        // Favor gentle curves: scale by normalized angle squared
+        const baseWeight = isShip ? 0.6 : 1.0;
+        return baseWeight * (angle / Math.PI) ** 2 * 2.0; // tweak factor
     }
 
     heuristic(a, b) {
@@ -313,7 +529,7 @@ function getNextWaypoint(unit) {
     const currentWaypoint = unit.path[0];
     const distance = Math.hypot(unit.x - currentWaypoint.x, unit.y - currentWaypoint.y);
     
-    if (distance < 10) {
+    if (distance < 14) {
         // Remove reached waypoint and get next one
         unit.path.shift();
         return unit.path.length > 0 ? unit.path[0] : null;

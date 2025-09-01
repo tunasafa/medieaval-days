@@ -27,9 +27,51 @@ function syncOverlayToCanvas() {
     overlay.style.width = `${rect.width}px`;
     overlay.style.height = `${rect.height}px`;
 }
+
+// Compute the aim point for attack direction/range checks.
+// If targetPoint is provided, use it. If target has width/height (e.g., a building),
+// aim at the nearest point on its rectangle to the unit. Otherwise, aim at target center.
+function computeAttackAim(unit, target, targetPoint) {
+    // If target is a building (has width/height), always aim at the nearest point
+    // on its rectangle to the unit, regardless of a provided targetPoint.
+    if (target && typeof target.x === 'number' && typeof target.y === 'number') {
+        const hasBox = target.width != null && target.height != null;
+        if (hasBox) {
+            const left = target.x;
+            const top = target.y;
+            const right = target.x + target.width;
+            const bottom = target.y + target.height;
+            const tx = Math.max(left, Math.min(unit.x, right));
+            const ty = Math.max(top, Math.min(unit.y, bottom));
+            return { tx, ty };
+        }
+    }
+    // For point/unit targets without a bounding box, prefer explicit targetPoint
+    if (targetPoint && typeof targetPoint.x === 'number' && typeof targetPoint.y === 'number') {
+        return { tx: targetPoint.x, ty: targetPoint.y };
+    }
+    if (target && typeof target.x === 'number' && typeof target.y === 'number') {
+        const cx = target.x + (target.width ? target.width / 2 : 0);
+        const cy = target.y + (target.height ? target.height / 2 : 0);
+        return { tx: cx, ty: cy };
+    }
+    return { tx: unit.x, ty: unit.y };
+}
+
+
+function mapDirForAssets(dir) {
+    switch (dir) {
+        case 'southeast': return 'southwest';
+        case 'southwest': return 'southeast';
+        case 'northeast': return 'northwest';
+        case 'northwest': return 'northeast';
+        case 'east': return 'west';
+        case 'west': return 'east';
+        default: return dir;
+    }
+}
 function drawWorldObjects(ctx) {
     gameState.worldObjects.forEach(obj => {
-        // Skip drawing depleted resources entirely
         if (obj.type === 'resource' && (obj.amount === 0 || obj.amount <= 0)) {
             return;
         }
@@ -56,7 +98,6 @@ function drawWorldObjects(ctx) {
             const offsetX = (obj.width - scaleW) / 2;
             const offsetY = (obj.height - scaleH) / 2;
             if (obj.spriteName) {
-                // Use the specific resource sprite variant; gold drawn at 50% size
                 drawAssetFitted(ctx, 'resources', obj.spriteName, offsetX, offsetY, scaleW, scaleH);
             } else {
                 if (obj.resourceType === 'food') {
@@ -67,17 +108,14 @@ function drawWorldObjects(ctx) {
                 } else if (obj.resourceType === 'stone') {
                     drawStoneIcon(ctx, obj.width / 8);
                 } else if (obj.resourceType === 'gold') {
-                    // Gold drawn at half-size when using fallback icon path
                     drawGoldIcon(ctx, (obj.width / 8) * 0.5);
                 }
             }
             ctx.restore();
-            // No numeric overlays on resources
         } else if (obj.type === 'decoration') {
-            // Environmental decorations (bushes/trees)
             const offsetX = 0;
             const offsetY = 0;
-            // Always use textures/ assets for decorations (no vector fallbacks)
+
             if (obj.spriteName) {
                 drawAssetFitted(ctx, 'textures', obj.spriteName, drawX + offsetX, drawY + offsetY, obj.width, obj.height);
             }
@@ -118,7 +156,7 @@ function drawWorldObjects(ctx) {
     });
 }
 
-// Stable DOM id for units (works even if unit.id is missing)
+
 function getUnitDomId(unit) {
     if (!unit.__uid) {
         unit.__uid = unit.id != null ? String(unit.id) : `${unit.type}-${Math.random().toString(36).slice(2)}`;
@@ -127,11 +165,11 @@ function getUnitDomId(unit) {
 }
 
 function drawUnits(ctx) {
-    // Make sure overlay follows the canvas
+
     syncOverlayToCanvas();
     gameState.units.forEach(unit => drawUnit(ctx, unit));
     gameState.enemyUnits.forEach(unit => drawUnit(ctx, unit));
-    // Prune overlay images for units that no longer exist
+
     const overlay = getUnitOverlay();
     const validIds = new Set([
         ...gameState.units.map(u => getUnitDomId(u)),
@@ -160,13 +198,13 @@ function drawUnit(ctx, unit) {
     ctx.shadowOffsetY = 2;
 
     ctx.translate(drawX, drawY);
-    const unitSize = 24; // Standard unit size in pixels
-    // If a unit image exists (GIF), render via DOM overlay to ensure animation
+    const unitSize = 24; 
+
     let baseImg = assetManager.getAsset('units', unit.type);
     let hasGif = baseImg && (baseImg.src || '').toLowerCase().endsWith('.gif');
-    // Villager/Archer/Militia/Warrior/Axeman: choose directional GIFs by movement direction
+
     let img = baseImg;
-    if (unit.type === 'villager' || unit.type === 'archer' || unit.type === 'militia' || unit.type === 'warrior' || unit.type === 'axeman') {
+    if (unit.type === 'villager' || unit.type === 'militia' || unit.type === 'warrior' || unit.type === 'axeman' || unit.type === 'archer') {
         const prevX = unit.__drawPrevX ?? unit.x;
         const prevY = unit.__drawPrevY ?? unit.y;
         const dx = unit.x - prevX;
@@ -177,23 +215,16 @@ function drawUnit(ctx, unit) {
         const dirs = ['east','northeast','north','northwest','west','southwest','south','southeast'];
         if (!unit._faceDir) unit._faceDir = 'south';
         if (moving) {
-            const angle = Math.atan2(dy, dx); // -PI..PI
-            const idx = (Math.round(((angle + Math.PI) / (Math.PI / 4))) % 8 + 8) % 8; // 0..7
+            const angle = Math.atan2(dy, dx);
+            const idx = (Math.round(((angle + Math.PI) / (Math.PI / 4))) % 8 + 8) % 8;
             unit._faceDir = dirs[idx];
         }
-        // Invert horizontals and diagonals; keep north/south the same
-        const invertMap = {
-            east: 'west', west: 'east',
-            northeast: 'northwest', northwest: 'northeast',
-            southeast: 'southwest', southwest: 'southeast',
-            north: 'north', south: 'south'
-        };
-    // Start with movement-based direction for walk/gather; idle uses natural facing
-    let dir = invertMap[unit._faceDir] || unit._faceDir;
-    // Track last natural facing (non-inverted) to use for idle
+
+    let dir = unit._faceDir;
+
     unit._lastFaceNatural = unit._faceDir;
 
-        // Gathering logic: only switch to gather animation when within harvesting distance
+
         let useGather = false;
         if (unit.type === 'villager' && unit.state === 'gathering' && unit.targetResource) {
             const rx = unit.targetResource.x + unit.targetResource.width / 2 + (unit.gatherOffset?.dx || 0);
@@ -202,11 +233,10 @@ function drawUnit(ctx, unit) {
             const gdy = ry - unit.y;
             const dist = Math.hypot(gdx, gdy);
             if (dist <= 20) {
-                // At resource: face the resource and use gather sprites
                 const gAngle = Math.atan2(gdy, gdx);
                 const gIdx = (Math.round(((gAngle + Math.PI) / (Math.PI / 4))) % 8 + 8) % 8;
                 const faceToward = dirs[gIdx];
-                dir = invertMap[faceToward] || faceToward;
+                dir = faceToward;
                 useGather = true;
             }
         }
@@ -214,98 +244,88 @@ function drawUnit(ctx, unit) {
         const prefix = unit.type;
     let fileBase;
     let altBase;
-    let fileCandidates = null; // optional array of candidate asset names for multi-try lookups
-        // Attack logic for archer/militia/warrior/axeman: use attack sprites only when in range and attacking
-        let useAttack = false;
-    if ((unit.type === 'archer' || unit.type === 'militia' || unit.type === 'warrior' || unit.type === 'axeman') && unit.state === 'attacking' && unit.target) {
-            const cfg = GAME_CONFIG.units[unit.type] || {};
-            const range = cfg.attackRange || 40;
-            const tx = unit.targetPoint ? unit.targetPoint.x : (unit.target.x + (unit.target.width ? unit.target.width/2 : 0));
-            const ty = unit.targetPoint ? unit.targetPoint.y : (unit.target.y + (unit.target.height ? unit.target.height/2 : 0));
-            const adx = tx - unit.x;
-            const ady = ty - unit.y;
-            const dist = Math.hypot(adx, ady);
-            if (dist <= range + 2) { // small tolerance
-                // Pick 8-way direction toward target
+    let fileCandidates = null; 
+    let useAttack = false;
+    let attackDir = dir;
+    if ((unit.type === 'archer' || unit.type === 'militia' || unit.type === 'warrior' || unit.type === 'axeman' || unit.type === 'crossbowman') && unit.state === 'attacking' && unit.target) {
+        const cfg = GAME_CONFIG.units[unit.type] || {};
+        const range = cfg.attackRange || 40;
+        const { tx, ty } = computeAttackAim(unit, unit.target, unit.targetPoint);
+        const adx = tx - unit.x;
+        const ady = ty - unit.y;
+        const dist = Math.hypot(adx, ady);
+            if (dist <= range + 5) {
+               
                 const aAngle = Math.atan2(ady, adx);
                 const aIdx = (Math.round(((aAngle + Math.PI) / (Math.PI / 4))) % 8 + 8) % 8;
-                dir = dirs[aIdx];
+                const rawAttackDir = dirs[aIdx];
+              
+                attackDir = rawAttackDir;
+                useAttack = true;
+            }
+           
+            const justAttacked = unit.lastAttack && (Date.now() - unit.lastAttack < 800);
+            if (!useAttack && justAttacked) {
+                const aAngle = Math.atan2(ady, adx);
+                const aIdx = (Math.round(((aAngle + Math.PI) / (Math.PI / 4))) % 8 + 8) % 8;
+                const rawAttackDir = dirs[aIdx];
+                attackDir = rawAttackDir;
                 useAttack = true;
             }
         }
         if (unit.type === 'villager' && useGather) {
-            // Use hyphenated diagonals for gather assets
-            const hyphenDir = dir.replace('northeast','north-east')
+
+            const hyphenDir = mapDirForAssets(dir).replace('northeast','north-east')
                                  .replace('northwest','north-west')
                                  .replace('southeast','south-east')
                                  .replace('southwest','south-west');
             fileBase = `villager/gather/villager_gathering_${hyphenDir}`;
             altBase = fileBase;
         } else if (useAttack) {
-            // Militia, Warrior, and Archer attack
+       
             if (unit.type === 'militia') {
-                // Invert west and east for militia attack; keep north/south unchanged
-                const militiaAttackInvert = { east: 'west', west: 'east' };
-                const attackDir = militiaAttackInvert[dir] || dir;
-                const hyphenDir = attackDir.replace('northeast','north-east')
+                const finalAttackDir = mapDirForAssets(attackDir);
+                const hyphenDir = finalAttackDir.replace('northeast','north-east')
                                      .replace('northwest','north-west')
                                      .replace('southeast','south-east')
                                      .replace('southwest','south-west');
                 fileBase = `militia/attack/militia_attack_${hyphenDir}`;
             } else if (unit.type === 'warrior') {
-                // Invert west and east for warrior attack; keep north/south unchanged
-                const warriorAttackInvert = { east: 'west', west: 'east' };
-                const attackDir = warriorAttackInvert[dir] || dir;
-                const hyphenDir = attackDir.replace('northeast','north-east')
+                const finalAttackDir = mapDirForAssets(attackDir);
+                const hyphenDir = finalAttackDir.replace('northeast','north-east')
                                      .replace('northwest','north-west')
                                      .replace('southeast','south-east')
                                      .replace('southwest','south-west');
                 fileCandidates = [
                     `warrior/attack/warrior_attack_${hyphenDir}`,
-                    `warrior/attack/warrior_attack_${attackDir}`
+                    `warrior/attack/warrior_attack_${finalAttackDir}`
                 ];
             } else if (unit.type === 'axeman') {
-                // Melee similar to warrior/militia; support hyphen and no-hyphen
-                const axemanAttackInvert = { east: 'west', west: 'east' };
-                const attackDir = axemanAttackInvert[dir] || dir;
-                const hyphenDir = attackDir.replace('northeast','north-east')
+                const finalAttackDir = mapDirForAssets(attackDir);
+                const hyphenDir = finalAttackDir.replace('northeast','north-east')
                                      .replace('northwest','north-west')
                                      .replace('southeast','south-east')
                                      .replace('southwest','south-west');
                 fileCandidates = [
                     `axeman/attack/axeman_attack_${hyphenDir}`,
-                    `axeman/attack/axeman_attack_${attackDir}`
+                    `axeman/attack/axeman_attack_${finalAttackDir}`
                 ];
             } else {
-                // Invert west/east and reverse diagonals for archer attack to match sprite orientation
-                const archerAttackInvert = {
-                    east: 'west', west: 'east',
-                    northeast: 'northwest', northwest: 'northeast',
-                    southeast: 'southwest', southwest: 'southeast'
-                };
-                const attackDir = archerAttackInvert[dir] || dir;
-                const hyphenDir = attackDir.replace('northeast','north-east')
+
+                const finalAttackDir = mapDirForAssets(attackDir);
+                const hyphenDir = finalAttackDir.replace('northeast','north-east')
                                      .replace('northwest','north-west')
                                      .replace('southeast','south-east')
                                      .replace('southwest','south-west');
-                // Try both non-hyphenated and hyphenated diagonals to match available files
                 fileCandidates = [
-                    `archer/attack/archer_attack_${attackDir}`,
+                    `archer/attack/archer_attack_${finalAttackDir}`,
                     `archer/attack/archer_attack_${hyphenDir}`
                 ];
             }
             altBase = fileBase;
         } else if (unit.type === 'villager' && unit.state === 'idle') {
-            // Villager idle: use last natural facing, but invert diagonals only
             const idleFaceRaw = unit._lastFaceNatural || 'south';
-            const idleDiagInvert = {
-                // Invert diagonals and horizontals; keep N/S the same
-                northeast: 'northwest', northwest: 'northeast',
-                southeast: 'southwest', southwest: 'southeast',
-                east: 'west', west: 'east'
-            };
-            const idleFace = idleDiagInvert[idleFaceRaw] || idleFaceRaw;
-            const idleDir = idleFace
+            const idleDir = mapDirForAssets(idleFaceRaw)
                 .replace('northeast','north-east')
                 .replace('northwest','north-west')
                 .replace('southeast','south-east')
@@ -313,15 +333,9 @@ function drawUnit(ctx, unit) {
             fileBase = `villager/idle/villager-idle_${idleDir}`;
             altBase = fileBase;
     } else if (unit.type === 'militia' && unit.state === 'idle') {
-            // Militia idle: default south on spawn, use last natural facing; invert diag+E/W like villager idle
+
             const idleFaceRaw = unit._lastFaceNatural || 'south';
-            const idleInvert = {
-                northeast: 'northwest', northwest: 'northeast',
-                southeast: 'southwest', southwest: 'southeast',
-                east: 'west', west: 'east'
-            };
-            const idleFace = idleInvert[idleFaceRaw] || idleFaceRaw;
-            const idleDir = idleFace
+            const idleDir = mapDirForAssets(idleFaceRaw)
                 .replace('northeast','north-east')
                 .replace('northwest','north-west')
                 .replace('southeast','south-east')
@@ -329,15 +343,9 @@ function drawUnit(ctx, unit) {
             fileBase = `militia/idle/militia_idle-idle_${idleDir}`;
             altBase = fileBase;
     } else if (unit.type === 'warrior' && unit.state === 'idle') {
-            // Warrior idle: follow villager/militia idle facing logic
+            // Warrior idle: use last natural facing
             const idleFaceRaw = unit._lastFaceNatural || 'south';
-            const idleInvert = {
-                northeast: 'northwest', northwest: 'northeast',
-                southeast: 'southwest', southwest: 'southeast',
-                east: 'west', west: 'east'
-            };
-            const idleFace = idleInvert[idleFaceRaw] || idleFaceRaw;
-            const hyphenDir = idleFace
+            const hyphenDir = mapDirForAssets(idleFaceRaw)
                 .replace('northeast','north-east')
                 .replace('northwest','north-west')
                 .replace('southeast','south-east')
@@ -345,76 +353,62 @@ function drawUnit(ctx, unit) {
             fileCandidates = [
                 `warrior/idle/warrior_idle_${hyphenDir}`
             ];
-    } else if (unit.type === 'archer' && unit.state === 'idle') {
-            // Archer idle: similar to militia/villager; support both hyphen and no-hyphen diagonals
+    } else if (unit.type === 'axeman' && unit.state === 'idle') {
+            // Axeman idle: use last natural facing
             const idleFaceRaw = unit._lastFaceNatural || 'south';
-            const idleInvert = {
-                northeast: 'northwest', northwest: 'northeast',
-                southeast: 'southwest', southwest: 'southeast',
-                east: 'west', west: 'east'
-            };
-            const idleFace = idleInvert[idleFaceRaw] || idleFaceRaw;
-            const hyphenDir = idleFace
-                .replace('northeast','north-east')
-                .replace('northwest','north-west')
-                .replace('southeast','south-east')
-                .replace('southwest','south-west');
-            fileCandidates = [
-                `archer/idle/archer_idle_${idleFace}`,
-                `archer/idle/archer_idle_${hyphenDir}`
-            ];
-        } else if (unit.type === 'axeman' && unit.state === 'idle') {
-            // Axeman idle: mirror warrior logic
-            const idleFaceRaw = unit._lastFaceNatural || 'south';
-            const idleInvert = {
-                northeast: 'northwest', northwest: 'northeast',
-                southeast: 'southwest', southwest: 'southeast',
-                east: 'west', west: 'east'
-            };
-            const idleFace = idleInvert[idleFaceRaw] || idleFaceRaw;
-            const hyphenDir = idleFace
+            const hyphenDir = mapDirForAssets(idleFaceRaw)
                 .replace('northeast','north-east')
                 .replace('northwest','north-west')
                 .replace('southeast','south-east')
                 .replace('southwest','south-west');
             fileCandidates = [
                 `axeman/idle/axeman_idle_${hyphenDir}`,
-                `axeman/idle/axeman_idle_${idleFace}`
+                `axeman/idle/axeman_idle_${idleFaceRaw}`
+            ];
+        } else if (unit.type === 'archer' && unit.state === 'idle') {
+            // Archer idle: use last natural facing
+            const idleFaceRaw = unit._lastFaceNatural || 'south';
+            const hyphenDir = mapDirForAssets(idleFaceRaw)
+                .replace('northeast','north-east')
+                .replace('northwest','north-west')
+                .replace('southeast','south-east')
+                .replace('southwest','south-west');
+            fileCandidates = [
+                `archer/idle/archer_idle_${hyphenDir}`,
+                `archer/idle/archer_idle_${idleFaceRaw}`
             ];
         } else {
             // Walking animations
-            if (prefix === 'archer' && dir === 'south') {
-                // South walking GIF has a non-standard filename in assets; map explicitly
-                fileBase = `archer/walk/cfb79a2e-dcbb-41cb-a46c-91002f2414d5_walking-10_south`;
-                altBase = fileBase;
-            } else if (prefix === 'militia') {
-                const hyphenDir = dir.replace('northeast','north-east')
+            if (prefix === 'militia') {
+                const hyphenDir = mapDirForAssets(dir).replace('northeast','north-east')
                                      .replace('northwest','north-west')
                                      .replace('southeast','south-east')
                                      .replace('southwest','south-west');
                 fileBase = `militia/walking/militia_walking_${hyphenDir}`;
                 altBase = fileBase;
             } else if (prefix === 'warrior') {
-                const hyphenDir = dir.replace('northeast','north-east')
+                const hyphenDir = mapDirForAssets(dir).replace('northeast','north-east')
                                      .replace('northwest','north-west')
                                      .replace('southeast','south-east')
                                      .replace('southwest','south-west');
-                // Mirror militia walking folder and naming
+               
                 fileCandidates = [
-                    `warrior/walking/warrior_walking_${hyphenDir}`
+                    `warrior/walking/warrior_walking_${hyphenDir}`,
+                    `warrior/walking/warrior_walking_${mapDirForAssets(dir)}`
                 ];
             } else if (prefix === 'axeman') {
-                const hyphenDir = dir.replace('northeast','north-east')
+                const hyphenDir = mapDirForAssets(dir).replace('northeast','north-east')
                                      .replace('northwest','north-west')
                                      .replace('southeast','south-east')
                                      .replace('southwest','south-west');
                 fileCandidates = [
                     `axeman/walking/axeman_walking_${hyphenDir}`,
-                    `axeman/walking/axeman_walking_${dir}`
+                    `axeman/walking/axeman_walking_${mapDirForAssets(dir)}`
                 ];
-            } else {
-                fileBase = `${prefix}/walk/${prefix}_walk_${dir}`;
-                altBase = (prefix === 'villager' && dir === 'north') ? `${prefix}/walk/${prefix}_walk_noth` : fileBase;
+        } else {
+                const md = mapDirForAssets(dir);
+                fileBase = `${prefix}/walk/${prefix}_walk_${md}`;
+                altBase = (prefix === 'villager' && md === 'north') ? `${prefix}/walk/${prefix}_walk_noth` : fileBase;
             }
         }
         const isRealGif = (name) => name && assetManager.isLoaded('units', name) && assetManager.isGifAsset('units', name);
@@ -459,8 +453,7 @@ function drawUnit(ctx, unit) {
         let dir = unit._faceDir;
         if (unit.state === 'attacking' && unit.target) {
             const range = cfg.attackRange || 60;
-            const tx = unit.targetPoint ? unit.targetPoint.x : (unit.target.x + (unit.target.width ? unit.target.width/2 : 0));
-            const ty = unit.targetPoint ? unit.targetPoint.y : (unit.target.y + (unit.target.height ? unit.target.height/2 : 0));
+            const { tx, ty } = computeAttackAim(unit, unit.target, unit.targetPoint);
             const adx = tx - unit.x;
             const ady = ty - unit.y;
             const dist = Math.hypot(adx, ady);
@@ -470,15 +463,16 @@ function drawUnit(ctx, unit) {
                 dir = dirs[aIdx];
                 useAttack = true;
             }
+            const justAttacked = unit.lastAttack && (Date.now() - unit.lastAttack < 800);
+            if (!useAttack && justAttacked) {
+                const aAngle = Math.atan2(ady, adx);
+                const aIdx = (Math.round(((aAngle + Math.PI) / (Math.PI / 4))) % 8 + 8) % 8;
+                dir = dirs[aIdx];
+                useAttack = true;
+            }
         }
-        // Crossbowman sprite set is mirrored horizontally vs. our world directions.
-        // Map our computed direction to the filename direction by swapping E/W and diagonals; keep N/S.
-        const invertExceptNS = (d) => ({
-            east: 'west', west: 'east',
-            northeast: 'northwest', northwest: 'northeast',
-            southeast: 'southwest', southwest: 'southeast'
-        })[d] || d;
-        const renderDir = invertExceptNS(dir);
+    // Apply filename direction mapping for all states
+    const renderDir = mapDirForAssets(dir);
         const hyphenDir = (d) => d.replace('northeast','north-east')
                                    .replace('northwest','north-west')
                                    .replace('southeast','south-east')
@@ -490,13 +484,13 @@ function drawUnit(ctx, unit) {
                 `crossbowman/attack/crossbowman_${hyphenDir(renderDir)}`
             ];
         } else if (unit.state === 'idle') {
-            const idleDir = invertExceptNS(unit._lastFaceNatural || 'south');
+            const idleDir = mapDirForAssets(unit._lastFaceNatural || 'south');
             candidates = [
                 `crossbowman/idle/crossbowman_${idleDir}`,
                 `crossbowman/idle/crossbowman_${hyphenDir(idleDir)}`
             ];
         } else {
-            const moveDir = invertExceptNS(unit._faceDir);
+            const moveDir = mapDirForAssets(unit._faceDir);
             candidates = [
                 `crossbowman/walk/crossbowman_${moveDir}`,
                 `crossbowman/walk/crossbowman_${hyphenDir(moveDir)}`
@@ -533,8 +527,7 @@ function drawUnit(ctx, unit) {
         if (unit.state === 'attacking' && unit.target) {
             const cfg = GAME_CONFIG.units[unit.type] || {};
             const range = cfg.attackRange || 40;
-            const tx = unit.targetPoint ? unit.targetPoint.x : (unit.target.x + (unit.target.width ? unit.target.width/2 : 0));
-            const ty = unit.targetPoint ? unit.targetPoint.y : (unit.target.y + (unit.target.height ? unit.target.height/2 : 0));
+            const { tx, ty } = computeAttackAim(unit, unit.target, unit.targetPoint);
             const adx = tx - unit.x;
             const ady = ty - unit.y;
             const dist = Math.hypot(adx, ady);
@@ -544,39 +537,16 @@ function drawUnit(ctx, unit) {
                 dir = dirs[aIdx];
                 useAttack = true;
             }
-        }
-        // Apply requested inversions for ballista directions
-        const invertAll = (d) => ({
-            east: 'west', west: 'east',
-            northeast: 'northwest', northwest: 'northeast',
-            southeast: 'southwest', southwest: 'southeast',
-            north: 'south', south: 'north'
-        })[d] || d;
-        const isDiagonal = (d) => d === 'northeast' || d === 'northwest' || d === 'southeast' || d === 'southwest';
-        const invertDiagonalOnly = (d) => ({
-            northeast: 'northwest', northwest: 'northeast',
-            southeast: 'southwest', southwest: 'southeast'
-        })[d] || d;
-
-        let renderDir = dir;
-        if (useAttack) {
-            // All diagonal attacks are inverse; keep cardinals as-is
-            renderDir = isDiagonal(dir) ? invertDiagonalOnly(dir) : dir;
-        } else if (unit.state === 'idle') {
-            // Idle: inverse all directions
-            renderDir = invertAll(dir);
-        } else {
-            // Walking: invert diagonals; swap east<->west; keep north/south as-is
-            if (isDiagonal(dir)) {
-                renderDir = invertDiagonalOnly(dir);
-            } else if (dir === 'east') {
-                renderDir = 'west';
-            } else if (dir === 'west') {
-                renderDir = 'east';
-            } else {
-                renderDir = dir; // north/south
+            const justAttacked = unit.lastAttack && (Date.now() - unit.lastAttack < 800);
+            if (!useAttack && justAttacked) {
+                const aAngle = Math.atan2(ady, adx);
+                const aIdx = (Math.round(((aAngle + Math.PI) / (Math.PI / 4))) % 8 + 8) % 8;
+                dir = dirs[aIdx];
+                useAttack = true;
             }
         }
+    // No inversions for ballista; apply mapping for filenames
+    let renderDir = mapDirForAssets(dir);
 
         const hyphenDir = renderDir.replace('northeast','north-east')
                                    .replace('northwest','north-west')
@@ -632,22 +602,13 @@ function drawUnit(ctx, unit) {
             unit._faceDir = dirs[idx];
         }
     let dir = unit._faceDir;
-        // Reverse all directions (including diagonals) for catapult
-        const invertAll = (d) => ({
-            east: 'west', west: 'east',
-            northeast: 'northwest', northwest: 'northeast',
-            southeast: 'southwest', southwest: 'southeast',
-            north: 'south', south: 'north'
-        })[d] || d;
-        // If attacking, we already recompute dir toward target below; apply inversion after that too
-        let renderDir = dir;
+        let renderDir = mapDirForAssets(dir);
         let candidates = [];
         const cfg = GAME_CONFIG.units[unit.type] || {};
         let useAttack = false;
         if (unit.state === 'attacking' && unit.target) {
             const range = cfg.attackRange || 40;
-            const tx = unit.targetPoint ? unit.targetPoint.x : (unit.target.x + (unit.target.width ? unit.target.width/2 : 0));
-            const ty = unit.targetPoint ? unit.targetPoint.y : (unit.target.y + (unit.target.height ? unit.target.height/2 : 0));
+            const { tx, ty } = computeAttackAim(unit, unit.target, unit.targetPoint);
             const adx = tx - unit.x;
             const ady = ty - unit.y;
             const dist = Math.hypot(adx, ady);
@@ -657,13 +618,22 @@ function drawUnit(ctx, unit) {
         dir = dirs[aIdx];
                 useAttack = true;
             }
+            const justAttacked = unit.lastAttack && (Date.now() - unit.lastAttack < 800);
+            if (!useAttack && justAttacked) {
+                const aAngle = Math.atan2(ady, adx);
+                const aIdx = (Math.round(((aAngle + Math.PI) / (Math.PI / 4))) % 8 + 8) % 8;
+                dir = dirs[aIdx];
+                useAttack = true;
+            }
         }
-    renderDir = invertAll(dir);
+        // Refresh renderDir after any potential attack-direction change
+        renderDir = mapDirForAssets(dir);
     const hyphenDir = renderDir.replace('northeast','north-east')
                    .replace('northwest','north-west')
                    .replace('southeast','south-east')
                    .replace('southwest','south-west');
     if (useAttack) {
+            // Use raw direction for attack animations
             candidates = [
         `catapult/attack/catapult_attack_${renderDir}`,
                 `catapult/attack/catapult_attack_${hyphenDir}`
@@ -691,7 +661,7 @@ function drawUnit(ctx, unit) {
             candidates.forEach(name => { if (name) assetManager.loadAsset('units', name).catch(() => {}); });
         }
     } else if (unit.type === 'fishingBoat' || unit.type === 'transportLarge' || unit.type === 'warship') {
-        // Navy units: use the same directional GIFs for all states (idle/move/attack/fishing)
+    // Navy units: use the same directional GIFs for all states (idle/move/attack/fishing), no inversions
         const prevX = unit.__drawPrevX ?? unit.x;
         const prevY = unit.__drawPrevY ?? unit.y;
         const dx = unit.x - prevX;
@@ -707,13 +677,7 @@ function drawUnit(ctx, unit) {
             unit._faceDir = dirs[idx];
         }
         let dir = unit._faceDir;
-        // Reverse all directions except south and north
-        const invertExceptNS = (d) => ({
-            east: 'west', west: 'east',
-            northeast: 'northwest', northwest: 'northeast',
-            southeast: 'southwest', southwest: 'southeast'
-        })[d] || d; // keep north/south as-is
-        const renderDir = invertExceptNS(dir);
+    const renderDir = mapDirForAssets(dir);
         const hyphenDir = renderDir.replace('northeast','north-east')
                              .replace('northwest','north-west')
                              .replace('southeast','south-east')
@@ -749,7 +713,10 @@ function drawUnit(ctx, unit) {
     if (unit.type === 'axeman') {
             dw = Math.max(1, Math.floor(dw * 6));
             dh = Math.max(1, Math.floor(dh * 6));
-    } else if (unit.type === 'villager' || unit.type === 'archer' || unit.type === 'militia' || unit.type === 'warrior' || unit.type === 'crossbowman') {
+    } else if (unit.type === 'crossbowman') {
+            dw = Math.max(1, Math.floor(dw * 6));
+            dh = Math.max(1, Math.floor(dh * 6));
+    } else if (unit.type === 'villager' || unit.type === 'archer' || unit.type === 'militia' || unit.type === 'warrior') {
             dw = Math.max(1, Math.floor(dw * 3));
             dh = Math.max(1, Math.floor(dh * 3));
         } else if (unit.type === 'ballista') {
@@ -799,8 +766,7 @@ function drawUnit(ctx, unit) {
         if (unit.type === 'militia') {
             // Show militia using a safe idle GIF directly, even if not preloaded
             const idleFaceRaw = unit._lastFaceNatural || 'south';
-            const idleInvert = { northeast: 'northwest', northwest: 'northeast', southeast: 'southwest', southwest: 'southeast', east: 'west', west: 'east' };
-            const idleFace = idleInvert[idleFaceRaw] || idleFaceRaw;
+            const idleFace = mapDirForAssets(idleFaceRaw);
             const idleDir = idleFace.replace('northeast','north-east').replace('northwest','north-west').replace('southeast','south-east').replace('southwest','south-west');
             const src = `${assetManager.basePath}units/militia/idle/militia_idle-idle_${idleDir}.gif`;
             if (!unit._domGif) {

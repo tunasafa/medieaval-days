@@ -7,8 +7,7 @@ const TILE_TYPES = {
 
 // Single-tile textures configuration
 const TILE_CONFIG = {
-    FALLBACK_TILE_SIZE: 64, // used before images load
-    WATER_BORDER_THICKNESS: 0.15 // fraction of tile size for border thickness
+    FALLBACK_TILE_SIZE: 128 // used before images load
 };
 
 // Tilemap Class
@@ -21,8 +20,7 @@ class Tilemap {
     this.waterKinds = this.generateEmptyKindMap(); // 'river' | 'lake' | null
         this.landTile = null; // single land tile image
         this.waterTile = null; // single water tile image
-    // Optional water border overlays (per side)
-    this.waterBorders = { up: null, down: null, left: null, right: null };
+    // No shoreline/border overlays; only land and water tiles
         this.isLoaded = false;
     this.tileMeta = null; // { tileW, tileH }
     }
@@ -63,17 +61,12 @@ class Tilemap {
                 const sep = src.includes('?') ? '&' : '?';
                 img.src = `${src}${sep}v=${cacheBuster}`;
             });
-            const [land, water, upB, downB, leftB, rightB] = await Promise.all([
+            const [land, water] = await Promise.all([
                 loadImage('assets/textures/flatground_tile.png'),
-                loadImage('assets/textures/Water Background color.png'),
-                loadImage('assets/textures/up_water_border.png').catch(() => null),
-                loadImage('assets/textures/down_water_border.png').catch(() => null),
-                loadImage('assets/textures/left_water_border.png').catch(() => null),
-                loadImage('assets/textures/right_water_border.png').catch(() => null)
+                loadImage('assets/textures/Water Background color.png')
             ]);
             this.landTile = land;
             this.waterTile = water;
-            this.waterBorders = { up: upB, down: downB, left: leftB, right: rightB };
             const tileW = land.naturalWidth || land.width || TILE_CONFIG.FALLBACK_TILE_SIZE;
             const tileH = land.naturalHeight || land.height || TILE_CONFIG.FALLBACK_TILE_SIZE;
             this.tileMeta = { tileW, tileH };
@@ -146,7 +139,6 @@ class Tilemap {
                 const worldY = (ty * this.tileSize - camera.y) | 0;
                 const isWater = this.getTile(tx, ty) === TILE_TYPES.WATER;
                 this.drawSingleTile(ctx, worldX, worldY, isWater ? this.waterTile : this.landTile);
-                if (isWater) this.drawWaterBorders(ctx, tx, ty, worldX, worldY);
             }
         }
     }
@@ -207,43 +199,7 @@ class Tilemap {
         }
     }
 
-
-    // Draw side-specific border overlays for a water tile
-    drawWaterBorders(ctx, tx, ty, x, y) {
-        const { up, down, left, right } = this.waterBorders || {};
-        if (!up && !down && !left && !right) return;
-        const waterHere = this.getTile(tx, ty) === TILE_TYPES.WATER;
-        if (!waterHere) return;
-        const kind = this.waterKinds?.[ty]?.[tx] || null; // 'river' or 'lake'
-        const isLandOrOut = (nx, ny) => {
-            if (nx < 0 || ny < 0 || nx >= this.width || ny >= this.height) return true; // treat out-of-bounds as land edge
-            return this.getTile(nx, ny) !== TILE_TYPES.WATER;
-        };
-    const s = this.tileSize;
-        const t = Math.max(1, Math.floor(s * (TILE_CONFIG.WATER_BORDER_THICKNESS ?? 0.25)));
-    ctx.imageSmoothingEnabled = false;
-    // Borders are used in orthographic mode
-        // For rivers, suppress top/bottom borders entirely
-        const upEdge = (kind === 'river') ? false : isLandOrOut(tx, ty - 1);
-        const downEdge = (kind === 'river') ? false : isLandOrOut(tx, ty + 1);
-        const leftEdge = isLandOrOut(tx - 1, ty);
-        const rightEdge = isLandOrOut(tx + 1, ty);
-
-        // Vertical borders own the corner pixels; horizontal borders are trimmed to avoid overlap
-        if (left && leftEdge) ctx.drawImage(left, x, y, t, s);
-        if (right && rightEdge) ctx.drawImage(right, x + (s - t), y, t, s);
-
-        if (up && upEdge) {
-            const startX = x + (leftEdge ? t : 0);
-            const width = s - (leftEdge ? t : 0) - (rightEdge ? t : 0);
-            if (width > 0) ctx.drawImage(up, startX, y, width, t);
-        }
-        if (down && downEdge) {
-            const startX = x + (leftEdge ? t : 0);
-            const width = s - (leftEdge ? t : 0) - (rightEdge ? t : 0);
-            if (width > 0) ctx.drawImage(down, startX, y + (s - t), width, t);
-        }
-    }
+    // No shoreline border rendering
 
     // Determine which of the 4 land tiles to use based on neighbors
     pickLandTileIndex(tx, ty) {

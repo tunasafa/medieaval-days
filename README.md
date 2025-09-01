@@ -1,5 +1,11 @@
 a medieval rts game for showcase
 
+# you can play it from here: https://tunasafa.github.io/medieaval-days/
+
+right now it is playable strategy game mostly for showing what is being done than a good storyline
+the more it is played the more bugs and failures will be notices since it is extremely hard to make games like these and think about 10000 aspects of every element
+if you notice a bug or fatal error please let me know for future updates and improvements
+
 note : i did not know finding assets for a game would be this impossible
 
 
@@ -16,3 +22,13 @@ version 0:
 <img width="1555" height="832" alt="Screenshot 2025-09-01 at 17 36 28" src="https://github.com/user-attachments/assets/52262901-e901-4446-bbee-4baa4c9626b7" />
 
 
+possible updates:
+
+- special enemy sprites and buildings
+- completely isometric tiling map configuration
+- improved enemy ai
+- more maps
+- better mechanics for embarking / disembarking to ships
+- improved animations for catapult, ballista , archer and crossbowman (to show what they throw)
+- better 8 bit songs
+- zoom in and out from the map

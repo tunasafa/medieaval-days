@@ -55,20 +55,24 @@ function updateSelectionInfo() {
             <div>Health: ${unit.health}/${GAME_CONFIG.units[unit.type].maxHealth}</div>
             <div>State: ${unit.state}</div>
         `;
+        // NEW TRANSPORT UI: Show cargo and disembark button
         const cfg = GAME_CONFIG.units[unit.type];
-        if (cfg && unit.type && (unit.type === 'transportLarge')) {
+        if (isTransport(unit)) {
             unit.cargo = unit.cargo || [];
             const cap = cfg.capacity || 0;
             const used = unit.cargo.length;
-            const remain = Math.max(0, cap - used);
             const btns = document.createElement('div');
             btns.style.marginTop = '6px';
             btns.innerHTML = `<div>Cargo: ${used}/${cap}</div>`;
-            const disembarkBtn = document.createElement('button');
-            disembarkBtn.textContent = 'Disembark';
-            disembarkBtn.style.marginTop = '4px';
-            disembarkBtn.onclick = () => disembarkCargo(unit);
-            btns.appendChild(disembarkBtn);
+            
+            if (used > 0) {
+                const disembarkBtn = document.createElement('button');
+                disembarkBtn.textContent = `Disembark ${used} unit(s)`;
+                disembarkBtn.style.marginTop = '4px';
+                disembarkBtn.onclick = () => disembarkCargoNearShore(unit);
+                btns.appendChild(disembarkBtn);
+            }
+            
             info.appendChild(btns);
         }
     } else {
@@ -161,96 +165,7 @@ function showNotification(message) {
 }
 
 // Add sprite debugging function
-function debugSpriteLoading() {
-    console.log('Checking sprite assets...');
-    
-    // Check if villager sprite is loaded
-    if (GAME_CONFIG.units.villager && GAME_CONFIG.units.villager.sprite) {
-        const spriteSrc = GAME_CONFIG.units.villager.sprite.src;
-        console.log('Villager sprite source:', spriteSrc);
-        
-        // Test if the image loads
-        const testImg = new Image();
-        testImg.onload = () => {
-            console.log('✓ Villager sprite loaded successfully:', spriteSrc);
-            console.log('Image dimensions:', testImg.width, 'x', testImg.height);
-        };
-        testImg.onerror = () => {
-            console.error('✗ Failed to load villager sprite:', spriteSrc);
-            showNotification('Error: Villager sprite failed to load!');
-        };
-        testImg.src = spriteSrc;
-    } else {
-        console.error('✗ Villager sprite configuration missing!');
-        showNotification('Error: Villager sprite configuration missing!');
-    }
-}
-
-// Enhanced asset preloading function
-function preloadGameAssets(callback) {
-    const assetsToLoad = [];
-    const loadedAssets = {};
-    let loadedCount = 0;
-    
-    // Collect all sprite assets that need to be loaded
-    Object.keys(GAME_CONFIG.units).forEach(unitType => {
-        const unit = GAME_CONFIG.units[unitType];
-        if (unit.sprite && unit.sprite.src) {
-            assetsToLoad.push({
-                type: 'unit',
-                key: unitType,
-                src: unit.sprite.src
-            });
-        }
-    });
-    
-    // Add building sprites if they exist
-    Object.keys(GAME_CONFIG.buildings || {}).forEach(buildingType => {
-        const building = GAME_CONFIG.buildings[buildingType];
-        if (building.sprite && building.sprite.src) {
-            assetsToLoad.push({
-                type: 'building',
-                key: buildingType,
-                src: building.sprite.src
-            });
-        }
-    });
-    
-    if (assetsToLoad.length === 0) {
-        console.log('No assets to preload, proceeding...');
-        if (callback) callback();
-        return;
-    }
-    
-    console.log(`Preloading ${assetsToLoad.length} assets...`);
-    
-    const checkComplete = () => {
-        if (loadedCount >= assetsToLoad.length) {
-            console.log('All assets loaded successfully!');
-            if (callback) callback();
-        }
-    };
-    
-    assetsToLoad.forEach(asset => {
-        const img = new Image();
-        img.onload = () => {
-            loadedAssets[asset.key] = img;
-            loadedCount++;
-            console.log(`✓ Loaded ${asset.type}: ${asset.key} (${loadedCount}/${assetsToLoad.length})`);
-            checkComplete();
-        };
-        img.onerror = () => {
-            console.error(`✗ Failed to load ${asset.type}: ${asset.key} from ${asset.src}`);
-            loadedCount++; // Still count as "processed" to avoid hanging
-            showNotification(`Failed to load ${asset.key} sprite!`);
-            checkComplete();
-        };
-        img.src = asset.src;
-    });
-    
-    // Store loaded assets globally for access by rendering system
-    window.gameAssets = loadedAssets;
-}
+// Removed legacy PNG sprite-sheet debug/preload; units load via AssetManager GIFs.
 
 function centerOnTownCenter() {
     const townCenter = gameState.buildings.find(b => b.type === 'town-center' && b.player === 'player');
@@ -263,13 +178,6 @@ function centerOnTownCenter() {
 // Initialize the game when the page loads
 document.addEventListener('DOMContentLoaded', function() {
     console.log('dw loaded, initializing game...');
-    
-    // Debug sprite loading first
-    debugSpriteLoading();
-    
-    // Preload assets then initialize game
-    preloadGameAssets(() => {
-        console.log('Assets preloaded, starting game...');
-        initGame();
-    });
+    // Initialization relies on initGame -> assetManager.preloadGameAssets()
+    initGame();
 });

@@ -232,17 +232,4 @@ function drawGoldIcon(ctx, widthOrScale, height) {
     }
 }
 
-// Legacy function for backward compatibility
-function drawPixelIcon(ctx, pixels, palette, scale = 1) {
-    console.warn('drawPixelIcon is deprecated. Use PNG assets instead.');
-    // Fallback implementation if needed
-    pixels.forEach((row, y) => {
-        for (let x = 0; x < row.length; x++) {
-            const colorIndex = row[x];
-            if (colorIndex !== undefined && colorIndex !== 0) {
-                ctx.fillStyle = palette[colorIndex];
-                ctx.fillRect(x * scale, y * scale, scale, scale);
-            }
-        }
-    });
-}
+// (Removed deprecated drawPixelIcon; use PNG assets via drawSprite/Scaled/Fitted helpers.)

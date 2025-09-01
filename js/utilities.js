@@ -1,16 +1,40 @@
-// Utility Functions
-// Minimum clearance from building edges for edge placements (must exceed movement/building buffer)
+/**
+ * Collection of utility functions for game mechanics including distance calculations,
+ * resource management, terrain validation, collision detection, and coordinate transformations.
+ * Provides core mathematical and validation operations used throughout the game engine.
+ */
+
 const EDGE_CLEARANCE = 20;
+
+/**
+ * Generates a unique identifier combining current timestamp with random number.
+ * Used for creating unique IDs for game entities like units and buildings.
+ * @returns {number} Unique identifier with high collision resistance
+ */
 function generateId() {
     return Date.now() + Math.random();
 }
 
+/**
+ * Calculates Euclidean distance between two game objects or points.
+ * Handles objects with position properties (x,y) and optional dimensions (width,height).
+ * Uses center-to-center calculation for objects with dimensions.
+ * @param {Object} obj1 - First object with x,y coordinates
+ * @param {Object} obj2 - Second object with x,y coordinates
+ * @returns {number} Distance in pixels between the two objects
+ */
 function getDistance(obj1, obj2) {
     const dx = (obj1.x || obj1.x + (obj1.width||0)/2) - (obj2.x || obj2.x + (obj2.width||0)/2);
     const dy = (obj1.y || obj1.y + (obj1.height||0)/2) - (obj2.y || obj2.y + (obj2.height||0)/2);
     return Math.sqrt(dx * dx + dy * dy);
 }
 
+/**
+ * Validates if player has sufficient resources to afford a given cost.
+ * Checks all resource types in the cost object against current player resources.
+ * @param {Object} cost - Resource cost object with keys like {food: 50, wood: 100}
+ * @returns {boolean} True if player can afford the cost, false otherwise
+ */
 function canAfford(cost) {
     for (const [resource, amount] of Object.entries(cost)) {
         if (gameState.resources[resource] < amount) return false;
@@ -18,32 +42,66 @@ function canAfford(cost) {
     return true;
 }
 
+/**
+ * Deducts specified resource costs from player's current resources.
+ * Should only be called after canAfford() validation to prevent negative resources.
+ * @param {Object} cost - Resource cost object to deduct from player resources
+ */
 function deductResources(cost) {
     for (const [resource, amount] of Object.entries(cost)) {
         gameState.resources[resource] -= amount;
     }
 }
 
+/**
+ * Retrieves building configuration data from GAME_CONFIG for a given building type.
+ * Handles special case mapping for 'town-center' to 'townCenter' key.
+ * @param {string} type - Building type identifier
+ * @returns {Object} Building configuration with stats, dimensions, and costs
+ */
 function getBuildingConfig(type) {
     if (type === 'town-center') return GAME_CONFIG.buildings.townCenter;
     return GAME_CONFIG.buildings[type];
 }
 
+/**
+ * Constrains a value within specified minimum and maximum bounds.
+ * Standard mathematical clamp function for value range enforcement.
+ * @param {number} val - Value to constrain
+ * @param {number} min - Minimum allowed value
+ * @param {number} max - Maximum allowed value
+ * @returns {number} Clamped value within [min, max] range
+ */
 function clamp(val, min, max) { 
     return Math.max(min, Math.min(max, val)); 
 }
 
+/**
+ * Determines if a point is located in water terrain using tilemap or fallback method.
+ * Prioritizes tilemap water detection when available, otherwise checks world objects.
+ * Used for vessel movement validation and building placement restrictions.
+ * @param {number} x - X coordinate to check
+ * @param {number} y - Y coordinate to check
+ * @returns {boolean} True if point is in water, false if on land
+ */
 function isPointInWater(x, y) {
-    // Use tilemap if available, otherwise fallback to world objects
     if (tilemap && tilemap.isLoaded) {
         return tilemap.isWater(x, y);
     }
-    // Fallback to old method
     return gameState.worldObjects.some(o => (o.type === 'water' || o.type === 'lake') &&
         x >= o.x && x <= o.x + o.width && y >= o.y && y <= o.y + o.height);
 }
 
-// Check that an entire rectangle is on land (no water) by sampling corners and edges
+/**
+ * Validates that an entire rectangular area is on land by sampling multiple points.
+ * Checks corners, edge midpoints, and center to ensure no water intersects the rectangle.
+ * Used for building placement validation to prevent structures spanning water boundaries.
+ * @param {number} x - Left edge of rectangle
+ * @param {number} y - Top edge of rectangle  
+ * @param {number} w - Width of rectangle
+ * @param {number} h - Height of rectangle
+ * @returns {boolean} True if entire rectangle is on land, false if any part touches water
+ */
 function isRectOnLand(x, y, w, h) {
     // Sample corners
     const pts = [
@@ -63,36 +121,7 @@ function isPointOnBridge(x, y) {
     return gameState.worldObjects.some(o => o.type === 'bridge' && x >= o.x && x <= o.x + o.width && y >= o.y && y <= o.y + o.height);
 }
 
-function isOnLandShoreBand(x, y, pad = 1) {
-    if (isPointInWater(x, y)) return false;
-    for (const w of gameState.worldObjects) {
-        if (w.type !== 'water') continue;
-        const withinX = x >= w.x - pad && x <= w.x + w.width + pad;
-        const withinY = y >= w.y - pad && y <= w.y + w.height + pad;
-        if (!withinX || !withinY) continue;
-        const nearLeft = x >= w.x - pad && x < w.x;
-        const nearRight = x > w.x + w.width && x <= w.x + w.width + pad;
-        const nearTop = y >= w.y - pad && y < w.y;
-        const nearBottom = y > w.y + w.height && y <= w.y + w.height + pad;
-        if ((nearLeft || nearRight) && y >= w.y - pad && y <= w.y + w.height + pad) return true;
-        if ((nearTop || nearBottom) && x >= w.x - pad && x <= w.x + w.width + pad) return true;
-    }
-    return false;
-}
-
-function isInWaterInnerBand(x, y, pad = 1) {
-    for (const w of gameState.worldObjects) {
-        if (w.type !== 'water') continue;
-        if (x >= w.x && x <= w.x + w.width && y >= w.y && y <= w.y + w.height) {
-            const dLeft = x - w.x;
-            const dRight = (w.x + w.width) - x;
-            const dTop = y - w.y;
-            const dBottom = (w.y + w.height) - y;
-            if (dLeft <= pad || dRight <= pad || dTop <= pad || dBottom <= pad) return true;
-        }
-    }
-    return false;
-}
+// Shoreline border/inner-band helpers removed: only land vs water checks remain
 
 // Selection ring radius used in drawing (currently constant 18px)
 function getSelectionRadius(unitOrType) {

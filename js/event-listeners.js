@@ -138,18 +138,21 @@ function setupEventListeners() {
         const worldX = e.clientX - rect2.left + gameState.camera.x;
         const worldY = e.clientY - rect2.top + gameState.camera.y;
         let cursor = 'default';
+        
+        // NEW CURSOR HINTS for embark/disembark
         const transports = gameState.selectedUnits.filter(u => isTransport(u));
         if (transports.length === 1) {
             const t = transports[0];
             const others = gameState.selectedUnits.filter(u => u !== t && canEmbark(u));
             const cap = GAME_CONFIG.units[t.type].capacity || 0;
             const used = (t.cargo || []).length;
-            const nearMouseToTransport = Math.hypot(worldX - t.x, worldY - t.y) < 30;
-            const anyEmbarkableNearby = others.some(u => Math.hypot(u.x - t.x, u.y - t.y) < 24);
+            const nearMouseToTransport = Math.hypot(worldX - t.x, worldY - t.y) < 50;
+            const anyEmbarkableNearby = others.some(u => Math.hypot(u.x - t.x, u.y - t.y) < 40);
+            
             if (nearMouseToTransport && anyEmbarkableNearby && used < cap) {
-                cursor = 'alias';
-            } else if ((t.cargo && t.cargo.length > 0) && (!isPointInWater(worldX, worldY) || isPointOnBridge(worldX, worldY))) {
-                if (!isOnLandShoreBand(worldX, worldY, 1)) cursor = 'copy';
+                cursor = 'alias'; // embark cursor
+            } else if ((t.cargo && t.cargo.length > 0) && !isPointInWater(worldX, worldY)) {
+                cursor = 'copy'; // disembark cursor
             }
         }
         const canvasEl = document.getElementById('game-canvas');
@@ -360,24 +363,32 @@ function hideSelectionBox() {
 
 function handleRightClick(x, y) {
     if (gameState.selectedUnits.length === 0) return;
-    const clickedTransport = gameState.units.find(u => isTransport(u) && Math.hypot(u.x - x, u.y - y) < 32);
+    // NEW EMBARK SYSTEM: Right-click on friendly transport
+    const clickedTransport = gameState.units.find(u => isTransport(u) && Math.hypot(u.x - x, u.y - y) < 40);
     if (clickedTransport) {
         const landUnits = gameState.selectedUnits.filter(u => canEmbark(u));
         if (landUnits.length > 0) {
-            for (const u of landUnits) {
-                const cap = (clickedTransport.cargo ? clickedTransport.cargo.length : 0) < (GAME_CONFIG.units[clickedTransport.type].capacity || 0);
-                const pickupRadius = 24;
-                const dist = Math.hypot(u.x - clickedTransport.x, u.y - clickedTransport.y);
-                if (dist <= pickupRadius && cap) {
-                    tryEmbarkUnitsToTransport([u], clickedTransport);
-                } else {
-                    // Move straight toward the transport center and tag for auto-embark
-                    u.state = 'moving';
-                    u.targetX = clickedTransport.x;
-                    u.targetY = clickedTransport.y;
-                    u.embarkTargetId = clickedTransport.id;
-                }
+            // Check if any units are already close enough to embark immediately
+            const nearbyUnits = landUnits.filter(u => Math.hypot(u.x - clickedTransport.x, u.y - clickedTransport.y) <= 40);
+            const farUnits = landUnits.filter(u => Math.hypot(u.x - clickedTransport.x, u.y - clickedTransport.y) > 40);
+            
+            // Embark nearby units immediately
+            if (nearbyUnits.length > 0) {
+                embarkUnitsNearTransport(nearbyUnits, clickedTransport);
             }
+            
+            // Send far units toward the transport for future embarking
+            for (const u of farUnits) {
+                u.state = 'moving';
+                u.targetX = clickedTransport.x;
+                u.targetY = clickedTransport.y;
+                u.embarkTargetId = clickedTransport.id;
+            }
+            
+            if (farUnits.length > 0) {
+                showNotification(`${farUnits.length} unit(s) moving to embark...`);
+            }
+            
             updateSelectionInfo();
             return;
         }
@@ -434,18 +445,32 @@ function handleRightClick(x, y) {
         }
         return;
     }
+    // Check for selected transport ships for disembarking
     const transports = gameState.selectedUnits.filter(isTransport);
     if (transports.length === 1) {
-        const t = transports[0];
-        if (getDistance({x, y}, t) < 30) {
-            const others = gameState.selectedUnits.filter(u => u !== t);
-            tryEmbarkUnitsToTransport(others, t);
-            updateSelectionInfo();
-            return;
+        const transport = transports[0];
+        
+        // If right-clicking near the transport and it has cargo, embark other selected units
+        if (getDistance({x, y}, transport) < 50) {
+            const landUnits = gameState.selectedUnits.filter(u => u !== transport && canEmbark(u));
+            if (landUnits.length > 0) {
+                embarkUnitsNearTransport(landUnits, transport);
+                return;
+            }
         }
+        
+        // If right-clicking on land/shore and transport has cargo, disembark
         if (!isPointInWater(x, y) || isPointOnBridge(x, y)) {
-            if (t.cargo && t.cargo.length > 0) {
-                disembarkCargo(t);
+            if (transport.cargo && transport.cargo.length > 0) {
+                // Move transport closer to shore first if needed
+                transport.state = 'moving';
+                transport.targetX = x;
+                transport.targetY = y;
+                
+                // Then disembark
+                setTimeout(() => {
+                    disembarkCargoNearShore(transport);
+                }, 100);
                 return;
             }
         }
@@ -455,27 +480,7 @@ function handleRightClick(x, y) {
         unit.state = 'moving';
         const off = offsets[idx] || {dx:0, dy:0};
         let clamped = clampTargetToAllowed(unit, x + off.dx, y + off.dy);
-        const isVessel = !!GAME_CONFIG.units[unit.type]?.vessel;
-        if (isVessel && isInWaterInnerBand(clamped.x, clamped.y, 1)) {
-            for (const w of gameState.worldObjects) {
-                if (w.type !== 'water') continue;
-                if (clamped.x >= w.x - 2 && clamped.x <= w.x + w.width + 2 && clamped.y >= w.y - 2 && clamped.y <= w.y + w.height + 2) {
-                    const cx = clamp(clamped.x, w.x + 2, w.x + w.width - 2);
-                    const cy = clamp(clamped.y, w.y + 2, w.y + w.height - 2);
-                    clamped = { x: cx, y: cy };
-                    break;
-                }
-            }
-        } else if (!isVessel && isOnLandShoreBand(clamped.x, clamped.y, 1)) {
-            for (const w of gameState.worldObjects) {
-                if (w.type !== 'water') continue;
-                if (clamped.x >= w.x - 2 && clamped.x <= w.x + w.width + 2 && clamped.y >= w.y - 2 && clamped.y <= w.y + w.height + 2) {
-                    if (clamped.x < w.x) clamped.x = w.x - 2; else if (clamped.x > w.x + w.width) clamped.x = w.x + w.width + 2;
-                    if (clamped.y < w.y) clamped.y = w.y - 2; else if (clamped.y > w.y + w.height) clamped.y = w.y + w.height + 2;
-                    break;
-                }
-            }
-        }
+    // No special shoreline band logic; clampTargetToAllowed already enforces land/water and bridges
         const free = getAvailablePosition(clamped.x, clamped.y, 15);
         
         // Use advanced pathfinding for movement

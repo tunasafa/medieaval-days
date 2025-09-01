@@ -1,6 +1,5 @@
-// Game State
 const gameState = {
-    resources: { food: 1200, wood: 1200, stone: 1100, gold: 1100 },
+    resources: { food: 999999, wood: 999999, stone: 999999, gold: 999999 },
     resourceRates: { food: 0, wood: 0, stone: 0, gold: 0 },
     population: { current: 1, max: 5 },
     selectedUnits: [],

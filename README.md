@@ -6,6 +6,8 @@ right now it is playable strategy game mostly for showing what is being done tha
 the more it is played the more bugs and failures will be notices since it is extremely hard to make games like these and think about 10000 aspects of every element
 if you notice a bug or fatal error please let me know for future updates and improvements
 
+#i am open to partnering to develop this game further and publish it on a platform
+
 note : i did not know finding assets for a game would be this impossible
 
 
@@ -32,3 +34,4 @@ possible updates:
 - improved animations for catapult, ballista , archer and crossbowman (to show what they throw)
 - better 8 bit songs
 - zoom in and out from the map
+- 2 and more player real time playable option

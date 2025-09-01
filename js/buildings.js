@@ -1,6 +1,4 @@
-// Building-related Functions
 function createInitialBuildings() {
-    // Always place the player's Town Center at the top-left corner with a small edge padding
     const edgePad = 24;
     const tcCfg = getBuildingConfig('town-center');
     const spawnX = edgePad;
@@ -35,7 +33,6 @@ function startPlacingBuilding(type) {
 
 function placeBuilding(type, x, y) {
     const buildingConfig = getBuildingConfig(type);
-    // For bridge block placement, we validate first then deduct cost
     if (type !== 'bridge') {
         if (!canAfford(buildingConfig.cost)) {
             showNotification(`Not enough resources!`);
@@ -46,7 +43,6 @@ function placeBuilding(type, x, y) {
     const buildingX = x - buildingConfig.width / 2;
     const buildingY = y - buildingConfig.height / 2;
     if (type === 'bridge') {
-        // Place a single tile-sized bridge block; reject lakes; align to grid
         const blk = computeBridgeBlockAt(x, y);
         if (!blk.ok) {
             showNotification(blk.isLake ? 'Cannot build bridge blocks on lakes.' : 'Bridge blocks must be placed over river water tiles.');
@@ -71,7 +67,6 @@ function placeBuilding(type, x, y) {
         showNotification('Bridge block placed.');
         return;
     }
-    // Before placing, ensure no unit is inside the footprint; evict any overlapping units outward
     const footprint = { x: buildingX, y: buildingY, width: buildingConfig.width, height: buildingConfig.height };
     const allUnits = [...gameState.units, ...gameState.enemyUnits];
     for (const u of allUnits) {
@@ -81,13 +76,10 @@ function placeBuilding(type, x, y) {
             u.y >= footprint.y && u.y <= footprint.y + footprint.height
         );
         if (inside) {
-            // Compute a safe edge point outside the new building with ample clearance
             let edge = getDropOffPointOutside(u, footprint, (typeof EDGE_CLEARANCE !== 'undefined' ? EDGE_CLEARANCE : 20) + 5);
             let px = edge.x, py = edge.y;
-            // Clamp within world bounds
             px = Math.max(8, Math.min(GAME_CONFIG.world.width - 8, px));
             py = Math.max(8, Math.min(GAME_CONFIG.world.height - 8, py));
-            // If spot intersects any existing building buffer OR the new building buffer, nudge outward
             const cx = footprint.x + footprint.width / 2;
             const cy = footprint.y + footprint.height / 2;
             let vx = (px - cx) || 1;
@@ -104,10 +96,8 @@ function placeBuilding(type, x, y) {
                 py = py + ny * 6;
                 attempts++;
             }
-            // Find a nearby available free point to avoid unit-unit overlap
             const free = getAvailablePosition(px, py, 16);
             px = free.x; py = free.y;
-            // Avoid water for land units
             if (!isPointInWater(px, py)) {
                 u.x = px; u.y = py; u.state = 'idle';
             }
@@ -136,44 +126,37 @@ function canPlaceBuilding(type, x, y) {
     const proposedX = x - config.width / 2;
     const proposedY = y - config.height / 2;
     
-    // Check if building fits within world boundaries
     if (proposedX < 0 || proposedY < 0 || 
         proposedX + config.width > GAME_CONFIG.world.width || 
         proposedY + config.height > GAME_CONFIG.world.height) {
         return false;
     }
-    
-    // Check for overlaps with existing buildings (player and enemy)
     const allBuildings = [...gameState.buildings, ...gameState.enemyBuildings];
     for (const building of allBuildings) {
         if (!(proposedX + config.width <= building.x || proposedX >= building.x + building.width ||
               proposedY + config.height <= building.y || proposedY >= building.y + building.height)) {
-            return false; // Overlaps with existing building
+            return false; 
         }
     }
 
-    // Note: We allow placing over units; units will be evicted outward in placeBuilding() to avoid trapping.
-    
-    // Check for overlaps with resources (prevent building on top of resources)
+
     for (const obj of gameState.worldObjects) {
         if (obj.type === 'resource') {
             if (!(proposedX + config.width <= obj.x || proposedX >= obj.x + obj.width ||
                   proposedY + config.height <= obj.y || proposedY >= obj.y + obj.height)) {
-                return false; // Overlaps with resource
+                return false;
             }
         }
     }
     
-    // Special rules for water-related buildings
+
     let intersectsWater = false;
     let nearWater = false;
     
     if (tilemap && tilemap.isLoaded) {
-        // Use tilemap for water detection
         const buildingWidthInTiles = Math.ceil(config.width / tilemap.tileSize);
         const buildingHeightInTiles = Math.ceil(config.height / tilemap.tileSize);
         
-        // Check if building intersects water tiles
         for (let tileY = 0; tileY < buildingHeightInTiles; tileY++) {
             for (let tileX = 0; tileX < buildingWidthInTiles; tileX++) {
                 const worldX = proposedX + tileX * tilemap.tileSize;
@@ -185,8 +168,7 @@ function canPlaceBuilding(type, x, y) {
             }
             if (intersectsWater) break;
         }
-        
-        // Check if building is near water (within 50px)
+
         const checkRadius = 50;
         for (let checkY = proposedY - checkRadius; checkY <= proposedY + config.height + checkRadius; checkY += tilemap.tileSize) {
             for (let checkX = proposedX - checkRadius; checkX <= proposedX + config.width + checkRadius; checkX += tilemap.tileSize) {
@@ -198,7 +180,7 @@ function canPlaceBuilding(type, x, y) {
             if (nearWater) break;
         }
     } else {
-        // Fallback to old method if tilemap not available
+
         intersectsWater = gameState.worldObjects.some(o => o.type === 'water' &&
             !(proposedX + config.width <= o.x || proposedX >= o.x + o.width || 
               proposedY + config.height <= o.y || proposedY >= o.y + o.height));
@@ -209,31 +191,30 @@ function canPlaceBuilding(type, x, y) {
     }
     
     if (type === 'navy') {
-        // Navy buildings must be near or on water
         return intersectsWater || nearWater;
     }
     
     if (type === 'bridge') {
         const blk = computeBridgeBlockAt(x, y);
-        return blk.ok; // must be on river and tile-aligned
+        return blk.ok; 
     }
     
-    // Land buildings cannot be built on water
+ 
     if (intersectsWater) {
         return false;
     }
     
-    // Check for overlaps with obstacles (rocks, etc.) but not water
+
     for (const obj of gameState.worldObjects) {
         if (obj.type === 'obstacle') {
             if (!(proposedX + config.width <= obj.x || proposedX >= obj.x + obj.width ||
                   proposedY + config.height <= obj.y || proposedY >= obj.y + obj.height)) {
-                return false; // Overlaps with obstacle
+                return false;
             }
         }
     }
     
-    return true; // Building can be placed here
+    return true; 
 }
 
 function selectBuilding(building) {

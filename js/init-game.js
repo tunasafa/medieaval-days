@@ -187,7 +187,6 @@ function createWorldObjects() {
         scatterDecorationsAcrossWorld({ count: 90 });
     }
 
-    // Removed random grey rock obstacles
 }
 
 function createInitialUnits() {
@@ -232,7 +231,7 @@ function createInitialUnits() {
             target: null,
             gatherType: null,
             isSelected: false,
-            // Initialize animation state so GIF/spritesheet logic can use it immediately
+            // Initialize animation state for immediate rendering
             anim: { action: 'idle', direction: 'down', frame: 0, elapsed: 0 },
             prevX: spawnPosition.x,
             prevY: spawnPosition.y

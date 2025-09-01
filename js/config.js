@@ -1,7 +1,6 @@
-// Game Configuration
 const GAME_CONFIG = {
     canvas: { width: 5000, height: 2500 },
-    world: { width: 6500, height: 2500 }, // 2800 * 3 = 8400, 1400 * 3 = 4200
+    world: { width: 7500, height: 4000 }, 
     units: {
         villager: {
             cost: { food: 50 },
@@ -11,22 +10,7 @@ const GAME_CONFIG = {
             attackRange: 0,
             attack: 2,
             gatherRate: 3,
-            buildTime: 25,
-            sprite: {
-                sheet: 'villager',   // assets/units/villager.gif (units use GIF now)
-                // If you know exact frame sizes, set them here. If left null, code will compute from a 1x4 sheet.
-                columns: 6,
-                rows: 1,
-                spacing: 0,
-                margin: 0,
-                autoDetect: false,
-                animations: {
-                    // Idle will use the first frame of the only row
-                    idle: { row: 0, frames: 1, fps: 1 },
-                    // Simple walk cycle: 1 row, 6 columns
-                    walk: { row: 1, frames: 6, fps: 10 } // Increased FPS for smoother animation
-                }
-            }
+            buildTime: 25
         },
         militia: {
             cost: { food: 60, gold: 20 },
@@ -37,13 +21,13 @@ const GAME_CONFIG = {
             attackRange: 30,
             buildTime: 21
         },
-        archer: {
+    archer: {
             cost: { wood: 25, gold: 45 },
             health: 30,
             maxHealth: 30,
             attack: 4,
             speed: 1.0,
-            attackRange: 1200,
+            attackRange: 480,
             buildTime: 35
         },
         crossbowman: {
@@ -52,7 +36,7 @@ const GAME_CONFIG = {
             maxHealth: 35,
             attack: 5,
             speed: 1.0,
-            attackRange: 140,
+            attackRange: 600,
             buildTime: 40
         },
         axeman: {
@@ -73,13 +57,13 @@ const GAME_CONFIG = {
             attackRange: 30,
             buildTime: 35
         },
-        catapult: {
+    catapult: {
             cost: { wood: 200, gold: 200 },
             health: 150,
             maxHealth: 150,
             attack: 40,
             speed: 0.8,
-            attackRange: 200,
+            attackRange: 960,
             buildTime: 60
         },
         ballista: {
@@ -88,10 +72,21 @@ const GAME_CONFIG = {
             maxHealth: 80,
             attack: 25,
             speed: 0.9,
-            attackRange: 180,
+            attackRange: 780,
             buildTime: 50
         },
-    transportLarge: {
+        transportSmall: {
+            cost: { wood: 120 },
+            health: 120,
+            maxHealth: 120,
+            attack: 0,
+            speed: 1.2,
+            attackRange: 0,
+            buildTime: 35,
+            vessel: true,
+            capacity: 4
+        },
+        transportLarge: {
             cost: { wood: 220 },
             health: 200,
             maxHealth: 200,
@@ -129,51 +124,50 @@ const GAME_CONFIG = {
             cost: { wood: 400, stone: 300 },
             health: 2400,
             maxHealth: 2400,
-            width: 600,  // 400 * 1.5 = 600
-            height: 600  // 400 * 1.5 = 600
+            width: 600,
+            height: 600
         },
         house: {
             cost: { wood: 25 },
             health: 550,
             maxHealth: 550,
             population: 5,
-            width: 180,  // 120 * 1.5 = 180
-            height: 180  // 120 * 1.5 = 180
+            width: 180,
+            height: 180
         },
         barracks: {
             cost: { wood: 175 },
             health: 1200,
             maxHealth: 1200,
-            width: 270,  // 180 * 1.5 = 270
-            height: 270  // 180 * 1.5 = 270
+            width: 270,
+            height: 270
         },
         archeryRange: {
             cost: { wood: 150 },
             health: 1000,
             maxHealth: 1000,
-            width: 270,  // 180 * 1.5 = 270
-            height: 270  // 180 * 1.5 = 270
+            width: 270,
+            height: 270
         },
         craftery: {
             cost: { wood: 200, stone: 100 },
             health: 1500,
             maxHealth: 1500,
-            width: 315,  // 210 * 1.5 = 315
-            height: 315  // 210 * 1.5 = 315
+            width: 315,
+            height: 315
         },
         navy: {
             cost: { wood: 200, stone: 50 },
             health: 1000,
             maxHealth: 1000,
-            width: 252,  // 20% smaller than 315
-            height: 216  // 20% smaller than 270
+            width: 252,
+            height: 216
         },
         bridge: {
-            // Per-block cost; adjust as needed
             cost: { wood: 15, stone: 5 },
             health: 200,
             maxHealth: 200,
-            width: 32,   // ignored for preview; block uses tileSize
+            width: 32, 
             height: 32
         }
     },
@@ -185,7 +179,5 @@ const GAME_CONFIG = {
         rock: { type: 'obstacle', width: 30, height: 30, color: '#696969' },
         water: { type: 'water', width: 1200, height: 100, color: '#1e90ff' },
     lake: { type: 'water', width: 1000, height: 800, color: '#1c86ee' },
-    // Deprecated: large span template removed; each bridge is placed as single blocks now
-    // bridgeSpan removed
     }
 };

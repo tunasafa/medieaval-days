@@ -1,15 +1,17 @@
-// Game Loop
+/**
+ * Main game loop that runs at 60fps using requestAnimationFrame. Handles delta time
+ * calculation, input processing, game state updates, and rendering pipeline. Manages
+ * camera position snapping, unit animation updates, and conditional tilemap rendering.
+ */
 function gameLoop() {
     const now = Date.now();
     const deltaTime = now - gameState.lastUpdate;
     gameState.lastUpdate = now;
-    // Ensure we keep repainting so GIF frames are visible as they advance
     handleInput();
-    // Snap camera to integer pixels for crisp rendering
     gameState.camera.x = Math.round(gameState.camera.x || 0);
     gameState.camera.y = Math.round(gameState.camera.y || 0);
     updateUnits(deltaTime);
-    updateUnitAnimations(); // Update animation states based on movement
+    updateUnitAnimations();
     checkWinConditions();
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
@@ -18,11 +20,9 @@ function gameLoop() {
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, GAME_CONFIG.canvas.width, GAME_CONFIG.canvas.height);
 
-    // Draw tilemap background (replaces gradient)
     if (tilemap) {
         tilemap.draw(ctx, gameState.camera);
     } else {
-        // Fallback gradient if tilemap not available
         const gradient = ctx.createLinearGradient(0, 0, GAME_CONFIG.canvas.width, GAME_CONFIG.canvas.height);
         gradient.addColorStop(0, '#2a8f52');
         gradient.addColorStop(1, '#1e6b3d');
@@ -41,8 +41,13 @@ function gameLoop() {
     }
 }
 
+/**
+ * Processes WASD camera movement input with bounds checking. Updates camera position
+ * based on currently pressed keys, enforcing world boundaries to prevent camera from
+ * moving outside the playable area. Uses configurable camera speed for smooth movement.
+ */
 function handleInput() {
-    const cameraSpeed = 10; // doubled from 5
+    const cameraSpeed = 10;
     if (gameState.keys['w']) {
         gameState.camera.y = Math.max(0, gameState.camera.y - cameraSpeed);
     }

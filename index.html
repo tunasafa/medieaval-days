@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MEDIEVAL DAYS</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Almendra+SC&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="game-container">
+        <div class="header">
+            <div class="game-title">MEDIEVAL DAYS</div>
+            <div class="resources">
+                <div class="resource">
+                    <canvas class="resource-icon food" width="28" height="28"></canvas>
+                    <div>
+                        <div id="food-count">200</div>
+                        <div style="font-size: 10px; color: #ccc;">+<span id="food-rate">0</span>/s</div>
+                    </div>
+                </div>
+                <div class="resource">
+                    <canvas class="resource-icon wood" width="28" height="28"></canvas>
+                    <div>
+                        <div id="wood-count">200</div>
+                        <div style="font-size: 10px; color: #ccc;">+<span id="wood-rate">0</span>/s</div>
+                    </div>
+                </div>
+                <div class="resource">
+                    <canvas class="resource-icon stone" width="28" height="28"></canvas>
+                    <div>
+                        <div id="stone-count">100</div>
+                        <div style="font-size: 10px; color: #ccc;">+<span id="stone-rate">0</span>/s</div>
+                    </div>
+                </div>
+                <div class="resource">
+                    <canvas class="resource-icon gold" width="28" height="28"></canvas>
+                    <div>
+                        <div id="gold-count">100</div>
+                        <div style="font-size: 10px; color: #ccc;">+<span id="gold-rate">0</span>/s</div>
+                    </div>
+                </div>
+                <div class="resource">
+                    <div style="color: #f0c040;">Population</div>
+                    <div id="population">1/5</div>
+                </div>
+                <div class="age-display" id="age-display">Dark Age</div>
+            </div>
+        </div>
+        <div class="main-content">
+            <div class="game-area">
+                <canvas id="gameCanvas"></canvas>
+                <div class="minimap">
+                    <canvas id="minimapCanvas" width="194" height="144"></canvas>
+                </div>
+                <div class="selection-box" id="selectionBox"></div>
+                <div class="notification" id="notification"></div>
+                <div class="game-over" id="gameOver">
+                    <h2 id="gameOverText">Victory!</h2>
+                    <p id="gameOverSubtext">You have conquered the enemy!</p>
+                    <button onclick="location.reload()">Play Again</button>
+                </div>
+            </div>
+            <div class="sidebar">
+                <div class="selected-info">
+                    <div class="section-title">Selection</div>
+                    <div id="selection-info">No units or buildings selected</div>
+                </div>
+                <div class="building-actions-section" id="building-actions" style="display: none;">
+                    <div class="section-title" id="building-title">Building Actions</div>
+                    <div class="unit-list" id="building-unit-list">
+                        <!-- Dynamic content based on selected building -->
+                    </div>
+                </div>
+                <div class="units-section" id="general-units" style="display: block;">
+                    <div class="section-title">Train Units (Select Building First)</div>
+                    <div class="unit-list">
+                        <div style="text-align: center; color: #ccc; padding: 20px;">
+                            Click on a building to see available units and upgrades
+                        </div>
+                    </div>
+                </div>
+                <div class="buildings-section">
+                    <div class="section-title">Construct Buildings</div>
+                    <div class="building-list">
+                        <div class="building" data-type="house">
+                            <canvas class="building-icon house" width="48" height="48"></canvas>
+                            <div style="font-weight: bold;">House</div>
+                            <div style="font-size: 12px; color: #ccc;">25 Wood</div>
+                            <div style="font-size: 10px; color: #8cc;">+5 Pop</div>
+                        </div>
+                        <div class="building" data-type="barracks">
+                            <canvas class="building-icon barracks" width="48" height="48"></canvas>
+                            <div style="font-weight: bold;">Barracks</div>
+                            <div style="font-size: 12px; color: #ccc;">175 Wood</div>
+                        </div>
+                        <div class="building" data-type="archeryRange">
+                            <canvas class="building-icon archeryRange" width="48" height="48"></canvas>
+                            <div style="font-weight: bold;">Archery Range</div>
+                            <div style="font-size: 12px; color: #ccc;">150 Wood</div>
+                        </div>
+                        <div class="building" data-type="craftery">
+                            <canvas class="building-icon craftery" width="48" height="48"></canvas>
+                            <div style="font-weight: bold;">Craftery</div>
+                            <div style="font-size: 12px; color: #ccc;">200W, 100S</div>
+                        </div>
+                        <div class="building" data-type="navy">
+                            <canvas class="building-icon navy" width="48" height="48"></canvas>
+                            <div style="font-weight: bold;">Navy</div>
+                            <div style="font-size: 12px; color: #ccc;">200W, 50S</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="ai-status">
+                    <div class="section-title">Enemy Status</div>
+                    <div id="ai-info">
+                        <div>Enemy Units: <span id="enemy-units">4</span></div>
+                        <div>Enemy Buildings: <span id="enemy-buildings">1</span></div>
+                        <div>Threat Level: <span id="threat-level" style="color: #4CAF50;">Low</span></div>
+                    </div>
+                </div>
+                
+                <div class="age-section" style="margin-top: 8px;">
+                    <div class="section-title">Age Advancement</div>
+                    <button id="btn-age-up">Advance to Feudal Age (500 Food)</button>
+                </div>
+            </div>
+        </div>
+        <div class="controls">
+            <button id="btn-fullscreen">Enter Fullscreen</button>
+            <button id="btn-music" title="Toggle background music">Music: Off</button>
+        </div> 
+    </div>
+
+    <!-- JavaScript Files -->
+    <script src="js/config.js"></script>
+    <script src="js/game-state.js"></script>
+    <script src="js/tilemap.js"></script>
+    <script src="js/asset-manager.js"></script>
+    <script src="js/sprite-data.js"></script>
+    <script src="js/pixel-art.js"></script>
+    <script src="js/utilities.js"></script>
+    <script src="js/audio.js"></script>
+    <script src="js/pathfinding.js"></script>
+    <script src="js/units.js"></script>
+    <script src="js/buildings.js"></script>
+    <script src="js/resources.js"></script>
+    <script src="js/ai.js"></script>
+    <script src="js/drawing.js"></script>
+    <script src="js/event-listeners.js"></script>
+    <script src="js/init-game.js"></script>
+    <script src="js/game-loop.js"></script>
+    <script src="js/ui.js"></script>
+</body>
+</html>

@@ -267,26 +267,3 @@ function trainUnitFromBuilding(type, building) {
     }
     trainUnit(type, building);
 }
-
-// Expose functions to global scope for testing
-window.createUnit = function(type, x, y, player) {
-    gameState.units.push({
-        id: generateId(),
-        type,
-        player,
-        x,
-        y,
-        health: GAME_CONFIG.units[type].maxHealth,
-        state: 'idle',
-        target: null,
-        isSelected: false,
-        anim: {
-            action: 'idle',
-            direction: 'down',
-            frame: 0,
-            elapsed: 0
-        },
-        prevX: x,
-        prevY: y
-    });
-};

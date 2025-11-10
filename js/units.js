@@ -24,35 +24,6 @@ function updateUnits(deltaTime) {
 function updateUnit(unit, deltaTime) {
     if (unit.state === 'moving') {
         handleUnitMovement(unit, deltaTime);
-        // Embarking logic
-        if (unit.embarkTargetId && !GAME_CONFIG.units[unit.type]?.vessel) {
-            const transport = gameState.units.find(u => u.id === unit.embarkTargetId && isTransport(u));
-            if (transport) {
-                const dist = Math.hypot(unit.x - transport.x, unit.y - transport.y);
-                const capacity = GAME_CONFIG.units[transport.type].capacity || 0;
-                const currentCargo = (transport.cargo || []).length;
-
-                if (dist <= 30 && currentCargo < capacity) {
-                    unit.state = 'embarked';
-                    unit.embarkedIn = transport.id;
-                    transport.cargo = transport.cargo || [];
-                    transport.cargo.push(unit);
-
-                    const unitIndex = gameState.units.indexOf(unit);
-                    if (unitIndex > -1) {
-                        gameState.units.splice(unitIndex, 1);
-                    }
-
-                    if (unit._domGif && unit._domGif.parentNode) {
-                        unit._domGif.parentNode.removeChild(unit._domGif);
-                        unit._domGif = null;
-                    }
-                    return; // Unit is embarked, stop processing
-                }
-            } else {
-                unit.embarkTargetId = null;
-            }
-        }
     } else {
         handleUnitActions(unit, deltaTime);
     }
@@ -106,6 +77,22 @@ function updateUnitAnimations() {
             unit.anim.action = 'idle';
         }
     });
+}
+
+// Simple LOS check for a specific unit using terrain validator
+function hasLOSForUnit(x0, y0, x1, y1, unit) {
+    const dx = x1 - x0, dy = y1 - y0;
+    const dist = Math.hypot(dx, dy);
+    if (dist === 0) return true;
+    const step = 8; // px sample
+    const steps = Math.max(2, Math.ceil(dist / step));
+    for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        const sx = x0 + dx * t;
+        const sy = y0 + dy * t;
+        if (!validateTerrainMovement(unit, sx, sy)) return false;
+    }
+    return true;
 }
 
 // NEW EMBARK FUNCTION: Simple distance-based embark when units are near transport

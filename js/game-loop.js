@@ -11,6 +11,7 @@ function gameLoop() {
     gameState.camera.x = Math.round(gameState.camera.x || 0);
     gameState.camera.y = Math.round(gameState.camera.y || 0);
     updateUnits(deltaTime);
+    updateTrainingQueue(deltaTime);
     updateUnitAnimations();
     checkWinConditions();
     const canvas = document.getElementById('gameCanvas');

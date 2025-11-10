@@ -11,36 +11,6 @@
 function handleUnitActions(unit, deltaTime) {
     const config = GAME_CONFIG.units[unit.type];
 
-    // Embarking logic
-    if (unit.embarkTargetId && unit.state === 'moving' && !GAME_CONFIG.units[unit.type]?.vessel) {
-        const transport = gameState.units.find(u => u.id === unit.embarkTargetId && isTransport(u));
-        if (transport) {
-            const dist = Math.hypot(unit.x - transport.x, unit.y - transport.y);
-            const capacity = GAME_CONFIG.units[transport.type].capacity || 0;
-            const currentCargo = (transport.cargo || []).length;
-
-            if (dist <= 30 && currentCargo < capacity) {
-                unit.state = 'embarked';
-                unit.embarkedIn = transport.id;
-                transport.cargo = transport.cargo || [];
-                transport.cargo.push(unit);
-
-                const unitIndex = gameState.units.indexOf(unit);
-                if (unitIndex > -1) {
-                    gameState.units.splice(unitIndex, 1);
-                }
-
-                if (unit._domGif && unit._domGif.parentNode) {
-                    unit._domGif.parentNode.removeChild(unit._domGif);
-                    unit._domGif = null;
-                }
-                return; // Unit is embarked, stop processing
-            }
-        } else {
-            unit.embarkTargetId = null;
-        }
-    }
-
     // Fishing boat logic
     if (unit.type === 'fishingBoat') {
         const inWater = isPointInWater(unit.x, unit.y);

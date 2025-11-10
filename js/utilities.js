@@ -84,24 +84,6 @@ function clamp(val, min, max) {
  * @param {number} y - Y coordinate to check
  * @returns {boolean} True if point is in water, false if on land
  */
-function isPointInWater(x, y) {
-    if (tilemap && tilemap.isLoaded) {
-        return tilemap.isWater(x, y);
-    }
-    return gameState.worldObjects.some(o => (o.type === 'water' || o.type === 'lake') &&
-        x >= o.x && x <= o.x + o.width && y >= o.y && y <= o.y + o.height);
-}
-
-/**
- * Validates that an entire rectangular area is on land by sampling multiple points.
- * Checks corners, edge midpoints, and center to ensure no water intersects the rectangle.
- * Used for building placement validation to prevent structures spanning water boundaries.
- * @param {number} x - Left edge of rectangle
- * @param {number} y - Top edge of rectangle  
- * @param {number} w - Width of rectangle
- * @param {number} h - Height of rectangle
- * @returns {boolean} True if entire rectangle is on land, false if any part touches water
- */
 function isRectOnLand(x, y, w, h) {
     // Sample corners
     const pts = [
@@ -115,10 +97,6 @@ function isRectOnLand(x, y, w, h) {
         if (isPointInWater(px, py)) return false;
     }
     return true;
-}
-
-function isPointOnBridge(x, y) {
-    return gameState.worldObjects.some(o => o.type === 'bridge' && x >= o.x && x <= o.x + o.width && y >= o.y && y <= o.y + o.height);
 }
 
 // Shoreline border/inner-band helpers removed: only land vs water checks remain

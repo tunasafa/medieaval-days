@@ -128,6 +128,7 @@ class AssetManager {
 
     async preloadGameAssets() {
         const assetList = [
+            // Villager
             { category: 'units', name: 'villager/walk/villager_walk_east' },
             { category: 'units', name: 'villager/walk/villager_walk_southeast' },
             { category: 'units', name: 'villager/walk/villager_walk_south' },
@@ -152,7 +153,8 @@ class AssetManager {
             { category: 'units', name: 'villager/gather/villager_gathering_north-west' },
             { category: 'units', name: 'villager/gather/villager_gathering_north' },
             { category: 'units', name: 'villager/gather/villager_gathering_north-east' },
-            { category: 'units', name: 'villager' },
+
+            // Archer
             { category: 'units', name: 'archer/walk/archer_walk_east' },
             { category: 'units', name: 'archer/walk/archer_walk_southeast' },
             { category: 'units', name: 'archer/walk/archer_walk_south' },
@@ -169,10 +171,6 @@ class AssetManager {
             { category: 'units', name: 'archer/attack/archer_attack_northwest' },
             { category: 'units', name: 'archer/attack/archer_attack_north' },
             { category: 'units', name: 'archer/attack/archer_attack_northeast' },
-            { category: 'units', name: 'archer/attack/archer_attack_south-east' },
-            { category: 'units', name: 'archer/attack/archer_attack_south-west' },
-            { category: 'units', name: 'archer/attack/archer_attack_north-west' },
-            { category: 'units', name: 'archer/attack/archer_attack_north-east' },
             { category: 'units', name: 'archer/idle/archer_idle_east' },
             { category: 'units', name: 'archer/idle/archer_idle_southeast' },
             { category: 'units', name: 'archer/idle/archer_idle_south' },
@@ -181,11 +179,8 @@ class AssetManager {
             { category: 'units', name: 'archer/idle/archer_idle_northwest' },
             { category: 'units', name: 'archer/idle/archer_idle_north' },
             { category: 'units', name: 'archer/idle/archer_idle_northeast' },
-            { category: 'units', name: 'archer/idle/archer_idle_south-east' },
-            { category: 'units', name: 'archer/idle/archer_idle_south-west' },
-            { category: 'units', name: 'archer/idle/archer_idle_north-west' },
-            { category: 'units', name: 'archer/idle/archer_idle_north-east' },
-            { category: 'units', name: 'archer' },
+
+            // Militia
             { category: 'units', name: 'militia/idle/militia_idle-idle_east' },
             { category: 'units', name: 'militia/idle/militia_idle-idle_south-east' },
             { category: 'units', name: 'militia/idle/militia_idle-idle_south' },
@@ -210,10 +205,8 @@ class AssetManager {
             { category: 'units', name: 'militia/attack/militia_attack_north-west' },
             { category: 'units', name: 'militia/attack/militia_attack_north' },
             { category: 'units', name: 'militia/attack/militia_attack_north-east' },
-            { category: 'units', name: 'militia' },
-            { category: 'units', name: 'archer' },
-            { category: 'units', name: 'axeman' },
-            { category: 'units', name: 'crossbowman' },
+
+            // Crossbowman
             { category: 'units', name: 'crossbowman/idle/crossbowman_east' },
             { category: 'units', name: 'crossbowman/idle/crossbowman_southeast' },
             { category: 'units', name: 'crossbowman/idle/crossbowman_south' },
@@ -238,6 +231,8 @@ class AssetManager {
             { category: 'units', name: 'crossbowman/attack/crossbowman_northwest' },
             { category: 'units', name: 'crossbowman/attack/crossbowman_north' },
             { category: 'units', name: 'crossbowman/attack/crossbowman_northeast' },
+
+            // Warrior
             { category: 'units', name: 'warrior/idle/warrior_idle_east' },
             { category: 'units', name: 'warrior/idle/warrior_idle_south-east' },
             { category: 'units', name: 'warrior/idle/warrior_idle_south' },
@@ -262,7 +257,8 @@ class AssetManager {
             { category: 'units', name: 'warrior/attack/warrior_attack_north-west' },
             { category: 'units', name: 'warrior/attack/warrior_attack_north' },
             { category: 'units', name: 'warrior/attack/warrior_attack_north-east' },
-            { category: 'units', name: 'warrior' },
+
+            // Ballista
             { category: 'units', name: 'ballista/idle/ballista_east' },
             { category: 'units', name: 'ballista/idle/ballista_southeast' },
             { category: 'units', name: 'ballista/idle/ballista_south' },
@@ -287,7 +283,8 @@ class AssetManager {
             { category: 'units', name: 'ballista/attack/ballista_attack_northwest' },
             { category: 'units', name: 'ballista/attack/ballista_attack_north' },
             { category: 'units', name: 'ballista/attack/ballista_attack_northeast' },
-            { category: 'units', name: 'ballista/attack/ballista_attack_south-east' },
+
+            // Axeman
             { category: 'units', name: 'axeman/idle/axeman_idle_east' },
             { category: 'units', name: 'axeman/idle/axeman_idle_southeast' },
             { category: 'units', name: 'axeman/idle/axeman_idle_south' },
@@ -296,10 +293,6 @@ class AssetManager {
             { category: 'units', name: 'axeman/idle/axeman_idle_northwest' },
             { category: 'units', name: 'axeman/idle/axeman_idle_north' },
             { category: 'units', name: 'axeman/idle/axeman_idle_northeast' },
-            { category: 'units', name: 'axeman/idle/axeman_idle_south-east' },
-            { category: 'units', name: 'axeman/idle/axeman_idle_south-west' },
-            { category: 'units', name: 'axeman/idle/axeman_idle_north-west' },
-            { category: 'units', name: 'axeman/idle/axeman_idle_north-east' },
             { category: 'units', name: 'axeman/walking/axeman_walking_east' },
             { category: 'units', name: 'axeman/walking/axeman_walking_southeast' },
             { category: 'units', name: 'axeman/walking/axeman_walking_south' },
@@ -308,7 +301,6 @@ class AssetManager {
             { category: 'units', name: 'axeman/walking/axeman_walking_northwest' },
             { category: 'units', name: 'axeman/walking/axeman_walking_north' },
             { category: 'units', name: 'axeman/walking/axeman_walking_northeast' },
-            { category: 'units', name: 'axeman/walking/axeman_walking_south-east' },
             { category: 'units', name: 'axeman/attack/axeman_attack_east' },
             { category: 'units', name: 'axeman/attack/axeman_attack_southeast' },
             { category: 'units', name: 'axeman/attack/axeman_attack_south' },
@@ -317,13 +309,8 @@ class AssetManager {
             { category: 'units', name: 'axeman/attack/axeman_attack_northwest' },
             { category: 'units', name: 'axeman/attack/axeman_attack_north' },
             { category: 'units', name: 'axeman/attack/axeman_attack_northeast' },
-            { category: 'units', name: 'axeman/attack/axeman_attack_south-east' },
-            { category: 'units', name: 'axeman/attack/axeman_attack_south-west' },
-            { category: 'units', name: 'axeman/attack/axeman_attack_north-west' },
-            { category: 'units', name: 'axeman/attack/axeman_attack_north-east' },
-            { category: 'units', name: 'axeman' },
-            { category: 'units', name: 'ballista' },
-            { category: 'units', name: 'catapult' },
+
+            // Catapult
             { category: 'units', name: 'catapult/idle/catapult_idle_east' },
             { category: 'units', name: 'catapult/idle/catapult_idle_southeast' },
             { category: 'units', name: 'catapult/idle/catapult_idle_south' },
@@ -348,6 +335,8 @@ class AssetManager {
             { category: 'units', name: 'catapult/attack/catapult_attack_northwest' },
             { category: 'units', name: 'catapult/attack/catapult_attack_north' },
             { category: 'units', name: 'catapult/attack/catapult_attack_northeast' },
+
+            // Naval Units
             { category: 'units', name: 'FishingBoat/fishingboat_east' },
             { category: 'units', name: 'FishingBoat/fishingboat_southeast' },
             { category: 'units', name: 'FishingBoat/fishingboat_south' },
@@ -372,6 +361,8 @@ class AssetManager {
             { category: 'units', name: 'warship/warship_northwest' },
             { category: 'units', name: 'warship/warship_north' },
             { category: 'units', name: 'warship/warship_northeast' },
+
+            // Scenery & Buildings
             { category: 'textures', name: 'bush1' },
             { category: 'textures', name: 'bush2' },
             { category: 'textures', name: 'bush3' },
@@ -385,6 +376,8 @@ class AssetManager {
             { category: 'buildings', name: 'archeryRange' },
             { category: 'buildings', name: 'craftery' },
             { category: 'buildings', name: 'navy' },
+
+            // Resources
             { category: 'resources', name: 'food1' },
             { category: 'resources', name: 'food2' },
             { category: 'resources', name: 'food3' },

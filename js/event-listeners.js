@@ -155,7 +155,7 @@ function setupEventListeners() {
                 cursor = 'copy'; // disembark cursor
             }
         }
-        const canvasEl = document.getElementById('game-canvas');
+        const canvasEl = document.getElementById('gameCanvas');
         if (canvasEl) canvasEl.style.cursor = cursor;
     });
     canvas.addEventListener('mouseup', (e) => {
@@ -200,7 +200,7 @@ function setupEventListeners() {
         const transports = gameState.selectedUnits.filter(u => isTransport(u));
         if (transports.length === 1) {
             const t = transports[0];
-            const canvasEl = document.getElementById('game-canvas');
+            const canvasEl = document.getElementById('gameCanvas');
             if (canvasEl) {
                 if (Math.hypot(x - t.x, y - t.y) < 30) canvasEl.style.cursor = 'alias';
                 else if (!isPointInWater(x, y) || isPointOnBridge(x, y)) canvasEl.style.cursor = 'copy';

@@ -493,3 +493,22 @@ function handleUnitActions(unit, deltaTime) {
         }
     }
 }
+
+function updateTrainingQueue(deltaTime) {
+    gameState.buildings.forEach(building => {
+        if (building.trainingQueue.length > 0) {
+            const item = building.trainingQueue[0];
+            item.time -= deltaTime;
+            if (item.time <= 0) {
+                building.trainingQueue.shift();
+                const unitConfig = GAME_CONFIG.units[item.unit];
+                const spawnPoint = findFreeSpot(building.x + building.width / 2, building.y + building.height + 20, 10);
+                createUnit('player', item.unit, spawnPoint.x, spawnPoint.y);
+                updatePopulation();
+                if (building.isSelected) {
+                    updateSelectionInfo();
+                }
+            }
+        }
+    });
+}

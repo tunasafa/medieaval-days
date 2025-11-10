@@ -96,7 +96,7 @@ class PathfindingGrid {
 
         // Mark large buildings as obstacles with extra padding to avoid hugging walls
         gameState.buildings.forEach(building => {
-            const margin = Math.max(16, this.cellSize); // at least one whole cell around buildings
+            const margin = Math.max(24, this.cellSize * 1.5); // Increased margin
             const startX = Math.floor((building.x - margin) / this.cellSize);
             const startY = Math.floor((building.y - margin) / this.cellSize);
             const endX = Math.ceil((building.x + building.width + margin) / this.cellSize);
@@ -157,8 +157,8 @@ class PathfindingGrid {
         }
 
     // Increase cost near obstacles to prefer the middle of corridors
-    const influenceRadius = 5; // cells (broader influence)
-    const proximityWeight = 5.0; // stronger penalty near walls/corners
+    const influenceRadius = 6; // cells (broader influence)
+    const proximityWeight = 6.0; // stronger penalty near walls/corners
         for (let y = 0; y < this.height; y++) {
             for (let x = 0; x < this.width; x++) {
                 const cell = this.grid[y][x];
@@ -524,13 +524,24 @@ function findPath(startX, startY, endX, endY, unitType = 'villager') {
 // Helper function to get the next waypoint for a unit
 function getNextWaypoint(unit) {
     if (!unit.path || unit.path.length === 0) return null;
-    
-    // Check if we're close enough to the current waypoint
+
+    // If there's only one waypoint left, just head for it.
+    if (unit.path.length === 1) {
+        return unit.path[0];
+    }
+
+    // Check for Line of Sight to the next waypoint to skip the current one if possible
+    const nextWaypoint = unit.path[1];
+    if (hasLineOfSight(unit.x, unit.y, nextWaypoint.x, nextWaypoint.y, GAME_CONFIG.units[unit.type]?.vessel)) {
+        unit.path.shift(); // Skip the current waypoint
+        return nextWaypoint;
+    }
+
     const currentWaypoint = unit.path[0];
     const distance = Math.hypot(unit.x - currentWaypoint.x, unit.y - currentWaypoint.y);
     
-    if (distance < 14) {
-        // Remove reached waypoint and get next one
+    // If close enough to the current waypoint, advance to the next
+    if (distance < 20) { // Increased radius for flexibility
         unit.path.shift();
         return unit.path.length > 0 ? unit.path[0] : null;
     }
@@ -579,3 +590,6 @@ function setUnitDestination(unit, targetX, targetY) {
         return false;
     }
 }
+
+// Expose functions to global scope for testing
+window.setUnitDestination = setUnitDestination;

@@ -590,3 +590,6 @@ function setUnitDestination(unit, targetX, targetY) {
         return false;
     }
 }
+
+// Expose functions to global scope for testing
+window.setUnitDestination = setUnitDestination;

@@ -41,6 +41,7 @@ latest changes:
 - improved bridge visuals and footprints so bridges read better on the terrain
 - expanded the background music playlist with local medieval tracks and credits in `assets/music/README.md`
 - improved RTS quality-of-life UI, including idle villager tracking, tech tree view, research progress, settings, tooltips, and cleaner command panels
+- changed multiplayer networking to WebRTC rooms, using the Node server only for signaling instead of direct-IP gameplay traffic
 
 previous updates:
 

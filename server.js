@@ -1,98 +1,162 @@
 /**
- * Medieval Days — Lightweight WebSocket relay server for direct-IP multiplayer.
+ * Medieval Days WebRTC signaling server.
  *
  * Usage:
- *   npm install        (first time only)
- *   npm run server     (starts relay on port 9000)
+ *   npm install
+ *   npm run server
  *
- * The first browser that connects is assigned the "host" role.
- * All subsequent connections are "client" role.
- * The server is a dumb relay — it does zero game logic.
+ * The server does not run game logic and does not relay gameplay traffic.
+ * It only places players in rooms and forwards WebRTC offer/answer/ICE messages.
  */
 
-const { WebSocketServer } = require('ws');
+const { WebSocketServer, WebSocket } = require('ws');
 
 const PORT = process.env.PORT || 9000;
 const wss = new WebSocketServer({ port: PORT });
 
-const clients = new Map(); // ws → { id, role }
-let hostWs = null;
+const clients = new Map(); // ws -> { id, roomId, role }
+const rooms = new Map();   // roomId -> { host, clients: Map<number, WebSocket> }
 let nextPlayerId = 1;
 
-console.log(`\n  ⚔️  Medieval Days Relay Server`);
-console.log(`  Listening on port ${PORT}`);
-console.log(`  Waiting for players to connect...\n`);
+function sanitizeRoomId(value) {
+    return String(value || 'DEFAULT').trim().toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 24) || 'DEFAULT';
+}
 
-wss.on('connection', (ws, req) => {
-    const playerId = nextPlayerId++;
-    const role = hostWs ? 'client' : 'host';
-    const ip = req.socket.remoteAddress;
-    clients.set(ws, { id: playerId, role });
+function send(ws, message) {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(message));
+}
 
-    if (role === 'host') {
-        hostWs = ws;
-        console.log(`  [+] Player ${playerId} connected as HOST (${ip})`);
-        ws.send(JSON.stringify({ type: 'role-assigned', role: 'host', playerId }));
-    } else {
-        console.log(`  [+] Player ${playerId} connected as CLIENT (${ip})`);
-        ws.send(JSON.stringify({ type: 'role-assigned', role: 'client', playerId }));
+function getRoom(roomId) {
+    if (!rooms.has(roomId)) rooms.set(roomId, { host: null, clients: new Map() });
+    return rooms.get(roomId);
+}
 
-        // Notify host that a player joined
-        if (hostWs && hostWs.readyState === 1) {
-            hostWs.send(JSON.stringify({ type: 'player-joined', playerId }));
-        }
+function getPeerById(room, id) {
+    if (room.host && clients.get(room.host)?.id === id) return room.host;
+    return room.clients.get(id) || null;
+}
+
+function removeEmptyRoom(roomId) {
+    const room = rooms.get(roomId);
+    if (!room) return;
+    if (!room.host && room.clients.size === 0) rooms.delete(roomId);
+}
+
+function leaveCurrentRoom(ws) {
+    const info = clients.get(ws);
+    if (!info || !info.roomId) return;
+
+    const room = rooms.get(info.roomId);
+    if (!room) {
+        info.roomId = null;
+        info.role = null;
+        return;
     }
 
-    ws.on('message', (raw) => {
-        let msg;
+    if (room.host === ws) {
+        room.host = null;
+        for (const client of room.clients.values()) {
+            send(client, { type: 'host-disconnected', roomId: info.roomId });
+        }
+        room.clients.clear();
+    } else {
+        room.clients.delete(info.id);
+        if (room.host) send(room.host, { type: 'player-left', playerId: info.id, roomId: info.roomId });
+    }
+
+    removeEmptyRoom(info.roomId);
+    info.roomId = null;
+    info.role = null;
+}
+
+function joinRoom(ws, message) {
+    const info = clients.get(ws);
+    const roomId = sanitizeRoomId(message.roomId);
+    const requestedMode = message.mode || 'auto';
+
+    leaveCurrentRoom(ws);
+    const room = getRoom(roomId);
+
+    if (requestedMode === 'host' || (requestedMode === 'auto' && !room.host)) {
+        if (room.host && room.host.readyState === WebSocket.OPEN) {
+            send(ws, { type: 'error', message: `Room ${roomId} already has a host.` });
+            return;
+        }
+        room.host = ws;
+        info.roomId = roomId;
+        info.role = 'host';
+        send(ws, { type: 'role-assigned', role: 'host', playerId: info.id, roomId });
+        console.log(`[room ${roomId}] Player ${info.id} joined as host`);
+        return;
+    }
+
+    if (!room.host || room.host.readyState !== WebSocket.OPEN) {
+        send(ws, { type: 'error', message: `Room ${roomId} has no host yet.` });
+        removeEmptyRoom(roomId);
+        return;
+    }
+
+    room.clients.set(info.id, ws);
+    info.roomId = roomId;
+    info.role = 'client';
+    send(ws, {
+        type: 'role-assigned',
+        role: 'client',
+        playerId: info.id,
+        roomId,
+        hostId: clients.get(room.host)?.id
+    });
+    send(room.host, { type: 'player-joined', playerId: info.id, roomId });
+    console.log(`[room ${roomId}] Player ${info.id} joined as client`);
+}
+
+function relaySignal(ws, message) {
+    const info = clients.get(ws);
+    if (!info || !info.roomId) return;
+    const room = rooms.get(info.roomId);
+    if (!room) return;
+
+    const target = getPeerById(room, message.targetId);
+    if (!target) {
+        send(ws, { type: 'error', message: 'WebRTC peer is no longer available.' });
+        return;
+    }
+
+    send(target, {
+        type: 'signal',
+        roomId: info.roomId,
+        fromId: info.id,
+        data: message.data
+    });
+}
+
+console.log('');
+console.log('Medieval Days WebRTC signaling server');
+console.log(`Listening on port ${PORT}`);
+console.log('Waiting for rooms...');
+console.log('');
+
+wss.on('connection', ws => {
+    const playerId = nextPlayerId++;
+    clients.set(ws, { id: playerId, roomId: null, role: null });
+    send(ws, { type: 'connected', playerId });
+
+    ws.on('message', raw => {
+        let message;
         try {
-            msg = JSON.parse(raw);
-        } catch (e) {
-            console.error('  [!] Bad JSON from player', clients.get(ws)?.id);
+            message = JSON.parse(raw);
+        } catch (err) {
+            send(ws, { type: 'error', message: 'Bad JSON message.' });
             return;
         }
 
-        const sender = clients.get(ws);
-
-        switch (msg.type) {
-            case 'state-snapshot':
-                // Host → broadcast to all clients
-                for (const [client, info] of clients) {
-                    if (info.role === 'client' && client.readyState === 1) {
-                        client.send(raw); // Forward raw buffer for speed
-                    }
-                }
+        switch (message.type) {
+            case 'join-room':
+                joinRoom(ws, message);
                 break;
 
-            case 'command':
-                // Client → forward to host
-                if (hostWs && hostWs.readyState === 1 && ws !== hostWs) {
-                    msg.fromPlayer = sender.id;
-                    hostWs.send(JSON.stringify(msg));
-                }
-                break;
-
-            case 'game-start':
-                // Host signals game start → broadcast to all clients
-                console.log(`  [>] Host started the game! Broadcasting to ${clients.size - 1} client(s).`);
-                for (const [client, info] of clients) {
-                    if (info.role === 'client' && client.readyState === 1) {
-                        client.send(raw);
-                    }
-                }
-                break;
-
-            case 'chat':
-                // Broadcast chat to everyone except sender
-                for (const [client] of clients) {
-                    if (client !== ws && client.readyState === 1) {
-                        client.send(JSON.stringify({
-                            type: 'chat',
-                            from: sender.id,
-                            message: msg.message
-                        }));
-                    }
-                }
+            case 'signal':
+                relaySignal(ws, message);
                 break;
 
             default:
@@ -102,35 +166,21 @@ wss.on('connection', (ws, req) => {
 
     ws.on('close', () => {
         const info = clients.get(ws);
-        console.log(`  [-] Player ${info?.id} (${info?.role}) disconnected`);
+        if (info) console.log(`[room ${info.roomId || '-'}] Player ${info.id} disconnected`);
+        leaveCurrentRoom(ws);
         clients.delete(ws);
-
-        if (ws === hostWs) {
-            hostWs = null;
-            console.log('  [!] Host disconnected. Next connection will become new host.');
-            // Notify remaining clients
-            for (const [client] of clients) {
-                if (client.readyState === 1) {
-                    client.send(JSON.stringify({ type: 'host-disconnected' }));
-                }
-            }
-        } else {
-            // Notify host that a client left
-            if (hostWs && hostWs.readyState === 1) {
-                hostWs.send(JSON.stringify({ type: 'player-left', playerId: info?.id }));
-            }
-        }
     });
 
-    ws.on('error', (err) => {
-        console.error(`  [!] WebSocket error for player ${clients.get(ws)?.id}:`, err.message);
+    ws.on('error', err => {
+        const info = clients.get(ws);
+        console.error(`WebSocket error for player ${info?.id || '?'}:`, err.message);
     });
 });
 
-wss.on('error', (err) => {
+wss.on('error', err => {
     if (err.code === 'EADDRINUSE') {
-        console.error(`\n  [!] Port ${PORT} is already in use. Stop the other server or use PORT=XXXX npm run server\n`);
+        console.error(`Port ${PORT} is already in use. Stop the other server or run with PORT=XXXX npm run server`);
     } else {
-        console.error('  [!] Server error:', err.message);
+        console.error('Signaling server error:', err.message);
     }
 });

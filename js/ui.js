@@ -428,6 +428,43 @@ function toggleMultiplayerModal(forceOpen = null) {
     return setModalOpen('mp-modal', open);
 }
 
+function getDefaultMultiplayerSignalUrl() {
+    return 'ws://localhost:9000';
+}
+
+function createMultiplayerRoomCode() {
+    return `MD-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
+}
+
+function getMultiplayerRoomCode(createIfMissing = false) {
+    const input = document.getElementById('mp-room-input');
+    if (!input) return '';
+    let roomCode = input.value.trim().toUpperCase().replace(/[^A-Z0-9-]/g, '');
+    if (!roomCode && createIfMissing) roomCode = createMultiplayerRoomCode();
+    input.value = roomCode;
+    return roomCode;
+}
+
+function getMultiplayerSignalUrl() {
+    const input = document.getElementById('mp-signal-input');
+    if (!input) return getDefaultMultiplayerSignalUrl();
+    const value = input.value.trim() || getDefaultMultiplayerSignalUrl();
+    input.value = value;
+    return value;
+}
+
+function setMultiplayerStatus(message, tone = 'neutral') {
+    const statusEl = document.getElementById('mp-status');
+    if (!statusEl) return;
+    statusEl.textContent = message;
+    const colors = {
+        neutral: 'var(--muted)',
+        success: 'var(--green)',
+        error: 'var(--red)'
+    };
+    statusEl.style.color = colors[tone] || colors.neutral;
+}
+
 function closeOpenModal() {
     const hadOpen = !!document.querySelector('.modal-overlay.open');
     setModalOpen('tech-tree-modal', false);
@@ -685,7 +722,13 @@ function setupUiControls() {
     // ─── Multiplayer UI Controls ────────────────────
     const mpBtn = document.getElementById('btn-menu-mp');
     if (mpBtn) {
-        mpBtn.addEventListener('click', () => toggleMultiplayerModal(true));
+        mpBtn.addEventListener('click', () => {
+            const signalInput = document.getElementById('mp-signal-input');
+            if (signalInput && !signalInput.value.trim()) signalInput.value = getDefaultMultiplayerSignalUrl();
+            getMultiplayerRoomCode(true);
+            setMultiplayerStatus('');
+            toggleMultiplayerModal(true);
+        });
     }
 
     const mpClose = document.getElementById('mp-close');
@@ -696,16 +739,22 @@ function setupUiControls() {
     const mpHostBtn = document.getElementById('btn-mp-host');
     if (mpHostBtn) {
         mpHostBtn.addEventListener('click', async () => {
-            const statusEl = document.getElementById('mp-status');
-            statusEl.textContent = 'Connecting as host...';
+            const roomCode = getMultiplayerRoomCode(true);
+            const signalUrl = getMultiplayerSignalUrl();
+            const hostInfo = document.getElementById('mp-host-info');
+            const roomCodeEl = document.getElementById('mp-room-code');
+            if (roomCodeEl) roomCodeEl.textContent = roomCode;
+            if (hostInfo) hostInfo.style.display = 'none';
+            setMultiplayerStatus('Opening WebRTC room...');
+            mpHostBtn.disabled = true;
             try {
-                await Multiplayer.connect('localhost', 9000);
-                document.getElementById('mp-host-info').style.display = 'block';
-                statusEl.textContent = 'Hosting! Waiting for player to join...';
-                statusEl.style.color = '#4CAF50';
+                await Multiplayer.connect({ signalUrl, roomId: roomCode, mode: 'host' });
+                if (hostInfo) hostInfo.style.display = 'block';
+                setMultiplayerStatus('Room ready. Waiting for WebRTC peer...', 'success');
             } catch (e) {
-                statusEl.textContent = 'Failed! Make sure server.js is running (npm run server)';
-                statusEl.style.color = '#F44336';
+                setMultiplayerStatus(e?.message || 'Could not open the room.', 'error');
+            } finally {
+                mpHostBtn.disabled = false;
             }
         });
     }
@@ -713,25 +762,29 @@ function setupUiControls() {
     const mpJoinBtn = document.getElementById('btn-mp-join');
     if (mpJoinBtn) {
         mpJoinBtn.addEventListener('click', async () => {
-            const ip = document.getElementById('mp-ip-input').value.trim();
-            const statusEl = document.getElementById('mp-status');
-            if (!ip) {
-                statusEl.textContent = 'Please enter an IP address.';
-                statusEl.style.color = '#F44336';
+            const roomCode = getMultiplayerRoomCode(false);
+            const signalUrl = getMultiplayerSignalUrl();
+            if (!roomCode) {
+                setMultiplayerStatus('Enter a room code.', 'error');
                 return;
             }
-            statusEl.textContent = `Connecting to ${ip}...`;
-            statusEl.style.color = '#aaa';
+            setMultiplayerStatus('Joining WebRTC room...');
+            mpJoinBtn.disabled = true;
             try {
-                await Multiplayer.connect(ip, 9000);
-                statusEl.textContent = 'Connected! Waiting for host to start the game...';
-                statusEl.style.color = '#4CAF50';
+                await Multiplayer.connect({ signalUrl, roomId: roomCode, mode: 'client' });
+                setMultiplayerStatus('WebRTC connected. Waiting for host to press Play...', 'success');
             } catch (e) {
-                statusEl.textContent = 'Connection failed. Check the IP and make sure port 9000 is open.';
-                statusEl.style.color = '#F44336';
+                setMultiplayerStatus(e?.message || 'WebRTC connection failed.', 'error');
+            } finally {
+                mpJoinBtn.disabled = false;
             }
         });
     }
+
+    window.addEventListener('multiplayer-status', event => {
+        const { message, tone } = event.detail || {};
+        if (message) setMultiplayerStatus(message, tone);
+    });
 }
 
 function advanceAge() {

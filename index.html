@@ -1,20 +1,24 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MEDIEVAL DAYS</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Almendra+SC&family=MedievalSharp&family=Uncial+Antiqua&display=swap" rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Almendra+SC&family=MedievalSharp&family=Uncial+Antiqua&display=swap"
+        rel="stylesheet">
     <link rel="stylesheet" href="css/style.css">
 </head>
+
 <body class="menu-open">
     <div class="main-menu open" id="main-menu" aria-hidden="false">
         <div class="menu-art" aria-hidden="true"></div>
         <div class="menu-shell">
             <h1>MEDIEVAL DAYS</h1>
-            <div class="menu-mode">Medieval Real-Time Strategy</div>
+            <div class="menu-mode">Real-Time Strategy Game</div>
             <div class="menu-setup" aria-label="Battle setup">
                 <div class="menu-field-header">
                     <span>Rival Kingdoms</span>
@@ -203,7 +207,8 @@
 
                 <div class="age-section command-panel">
                     <div class="section-title">Age Advancement</div>
-                    <button id="btn-age-up" class="wide-command primary-command">Advance to Feudal Age (500 Food)</button>
+                    <button id="btn-age-up" class="wide-command primary-command">Advance to Feudal Age (500
+                        Food)</button>
                 </div>
             </div>
         </div>
@@ -250,18 +255,22 @@
             </div>
             <div class="mp-options">
                 <div class="mp-section">
-                    <button id="btn-mp-host" class="mp-action">Host Game</button>
+                    <label class="mp-label" for="mp-room-input">Room Code</label>
+                    <input type="text" id="mp-room-input" placeholder="MEDIEVAL" class="mp-input" autocomplete="off">
+                </div>
+                <div class="mp-section">
+                    <label class="mp-label" for="mp-signal-input">Signal Server</label>
+                    <input type="text" id="mp-signal-input" placeholder="ws://localhost:9000" class="mp-input"
+                        autocomplete="off">
+                </div>
+                <div class="mp-section">
+                    <button id="btn-mp-host" class="mp-action">Host Room</button>
                     <p id="mp-host-info" class="mp-host-info">
-                        Waiting for opponent...<br>
-                        Tell your friend to connect to your IP on port <strong>9000</strong><br>
-                        <small>(Run <code>npm run server</code> in the game folder first)</small>
+                        Room <strong id="mp-room-code">MEDIEVAL</strong> is waiting for a peer.
                     </p>
                 </div>
                 <div class="mp-section">
-                    <label class="mp-label" for="mp-ip-input">Friend's IP Address</label>
-                    <input type="text" id="mp-ip-input" placeholder="192.168.1.100 or localhost"
-                           class="mp-input">
-                    <button id="btn-mp-join" class="mp-action">Join Game</button>
+                    <button id="btn-mp-join" class="mp-action">Join Room</button>
                 </div>
                 <p id="mp-status" class="mp-status"></p>
             </div>
@@ -295,4 +304,5 @@
     <script src="js/game-loop.js"></script>
     <script src="js/ui.js"></script>
 </body>
+
 </html>

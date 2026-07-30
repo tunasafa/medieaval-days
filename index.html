@@ -6,14 +6,13 @@
     <title>MEDIEVAL DAYS</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Almendra+SC&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Almendra+SC&family=MedievalSharp&family=Uncial+Antiqua&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body class="menu-open">
     <div class="main-menu open" id="main-menu" aria-hidden="false">
         <div class="menu-art" aria-hidden="true"></div>
         <div class="menu-shell">
-            <div class="menu-kicker">Circular War Campaign</div>
             <h1>MEDIEVAL DAYS</h1>
             <div class="menu-mode">Medieval Real-Time Strategy</div>
             <div class="menu-setup" aria-label="Battle setup">
@@ -42,13 +41,8 @@
             </div>
             <div class="menu-actions">
                 <button id="btn-menu-start" class="menu-primary">Play</button>
+                <button id="btn-menu-mp" class="menu-secondary">Multiplayer</button>
                 <button id="btn-menu-settings" class="menu-secondary">Options</button>
-            </div>
-            <div class="menu-briefing">
-                <div>
-                    <span>World Size</span>
-                    <strong>Large Circular Map</strong>
-                </div>
             </div>
         </div>
     </div>
@@ -247,6 +241,34 @@
 
     <div class="game-tooltip" id="game-tooltip"></div>
 
+    <!-- Multiplayer Connection Modal -->
+    <div class="modal-overlay" id="mp-modal" aria-hidden="true">
+        <div class="modal-panel mp-panel">
+            <div class="modal-header">
+                <div>Multiplayer</div>
+                <button class="modal-close" id="mp-close" aria-label="Close multiplayer">x</button>
+            </div>
+            <div class="mp-options" style="padding: 20px; display: flex; flex-direction: column; gap: 16px;">
+                <div style="text-align: center;">
+                    <button id="btn-mp-host" class="menu-primary" style="width: 100%; padding: 14px;">Host Game</button>
+                    <p id="mp-host-info" style="display: none; margin-top: 10px; color: #d4af37; font-size: 14px;">
+                        Waiting for opponent...<br>
+                        Tell your friend to connect to your IP on port <strong>9000</strong><br>
+                        <small>(Run <code>npm run server</code> in the game folder first)</small>
+                    </p>
+                </div>
+                <hr style="border-color: rgba(255,255,255,0.15);">
+                <div>
+                    <label style="display: block; margin-bottom: 8px; font-size: 14px;">Friend's IP Address:</label>
+                    <input type="text" id="mp-ip-input" placeholder="192.168.1.100 or localhost"
+                           style="width: 100%; padding: 10px; font-size: 16px; background: rgba(0,0,0,0.4); color: #fff; border: 1px solid #555; border-radius: 6px; box-sizing: border-box;">
+                    <button id="btn-mp-join" class="menu-primary" style="width: 100%; padding: 14px; margin-top: 10px;">Join Game</button>
+                </div>
+                <p id="mp-status" style="text-align: center; color: #aaa; font-size: 14px; min-height: 20px;"></p>
+            </div>
+        </div>
+    </div>
+
     <!-- JavaScript Files -->
     <script src="js/config.js"></script>
     <script src="js/game-state.js"></script>
@@ -268,6 +290,7 @@
     <script src="js/resources.js"></script>
     <script src="js/ai.js"></script>
     <script src="js/drawing.js"></script>
+    <script src="js/multiplayer.js"></script>
     <script src="js/event-listeners.js"></script>
     <script src="js/init-game.js"></script>
     <script src="js/game-loop.js"></script>

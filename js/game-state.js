@@ -21,7 +21,11 @@ const gameState = {
         rangedRange: 0,
         villagerSpeed: 0,
         villagerCarry: 0,
-        buildingHpMult: 0
+        buildingHpMult: 0,
+        projectileSpeedMult: 0,
+        trainingSpeedMult: 0,
+        researchSpeedMult: 0,
+        projectileFire: false
     },
     settings: {
         edgeScrolling: true
@@ -51,5 +55,6 @@ const gameState = {
     keys: {},
     currentAge: 'Dark Age',
     placingBuilding: null,
+    placingWorkerIds: [],
     placingBuildingPosition: { x: 0, y: 0 }
 };

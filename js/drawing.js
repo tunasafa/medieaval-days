@@ -583,6 +583,19 @@ function drawUnit(ctx, unit) {
                 useGather = true;
             }
         }
+        if (unit.type === 'villager' && unit.state === 'building' && unit.buildTargetId) {
+            const targetBuilding = gameState.buildings.find(building => building.id === unit.buildTargetId);
+            if (targetBuilding) {
+                const bx = targetBuilding.x + targetBuilding.width / 2;
+                const by = targetBuilding.y + targetBuilding.height / 2;
+                const bdx = bx - unit.x;
+                const bdy = by - unit.y;
+                const bAngle = Math.atan2(bdy, bdx);
+                const bIdx = (Math.round(((bAngle + Math.PI) / (Math.PI / 4))) % 8 + 8) % 8;
+                dir = dirs[bIdx];
+                useGather = true;
+            }
+        }
 
         const prefix = unit.type;
     let fileBase;
@@ -1182,7 +1195,12 @@ function drawBuildings(ctx) {
         ctx.translate(drawX, drawY);
         const renderAssetName = getBuildingRenderAssetName(building.type);
         if (renderAssetName) {
-            drawSprite(ctx, 'buildings', getBuildingAssetName(building, renderAssetName), building.width, building.height);
+            const assetName = getBuildingAssetName(building, renderAssetName);
+            if (building.underConstruction) {
+                drawAssetTinted(ctx, 'buildings', assetName, 0, 0, building.width, building.height, 0.48, 'rgba(210, 218, 220, 0.22)');
+            } else {
+                drawSprite(ctx, 'buildings', assetName, building.width, building.height);
+            }
         }
 
         if (building.isSelected) {
@@ -1232,6 +1250,21 @@ function drawBuildings(ctx) {
             const buffer = 12;
             const cornerRadius = Math.min(32, Math.min(building.width, building.height) * 0.4);
             drawRoundedRect(ctx, -buffer, -buffer, building.width + 2*buffer, building.height + 2*buffer, cornerRadius, false, true);
+        }
+
+        if (building.underConstruction && typeof getConstructionProgressPct === 'function') {
+            const barWidth = building.width * 0.55;
+            const barHeight = 5;
+            const barY = -20;
+            const barX = building.width * 0.225;
+            const progress = getConstructionProgressPct(building) / 100;
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.68)';
+            ctx.fillRect(barX, barY, barWidth, barHeight);
+            ctx.fillStyle = '#d8af5c';
+            ctx.fillRect(barX, barY, barWidth * progress, barHeight);
+            ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(barX, barY, barWidth, barHeight);
         }
 
         const activeResearch = typeof getActiveResearchForBuilding === 'function'
@@ -1369,25 +1402,6 @@ function drawMinimap() {
 
     ctx.restore(); // restore from minimap circle clip
 
-    const cx = mapCx;
-    const cy = mapCy;
-    const radius = mapRadius - 1;
-    ctx.save();
-    ctx.strokeStyle = 'rgba(240, 204, 120, 0.5)';
-    ctx.lineWidth = 1;
-    [0.33, 0.66, 1].forEach(multiplier => {
-        ctx.beginPath();
-        ctx.arc(cx, cy, radius * multiplier, 0, Math.PI * 2);
-        ctx.stroke();
-    });
-    ctx.strokeStyle = 'rgba(240, 204, 120, 0.2)';
-    ctx.beginPath();
-    ctx.moveTo(cx, cy - radius);
-    ctx.lineTo(cx, cy + radius);
-    ctx.moveTo(cx - radius, cy);
-    ctx.lineTo(cx + radius, cy);
-    ctx.stroke();
-    ctx.restore();
 }
 
 function drawUnitIcon(ctx, unitType, scale) {

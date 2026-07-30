@@ -68,12 +68,26 @@ function setupEventListeners() {
         if (e.button === 0) {
             if (gameState.placingBuilding) {
                 const { worldX, worldY } = getCanvasPoint(e);
+                // Multiplayer client: send BUILD command to host
+                if (typeof Multiplayer !== 'undefined' && Multiplayer.isClient) {
+                    Multiplayer.sendCommand({
+                        action: 'BUILD',
+                        buildingType: gameState.placingBuilding,
+                        x: worldX,
+                        y: worldY
+                    });
+                    gameState.placingBuilding = null;
+                    gameState.placingWorkerIds = [];
+                    canvas.classList.remove('placing-building', 'invalid-placement');
+                    return;
+                }
                 if (canPlaceBuilding(gameState.placingBuilding, worldX, worldY)) {
                     placeBuilding(gameState.placingBuilding, worldX, worldY);
                 } else {
                     showNotification("Cannot place building here!");
                 }
                 gameState.placingBuilding = null;
+                gameState.placingWorkerIds = [];
                 canvas.classList.remove('placing-building', 'invalid-placement');
                 return;
             }
@@ -269,6 +283,7 @@ function setupEventListeners() {
         }
         if (gameState.placingBuilding && e.key === 'Escape') {
             gameState.placingBuilding = null;
+            gameState.placingWorkerIds = [];
             canvas.classList.remove('placing-building', 'invalid-placement');
             showNotification("Building placement cancelled.");
             return;
@@ -436,6 +451,10 @@ function hideSelectionBox() {
 
 function handleRightClick(x, y) {
     if (gameState.selectedBuilding && gameState.selectedBuilding.player === 'player') {
+        if (gameState.selectedBuilding.underConstruction) {
+            showNotification(`${displayName(gameState.selectedBuilding.type)} is still under construction.`);
+            return;
+        }
         gameState.selectedBuilding.rallyPoint = { x, y };
         showNotification(`${gameState.selectedBuilding.type} rally point set.`);
         if (typeof SFX !== 'undefined') SFX.unitCommanded(); // Use command sound
@@ -443,6 +462,40 @@ function handleRightClick(x, y) {
     }
 
     if (gameState.selectedUnits.length === 0) return;
+    const constructionTarget = gameState.buildings.find(building =>
+        building.player === 'player' &&
+        building.underConstruction &&
+        x >= building.x && x <= building.x + building.width &&
+        y >= building.y && y <= building.y + building.height
+    );
+    if (constructionTarget && typeof assignWorkersToConstruction === 'function') {
+        const settings = typeof getConstructionSettings === 'function'
+            ? getConstructionSettings()
+            : { maxWorkers: 4 };
+        const builders = gameState.selectedUnits
+            .filter(unit => unit.type === 'villager' && unit.player === 'player' && unit.health > 0)
+            .slice(0, settings.maxWorkers);
+        if (builders.length === 0) {
+            showNotification(`Select villager(s) to build ${displayName(constructionTarget.type)}.`);
+            return;
+        }
+        const added = assignWorkersToConstruction(constructionTarget, builders);
+        const currentWorkers = typeof getConstructionWorkers === 'function'
+            ? getConstructionWorkers(constructionTarget).length
+            : 0;
+        showNotification(added > 0
+            ? `${added} villager(s) assigned to ${displayName(constructionTarget.type)}.`
+            : currentWorkers >= settings.maxWorkers
+                ? `${displayName(constructionTarget.type)} already has the maximum builders.`
+                : `Those villager(s) are already building ${displayName(constructionTarget.type)}.`
+        );
+        return;
+    }
+
+    if (typeof releaseUnitFromConstruction === 'function') {
+        gameState.selectedUnits.forEach(unit => releaseUnitFromConstruction(unit, 'idle'));
+    }
+
     // NEW EMBARK SYSTEM: Right-click on friendly transport
     const clickedTransport = gameState.units.find(u => isTransport(u) && Math.hypot(u.x - x, u.y - y) < 40);
     if (clickedTransport) {
@@ -481,6 +534,16 @@ function handleRightClick(x, y) {
     );
     const enemyTarget = enemyUnit || enemyBuilding;
     if (enemyTarget) {
+        // Multiplayer client: send ATTACK command to host
+        if (typeof Multiplayer !== 'undefined' && Multiplayer.isClient) {
+            Multiplayer.sendCommand({
+                action: 'ATTACK',
+                unitIds: gameState.selectedUnits.map(u => u.id),
+                targetId: enemyTarget.id
+            });
+            showNotification('Attack command issued!');
+            return;
+        }
         gameState.selectedUnits.forEach(unit => {
             unit.state = 'attacking';
             unit.target = enemyTarget;
@@ -561,6 +624,16 @@ function handleRightClick(x, y) {
                 return;
             }
         }
+    }
+    // Multiplayer client: send MOVE command to host
+    if (typeof Multiplayer !== 'undefined' && Multiplayer.isClient) {
+        Multiplayer.sendCommand({
+            action: 'MOVE',
+            unitIds: gameState.selectedUnits.map(u => u.id),
+            targetX: x,
+            targetY: y
+        });
+        return;
     }
     const offsets = computeFormationOffsets(gameState.selectedUnits.length, 24);
     gameState.selectedUnits.forEach((unit, idx) => {

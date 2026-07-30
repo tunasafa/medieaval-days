@@ -8,33 +8,37 @@ function gameLoop() {
     const rawDeltaTime = now - gameState.lastUpdate;
     gameState.lastUpdate = now;
     const uiPaused = !!gameState.ui?.modalOpen;
-    const deltaTime = uiPaused ? 0 : rawDeltaTime;
+    // Multiplayer client skips all simulation — state comes from host snapshots
+    const isClientMP = typeof Multiplayer !== 'undefined' && Multiplayer.isClient;
+    const deltaTime = (uiPaused || isClientMP) ? 0 : rawDeltaTime;
     if (!uiPaused) {
-        gameState.gameTime = (gameState.gameTime || 0) + deltaTime;
-        handleInput();
+        if (!isClientMP) {
+            gameState.gameTime = (gameState.gameTime || 0) + deltaTime;
+        }
+        handleInput(); // Camera movement still runs on client
     }
     gameState.camera.x = Math.round(gameState.camera.x || 0);
     gameState.camera.y = Math.round(gameState.camera.y || 0);
-    if (!uiPaused && typeof updateResearchQueues === 'function') {
+    if (!uiPaused && !isClientMP && typeof updateResearchQueues === 'function') {
         updateResearchQueues(deltaTime);
     }
-    if (!uiPaused) updateUnits(deltaTime);
-    if (!uiPaused && typeof ProjectileSystem !== 'undefined') {
+    if (!uiPaused && !isClientMP) updateUnits(deltaTime);
+    if (!uiPaused && !isClientMP && typeof ProjectileSystem !== 'undefined') {
         ProjectileSystem.update(deltaTime);
     }
-    if (!uiPaused && typeof ParticleSystem !== 'undefined') {
+    if (!uiPaused && !isClientMP && typeof ParticleSystem !== 'undefined') {
         ParticleSystem.update(deltaTime);
     }
-    if (!uiPaused && typeof FogOfWar !== 'undefined') {
+    if (!uiPaused && !isClientMP && typeof FogOfWar !== 'undefined') {
         FogOfWar.update();
     }
-    if (!uiPaused && typeof AIManager !== 'undefined') {
+    if (!uiPaused && !isClientMP && typeof AIManager !== 'undefined') {
         AIManager.tick(deltaTime);
     }
     if (!uiPaused && tilemap && typeof tilemap.tickWaterAnimation === 'function') {
         tilemap.tickWaterAnimation(deltaTime);
     }
-    if (!uiPaused) checkWinConditions();
+    if (!uiPaused && !isClientMP) checkWinConditions();
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     const dpr = window.devicePixelRatio || 1;

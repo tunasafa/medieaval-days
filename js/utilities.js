@@ -50,7 +50,12 @@ function areHostile(a, b) {
     const factionB = getFactionId(b);
     if (!factionA || !factionB || factionA === factionB) return false;
     if (factionA === 'neutral' || factionB === 'neutral') return false;
-    return factionA === 'player' || factionB === 'player' ||
+    // In multiplayer, both human players are allies
+    const humanFactions = ['player', 'player2'];
+    const aIsHuman = humanFactions.includes(factionA);
+    const bIsHuman = humanFactions.includes(factionB);
+    if (aIsHuman && bIsHuman) return false;
+    return aIsHuman || bIsHuman ||
         (isEnemyFaction(factionA) && isEnemyFaction(factionB));
 }
 

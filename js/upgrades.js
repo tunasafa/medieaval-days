@@ -81,6 +81,8 @@ const UPGRADE_DEFAULT_MODIFIERS = {
     villagerCarry: 0,
     buildingHpMult: 0,
     projectileSpeedMult: 0,
+    trainingSpeedMult: 0,
+    researchSpeedMult: 0,
     projectileFire: false
 };
 
@@ -95,7 +97,11 @@ function ensureUpgradeState() {
     gameState.upgrades.activeResearch = Array.isArray(gameState.upgrades.activeResearch) ? gameState.upgrades.activeResearch : [];
     gameState.modifiers = gameState.modifiers || {};
     Object.entries(UPGRADE_DEFAULT_MODIFIERS).forEach(([key, value]) => {
-        if (typeof gameState.modifiers[key] !== 'number') gameState.modifiers[key] = value;
+        if (typeof value === 'number') {
+            if (typeof gameState.modifiers[key] !== 'number') gameState.modifiers[key] = value;
+        } else if (typeof gameState.modifiers[key] !== typeof value) {
+            gameState.modifiers[key] = value;
+        }
     });
 }
 
@@ -168,6 +174,9 @@ function getUpgradeStatus(upgradeId, building = null) {
         return { state: 'locked', label: `Requires ${formatEntityName(upgrade.requiredAge)} Age` };
     }
     if (building) {
+        if (building.underConstruction) {
+            return { state: 'locked', label: 'Under Construction' };
+        }
         const expected = normalizeResearchBuildingType(upgrade.researchedAt);
         if (normalizeResearchBuildingType(building.type) !== expected) {
             return { state: 'locked', label: `Needs ${formatEntityName(expected)}` };
@@ -192,12 +201,15 @@ function startResearchUpgrade(upgradeId, building) {
         return false;
     }
     deductResources(upgrade.cost);
+    const researchTime = typeof getProductionTimeMs === 'function'
+        ? getProductionTimeMs(upgrade.time, 'research')
+        : upgrade.time * 1000;
     building.activeResearchId = upgradeId;
     gameState.upgrades.activeResearch.push({
         id: upgradeId,
         buildingId: building.id,
-        timeRemaining: upgrade.time * 1000,
-        totalTime: upgrade.time * 1000
+        timeRemaining: researchTime,
+        totalTime: researchTime
     });
     showNotification(`Researching ${upgrade.name}`);
     if (typeof showBuildingActions === 'function' && gameState.selectedBuilding === building) {
@@ -244,6 +256,32 @@ function updateResearchQueues(deltaTime) {
 function getResearchProgressPct(research) {
     if (!research || !research.totalTime) return 0;
     return Math.max(0, Math.min(100, (1 - (research.timeRemaining / research.totalTime)) * 100));
+}
+
+function getCurrentAgeIndex() {
+    const index = UPGRADE_AGE_ORDER.indexOf(normalizeAge(gameState.currentAge));
+    return Math.max(0, index);
+}
+
+function getDevelopmentSpeedMultiplier(kind = 'unit') {
+    ensureUpgradeState();
+    const ageBonus = getCurrentAgeIndex() * 0.08;
+    const researchedCount = gameState.upgrades.researched.length;
+    const researchBonus = Math.min(0.18, researchedCount * (kind === 'research' ? 0.035 : 0.025));
+    const modifierBonus = kind === 'research'
+        ? gameState.modifiers.researchSpeedMult
+        : gameState.modifiers.trainingSpeedMult;
+    return Math.max(1, 1 + ageBonus + researchBonus + (modifierBonus || 0));
+}
+
+function getProductionTimeMs(baseSeconds, kind = 'unit') {
+    const baseMs = Math.max(0, (Number(baseSeconds) || 0) * 1000);
+    if (baseMs === 0) return 0;
+    return Math.max(1000, Math.round(baseMs / getDevelopmentSpeedMultiplier(kind)));
+}
+
+function formatProductionSeconds(baseSeconds, kind = 'unit') {
+    return Math.ceil(getProductionTimeMs(baseSeconds, kind) / 1000);
 }
 
 function getEffectiveUnitConfig(unitOrType) {

@@ -88,6 +88,7 @@ function spreadIdleUnits(unit) {
  * @param {Object} unit - The moving unit to apply separation forces to
  */
 function applyUnitSeparation(unit) {
+    if (unit.state === 'building') return;
     const isVessel = !!GAME_CONFIG.units[unit.type]?.vessel;
     const isEnemyIdle = typeof isEnemyFaction === 'function' && isEnemyFaction(unit) && unit.state === 'idle';
     const desired = isVessel ? 28 : (isEnemyIdle ? 24 : 18); // give ships more berth; enemy idle keep 1 body
@@ -147,6 +148,9 @@ function updateUnits(deltaTime) {
         updateUnitAnimation(unit, deltaTime);
         applyUnitSeparation(unit);
     });
+    if (typeof updateConstructionSites === 'function') {
+        updateConstructionSites(deltaTime);
+    }
     updateTrainingQueue(deltaTime);
 }
 
@@ -1121,6 +1125,7 @@ function updateTrainingQueue(deltaTime) {
     // Process training per building: one unit at a time per building
     const allPlayerBuildings = gameState.buildings.filter(b => b.player === 'player');
     for (const b of allPlayerBuildings) {
+        if (b.underConstruction) continue;
         if (!b.trainingQueue || b.trainingQueue.length === 0) continue;
         const t = b.trainingQueue[0];
         t.timeRemaining -= deltaTime;
@@ -1363,8 +1368,10 @@ function spawnUnit(type, spawnAnchor) {
             fishingBoat: ['navy'], transportLarge: ['navy'], warship: ['navy']
         };
         const types = capable[type] || [];
-        const b = gameState.buildings.find(b => b.player === 'player' && types.includes(b.type));
-        spawnBuilding = b || gameState.buildings.find(b => b.type === 'town-center' && b.player === 'player');
+        const b = gameState.buildings.find(b => b.player === 'player' && !b.underConstruction && types.includes(b.type));
+        spawnBuilding = b || gameState.buildings.find(b =>
+            b.type === 'town-center' && b.player === 'player' && !b.underConstruction
+        );
     }
     if (!spawnBuilding) return;
 
@@ -1451,12 +1458,19 @@ function trainUnit(type, producingBuilding = null) {
         showNotification('Select a building to train from.');
         return;
     }
+    if (b.underConstruction) {
+        showNotification(`${displayName(b.type)} is still under construction.`);
+        return;
+    }
     // Initialize per-building queue
+    const trainingTime = typeof getProductionTimeMs === 'function'
+        ? getProductionTimeMs(unitConfig.buildTime, 'unit')
+        : unitConfig.buildTime * 1000;
     b.trainingQueue = b.trainingQueue || [];
     b.trainingQueue.push({
         type,
-        timeRemaining: unitConfig.buildTime * 1000,
-        totalTime: unitConfig.buildTime * 1000
+        timeRemaining: trainingTime,
+        totalTime: trainingTime
     });
     const qLen = b.trainingQueue.length;
     showNotification(`Queued ${type} at ${b.type} (${qLen} in line)`);

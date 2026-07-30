@@ -76,9 +76,21 @@ function updateUI() {
 function updateTrainingQueueUI() {
     const b = gameState.selectedBuilding;
     if (!b) return;
-    const current = (b.trainingQueue || [])[0] || null;
     const list = document.querySelector('#building-unit-list');
     if (!list) return;
+    if (b.underConstruction) {
+        const pct = typeof getConstructionProgressPct === 'function' ? getConstructionProgressPct(b) : 0;
+        const workers = typeof getConstructionWorkers === 'function' ? getConstructionWorkers(b).length : 0;
+        const fill = list.querySelector('.construction-progress .progress-fill');
+        const pctEl = list.querySelector('.construction-pct');
+        const workerEl = list.querySelector('.construction-workers');
+        if (fill) fill.style.width = `${pct}%`;
+        if (pctEl) pctEl.textContent = `${Math.floor(pct)}%`;
+        if (workerEl) workerEl.textContent = `${workers}/${GAME_CONFIG.construction?.maxWorkers || 4}`;
+        updateSelectionInfo();
+        return;
+    }
+    const current = (b.trainingQueue || [])[0] || null;
     list.querySelectorAll('.unit').forEach(unitEl => {
         const type = unitEl.dataset.type;
         const progressFill = unitEl.querySelector('.progress-bar .progress-fill');
@@ -111,6 +123,7 @@ function getUnitTooltipHTML(unitType) {
         `Attack: ${formatNumber(cfg.attack || 0)}`,
         `Range: ${formatNumber(cfg.attackRange || 0, 0)}`,
         `Speed: ${formatNumber(cfg.speed || 0, 2)}`,
+        `Train: ${typeof formatProductionSeconds === 'function' ? formatProductionSeconds(base.buildTime || 0, 'unit') : base.buildTime || 0}s`,
         `Cost: ${cost || 'Free'}`
     ];
     if (unitType === 'villager') parts.splice(5, 0, `Carry: ${getUnitCarryCapacity(unitType)}`);
@@ -127,8 +140,10 @@ function getBuildingTooltipHTML(buildingType) {
     return [
         `<strong>${displayName(buildingType)}</strong>`,
         `HP: ${maxHealth || 0}`,
+        cfg.buildTime ? `Build: ${cfg.buildTime}s with 1 villager` : '',
+        cfg.buildTime ? `Workers: ${GAME_CONFIG.construction?.minWorkers || 1}-${GAME_CONFIG.construction?.maxWorkers || 4}` : '',
         `Cost: ${cost || 'Free'}`
-    ].join('<br>');
+    ].filter(Boolean).join('<br>');
 }
 
 function updateSelectionInfo() {
@@ -152,6 +167,14 @@ function updateSelectionInfo() {
                 </div>
             `
             : '';
+        const constructionLine = building.underConstruction
+            ? `
+                <div class="selection-stat">
+                    <span>Construction</span>
+                    <strong>${Math.floor(getConstructionProgressPct(building))}% / ${getConstructionWorkers(building).length}/${GAME_CONFIG.construction?.maxWorkers || 4} workers</strong>
+                </div>
+            `
+            : '';
         info.innerHTML = `
             <div class="selected-entity-title">
                 <strong>${displayName(building.type)}</strong>
@@ -166,6 +189,7 @@ function updateSelectionInfo() {
                     <span>Radial Position</span>
                     <strong>${getRadialMapPosition(building)}</strong>
                 </div>
+                ${constructionLine}
                 ${researchLine}
             </div>
         `;
@@ -232,7 +256,7 @@ function updateSelectionInfo() {
             const card = document.createElement('button');
             card.type = 'button';
             card.className = 'selection-unit-card';
-            card.innerHTML = `
+        card.innerHTML = `
                 <img src="${getUnitPortraitSrc(type)}" alt="">
                 <div>${displayName(type)}</div>
                 <div>x${units.length}</div>
@@ -279,10 +303,10 @@ function renderResearchActions(building, container) {
         card.className = `research-card ${status.state}`;
         card.dataset.upgradeId = upgradeId;
         card.disabled = status.state !== 'available';
-        card.innerHTML = `
+            card.innerHTML = `
             <div class="research-name">
                 <span>${upgrade.name}</span>
-                <span>${upgrade.time}s</span>
+                <span>${typeof formatProductionSeconds === 'function' ? formatProductionSeconds(upgrade.time, 'research') : upgrade.time}s</span>
             </div>
             <div class="research-desc">${upgrade.desc}</div>
             <div class="research-cost">${formatUpgradeCost(upgrade.cost)}</div>
@@ -322,9 +346,10 @@ function getUpgradeTooltipHTML(upgradeId, building = null) {
         upgrade.desc,
         `Cost: ${formatUpgradeCost(upgrade.cost)}`,
         `Time: ${upgrade.time}s`,
+        typeof formatProductionSeconds === 'function' ? `Current Time: ${formatProductionSeconds(upgrade.time, 'research')}s` : '',
         `At: ${displayName(upgrade.researchedAt)}`,
         status.label
-    ].join('<br>');
+    ].filter(Boolean).join('<br>');
 }
 
 function renderTechTreeModal() {
@@ -359,7 +384,7 @@ function renderTechTreeModal() {
                 card.innerHTML = `
                     <div class="tech-upgrade-title">${upgrade.name}</div>
                     <div class="tech-upgrade-meta">${upgrade.desc}</div>
-                    <div class="tech-upgrade-meta">${displayName(upgrade.researchedAt)} - ${formatUpgradeCost(upgrade.cost)}</div>
+                    <div class="tech-upgrade-meta">${displayName(upgrade.researchedAt)} - ${formatUpgradeCost(upgrade.cost)} - ${typeof formatProductionSeconds === 'function' ? formatProductionSeconds(upgrade.time, 'research') : upgrade.time}s</div>
                     <div class="tech-upgrade-meta">${status.label}</div>
                     <div class="research-progress"><div class="research-fill" style="width: ${active ? getResearchProgressPct(active) : 0}%;"></div></div>
                 `;
@@ -460,6 +485,12 @@ async function beginGameFromMenu() {
             await initResult;
         }
         toggleMainMenu(false);
+
+        // In multiplayer, host broadcasts initial state to all clients
+        if (typeof Multiplayer !== 'undefined' && Multiplayer.isHost && Multiplayer.connected) {
+            // Small delay to ensure all initial state is settled
+            setTimeout(() => Multiplayer.broadcastGameStart(), 500);
+        }
     } catch (error) {
         console.error(error);
         showNotification('World generation failed. Check the console for details.');
@@ -639,6 +670,63 @@ function setupUiControls() {
     updateGameTimerUI();
     updateEnemyCountLabel();
     syncMainMenuButtons();
+
+    // ─── Multiplayer UI Controls ────────────────────
+    const mpBtn = document.getElementById('btn-menu-mp');
+    if (mpBtn) {
+        mpBtn.addEventListener('click', () => {
+            const mpModal = document.getElementById('mp-modal');
+            if (mpModal) mpModal.setAttribute('aria-hidden', 'false');
+        });
+    }
+
+    const mpClose = document.getElementById('mp-close');
+    if (mpClose) {
+        mpClose.addEventListener('click', () => {
+            const mpModal = document.getElementById('mp-modal');
+            if (mpModal) mpModal.setAttribute('aria-hidden', 'true');
+        });
+    }
+
+    const mpHostBtn = document.getElementById('btn-mp-host');
+    if (mpHostBtn) {
+        mpHostBtn.addEventListener('click', async () => {
+            const statusEl = document.getElementById('mp-status');
+            statusEl.textContent = 'Connecting as host...';
+            try {
+                await Multiplayer.connect('localhost', 9000);
+                document.getElementById('mp-host-info').style.display = 'block';
+                statusEl.textContent = 'Hosting! Waiting for player to join...';
+                statusEl.style.color = '#4CAF50';
+            } catch (e) {
+                statusEl.textContent = 'Failed! Make sure server.js is running (npm run server)';
+                statusEl.style.color = '#F44336';
+            }
+        });
+    }
+
+    const mpJoinBtn = document.getElementById('btn-mp-join');
+    if (mpJoinBtn) {
+        mpJoinBtn.addEventListener('click', async () => {
+            const ip = document.getElementById('mp-ip-input').value.trim();
+            const statusEl = document.getElementById('mp-status');
+            if (!ip) {
+                statusEl.textContent = 'Please enter an IP address.';
+                statusEl.style.color = '#F44336';
+                return;
+            }
+            statusEl.textContent = `Connecting to ${ip}...`;
+            statusEl.style.color = '#aaa';
+            try {
+                await Multiplayer.connect(ip, 9000);
+                statusEl.textContent = 'Connected! Waiting for host to start the game...';
+                statusEl.style.color = '#4CAF50';
+            } catch (e) {
+                statusEl.textContent = 'Connection failed. Check the IP and make sure port 9000 is open.';
+                statusEl.style.color = '#F44336';
+            }
+        });
+    }
 }
 
 function advanceAge() {

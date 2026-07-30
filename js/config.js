@@ -8,6 +8,11 @@ const GAME_CONFIG = {
         cacheClusterCells: 8,
         cacheMaxEntries: 300
     },
+    construction: {
+        minWorkers: 1,
+        maxWorkers: 4,
+        workRange: 30
+    },
     enemyFactions: [
         { id: 'enemy-1', name: 'Iron Host', assetFolder: 'enemy', color: '#e35f44' },
         { id: 'enemy-2', name: 'Sun Emirate', assetFolder: 'desert', color: '#f2b84b' },
@@ -148,6 +153,7 @@ const GAME_CONFIG = {
             cost: { wood: 400, stone: 300 },
             health: 2400,
             maxHealth: 2400,
+            buildTime: 120,
             width: 600,
             height: 600
         },
@@ -155,6 +161,7 @@ const GAME_CONFIG = {
             cost: { wood: 25 },
             health: 550,
             maxHealth: 550,
+            buildTime: 18,
             population: 5,
             width: 180,
             height: 180
@@ -163,6 +170,7 @@ const GAME_CONFIG = {
             cost: { wood: 175 },
             health: 1200,
             maxHealth: 1200,
+            buildTime: 45,
             width: 270,
             height: 270
         },
@@ -170,6 +178,7 @@ const GAME_CONFIG = {
             cost: { wood: 150 },
             health: 1000,
             maxHealth: 1000,
+            buildTime: 40,
             width: 270,
             height: 270
         },
@@ -177,6 +186,7 @@ const GAME_CONFIG = {
             cost: { wood: 200, stone: 100 },
             health: 1500,
             maxHealth: 1500,
+            buildTime: 50,
             width: 315,
             height: 315
         },
@@ -184,6 +194,7 @@ const GAME_CONFIG = {
             cost: { wood: 150, gold: 100 },
             health: 1200,
             maxHealth: 1200,
+            buildTime: 45,
             width: 270,
             height: 270
         },
@@ -191,6 +202,7 @@ const GAME_CONFIG = {
             cost: { wood: 200, stone: 150 },
             health: 1400,
             maxHealth: 1400,
+            buildTime: 55,
             width: 315,
             height: 315
         },
@@ -198,6 +210,7 @@ const GAME_CONFIG = {
             cost: { wood: 200, stone: 50 },
             health: 1000,
             maxHealth: 1000,
+            buildTime: 45,
             width: 252,
             height: 216
         },

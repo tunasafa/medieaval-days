@@ -16,7 +16,11 @@ function createInitialBuildings() {
     for (let i = 0; i < numPlayers; i++) {
         const angle = (i * 2 * Math.PI) / numPlayers;
         const enemyFaction = enemyFactions[(i - 1) % Math.max(1, enemyFactions.length)];
-        const playerType = i === 0 ? 'player' : (enemyFaction?.id || `enemy-${i}`);
+        // In multiplayer, slot 1 is a human player ('player2') instead of AI
+        const isPlayer2Slot = i === 1 && typeof Multiplayer !== 'undefined' && Multiplayer.isMultiplayer;
+        const playerType = i === 0 ? 'player'
+                         : isPlayer2Slot ? 'player2'
+                         : (enemyFaction?.id || `enemy-${i}`);
         const spawnX = cx + Math.cos(angle) * spawnRadius - (tcCfg.width / 2);
         const spawnY = cy + Math.sin(angle) * spawnRadius - (tcCfg.height / 2);
 
@@ -48,6 +52,309 @@ function createInitialBuildings() {
     }
 }
 
+function getConstructionSettings() {
+    return {
+        minWorkers: GAME_CONFIG.construction?.minWorkers || 1,
+        maxWorkers: GAME_CONFIG.construction?.maxWorkers || 4,
+        workRange: GAME_CONFIG.construction?.workRange || 30
+    };
+}
+
+function getSelectedBuilderUnits() {
+    return gameState.selectedUnits.filter(unit =>
+        unit &&
+        unit.player === 'player' &&
+        unit.type === 'villager' &&
+        unit.health > 0 &&
+        unit.state !== 'embarked'
+    );
+}
+
+function getBuilderUnitsFromIds(ids = []) {
+    return ids
+        .map(id => gameState.units.find(unit => unit.id === id))
+        .filter(unit =>
+            unit &&
+            unit.player === 'player' &&
+            unit.type === 'villager' &&
+            unit.health > 0 &&
+            unit.state !== 'embarked'
+        );
+}
+
+function getBuildingBuildTimeMs(type) {
+    const cfg = getBuildingConfig(type);
+    return Math.max(1000, (cfg?.buildTime || 30) * 1000);
+}
+
+function getConstructionProgressPct(building) {
+    if (!building?.underConstruction || !building.construction?.totalTime) return 100;
+    const remaining = building.construction.timeRemaining || 0;
+    return Math.max(0, Math.min(100, (1 - (remaining / building.construction.totalTime)) * 100));
+}
+
+function getConstructionWorkers(building) {
+    if (!building?.construction) return [];
+    return getBuilderUnitsFromIds(building.construction.workerIds || [])
+        .filter(unit => unit.buildTargetId === building.id);
+}
+
+function getConstructionWorkCandidates(building, slotIndex = 0) {
+    const margin = (typeof EDGE_CLEARANCE !== 'undefined' ? EDGE_CLEARANCE : 20) + 16;
+    const insetX = Math.min(28, Math.max(8, building.width * 0.18));
+    const insetY = Math.min(28, Math.max(8, building.height * 0.18));
+    const x1 = building.x - margin;
+    const x2 = building.x + building.width + margin;
+    const y1 = building.y - margin;
+    const y2 = building.y + building.height + margin;
+    const leftInner = building.x + insetX;
+    const rightInner = building.x + building.width - insetX;
+    const topInner = building.y + insetY;
+    const bottomInner = building.y + building.height - insetY;
+    const candidates = [
+        { x: x1, y: y1 },
+        { x: x2, y: y1 },
+        { x: x1, y: y2 },
+        { x: x2, y: y2 },
+        { x: leftInner, y: building.y - margin },
+        { x: rightInner, y: building.y - margin },
+        { x: leftInner, y: building.y + building.height + margin },
+        { x: rightInner, y: building.y + building.height + margin },
+        { x: building.x - margin, y: topInner },
+        { x: building.x - margin, y: bottomInner },
+        { x: building.x + building.width + margin, y: topInner },
+        { x: building.x + building.width + margin, y: bottomInner }
+    ];
+
+    return candidates.slice(slotIndex).concat(candidates.slice(0, slotIndex));
+}
+
+function isConstructionSpotReserved(x, y, reservedSpots = [], radius = 26) {
+    const radiusSq = radius * radius;
+    return reservedSpots.some(spot => {
+        if (!spot) return false;
+        const dx = x - spot.x;
+        const dy = y - spot.y;
+        return dx * dx + dy * dy < radiusSq;
+    });
+}
+
+function isConstructionWorkSpotOpen(x, y, unit, reservedSpots = []) {
+    const dummy = unit || { type: 'villager', player: 'player' };
+    return validateTerrainMovement(dummy, x, y) &&
+        !isPositionOccupied(x, y, unit || dummy, 12) &&
+        !isConstructionSpotReserved(x, y, reservedSpots);
+}
+
+function findConstructionWorkSpot(building, unit, slotIndex = 0, reservedSpots = []) {
+    const dummy = unit || { type: 'villager', player: 'player' };
+    const candidates = getConstructionWorkCandidates(building, slotIndex);
+    const nudges = [0, 16, 32, 48, 64, 88, 112];
+    const lateralOffsets = [0, -28, 28, -56, 56, -84, 84];
+    const centerX = building.x + building.width / 2;
+    const centerY = building.y + building.height / 2;
+
+    for (const candidate of candidates) {
+        const vx = candidate.x - centerX;
+        const vy = candidate.y - centerY;
+        const mag = Math.hypot(vx, vy) || 1;
+        const ux = vx / mag;
+        const uy = vy / mag;
+        const px = -uy;
+        const py = ux;
+        for (const nudge of nudges) {
+            for (const lateral of lateralOffsets) {
+                const x = clamp(candidate.x + ux * nudge + px * lateral, 12, GAME_CONFIG.world.width - 12);
+                const y = clamp(candidate.y + uy * nudge + py * lateral, 12, GAME_CONFIG.world.height - 12);
+                if (isConstructionWorkSpotOpen(x, y, unit || dummy, reservedSpots)) {
+                    return { x, y };
+                }
+            }
+        }
+    }
+
+    const fallback = getDropOffPointOutside(dummy, building, (typeof EDGE_CLEARANCE !== 'undefined' ? EDGE_CLEARANCE : 20) + 24);
+    const fallbackOffsets = computeFormationOffsets((GAME_CONFIG.construction?.maxWorkers || 4) * 4, 28);
+    for (const offset of fallbackOffsets) {
+        const x = clamp(fallback.x + offset.dx, 12, GAME_CONFIG.world.width - 12);
+        const y = clamp(fallback.y + offset.dy, 12, GAME_CONFIG.world.height - 12);
+        if (isConstructionWorkSpotOpen(x, y, unit || dummy, reservedSpots)) {
+            return { x, y };
+        }
+    }
+
+    return fallback;
+}
+
+function clearConstructionMovement(unit) {
+    unit.path = null;
+    unit.targetX = undefined;
+    unit.targetY = undefined;
+    unit.requestedTargetX = undefined;
+    unit.requestedTargetY = undefined;
+    unit.pathfindingFailed = false;
+    unit.target = null;
+    unit.targetResource = null;
+    unit.gatherType = null;
+    unit.gatherStartTime = null;
+    unit.gatherPath = null;
+    unit.returnPath = null;
+    unit.attackPath = null;
+    unit.embarkTargetId = null;
+}
+
+function releaseUnitFromConstruction(unit, nextState = 'idle') {
+    if (!unit?.buildTargetId) return;
+    const building = gameState.buildings.find(b => b.id === unit.buildTargetId);
+    if (building?.construction?.workerIds) {
+        building.construction.workerIds = building.construction.workerIds.filter(id => id !== unit.id);
+    }
+    unit.buildTargetId = null;
+    unit.buildSlotIndex = null;
+    unit.buildSpot = null;
+    if (unit.state === 'building') {
+        unit.state = nextState;
+    }
+}
+
+function assignWorkersToConstruction(building, workers) {
+    if (!building?.underConstruction || !building.construction) return 0;
+    const settings = getConstructionSettings();
+    const existingWorkers = getConstructionWorkers(building);
+    const existingIds = new Set(existingWorkers.map(worker => worker.id));
+    const usedSlots = new Set(existingWorkers
+        .map(worker => worker.buildSlotIndex)
+        .filter(slot => Number.isInteger(slot))
+    );
+    const reservedSpots = existingWorkers
+        .map(worker => worker.buildSpot)
+        .filter(Boolean);
+    building.construction.workerIds = existingWorkers.map(worker => worker.id);
+    let added = 0;
+
+    for (const worker of workers) {
+        if (!worker || worker.type !== 'villager' || worker.player !== 'player' || worker.health <= 0) continue;
+        if (existingIds.has(worker.id)) continue;
+        if (existingIds.size >= settings.maxWorkers) break;
+        if (worker.buildTargetId && worker.buildTargetId !== building.id) {
+            releaseUnitFromConstruction(worker);
+        }
+
+        let slotIndex = 0;
+        while (usedSlots.has(slotIndex) && slotIndex < settings.maxWorkers) {
+            slotIndex++;
+        }
+        usedSlots.add(slotIndex);
+        const workSpot = findConstructionWorkSpot(building, worker, slotIndex, reservedSpots);
+        reservedSpots.push(workSpot);
+        existingIds.add(worker.id);
+        building.construction.workerIds.push(worker.id);
+
+        clearConstructionMovement(worker);
+        worker.buildTargetId = building.id;
+        worker.buildSlotIndex = slotIndex;
+        worker.buildSpot = workSpot;
+
+        if (Math.hypot(worker.x - workSpot.x, worker.y - workSpot.y) <= settings.workRange) {
+            worker.state = 'building';
+            clearConstructionMovement(worker);
+        } else if (!setUnitDestination(worker, workSpot.x, workSpot.y)) {
+            worker.state = 'idle';
+        }
+        added++;
+    }
+
+    return added;
+}
+
+function updateConstructionWorker(building, worker, index) {
+    const settings = getConstructionSettings();
+    const reservedSpots = getConstructionWorkers(building)
+        .filter(other => other !== worker)
+        .map(other => other.buildSpot)
+        .filter(Boolean);
+    const workSpot = worker.buildSpot || findConstructionWorkSpot(building, worker, index, reservedSpots);
+    worker.buildSpot = workSpot;
+
+    const dist = Math.hypot(worker.x - workSpot.x, worker.y - workSpot.y);
+    if (dist <= settings.workRange) {
+        if (worker.state !== 'building') {
+            clearConstructionMovement(worker);
+            worker.state = 'building';
+        }
+        const cx = building.x + building.width / 2;
+        const cy = building.y + building.height / 2;
+        const angle = Math.atan2(cy - worker.y, cx - worker.x);
+        const dirs = ['east','northeast','north','northwest','west','southwest','south','southeast'];
+        const dirIndex = (Math.round(((angle + Math.PI) / (Math.PI / 4))) % 8 + 8) % 8;
+        worker._faceDir = dirs[dirIndex];
+        worker._lastFaceNatural = worker._faceDir;
+        return true;
+    }
+
+    if (worker.state !== 'moving' || !worker.path || worker.path.length === 0 ||
+        Math.hypot((worker.requestedTargetX || worker.targetX || workSpot.x) - workSpot.x,
+            (worker.requestedTargetY || worker.targetY || workSpot.y) - workSpot.y) > 8) {
+        setUnitDestination(worker, workSpot.x, workSpot.y);
+    }
+
+    return false;
+}
+
+function completeConstruction(building) {
+    const cfg = getBuildingConfig(building.type);
+    building.underConstruction = false;
+    building.health = building.maxHealth || cfg.maxHealth;
+    building.construction = null;
+
+    if (building.type === 'house' && cfg.population) {
+        gameState.population.max += cfg.population;
+    }
+
+    gameState.units.forEach(unit => {
+        if (unit.buildTargetId !== building.id) return;
+        clearConstructionMovement(unit);
+        unit.buildTargetId = null;
+        unit.buildSlotIndex = null;
+        unit.buildSpot = null;
+        unit.state = 'idle';
+    });
+
+    if (typeof markPathfindingDirty === 'function') markPathfindingDirty();
+    if (typeof SFX !== 'undefined') SFX.buildingPlace();
+    showNotification(`${displayName(building.type)} constructed!`);
+    if (gameState.selectedBuilding === building) {
+        showBuildingActions(building);
+        updateSelectionInfo();
+    }
+}
+
+function updateConstructionSites(deltaTime) {
+    for (const building of gameState.buildings) {
+        if (!building.underConstruction || !building.construction) continue;
+
+        const workers = getConstructionWorkers(building);
+        building.construction.workerIds = workers.map(worker => worker.id);
+
+        let activeWorkers = 0;
+        workers.forEach((worker, index) => {
+            if (updateConstructionWorker(building, worker, index)) {
+                activeWorkers++;
+            }
+        });
+
+        if (activeWorkers > 0) {
+            building.construction.timeRemaining -= deltaTime * activeWorkers;
+            const progress = getConstructionProgressPct(building) / 100;
+            building.health = Math.max(1, Math.ceil((building.maxHealth || 1) * Math.max(0.08, progress)));
+        }
+
+        if (building.construction.timeRemaining <= 0) {
+            completeConstruction(building);
+        }
+    }
+}
+
 function startPlacingBuilding(type) {
      if (gameState.placingBuilding) {
         showNotification("Finish placing the current building first!");
@@ -58,10 +365,25 @@ function startPlacingBuilding(type) {
         showNotification(`Not enough resources to build ${type}!`);
         return;
     }
+    if (type !== 'bridge') {
+        const settings = getConstructionSettings();
+        const workers = getSelectedBuilderUnits().slice(0, settings.maxWorkers);
+        if (workers.length < settings.minWorkers) {
+            showNotification(`Select ${settings.minWorkers}-${settings.maxWorkers} villager(s) to build ${displayName(type)}.`);
+            return;
+        }
+        gameState.placingWorkerIds = workers.map(worker => worker.id);
+    } else {
+        gameState.placingWorkerIds = [];
+    }
     gameState.placingBuilding = type;
     const canvas = document.getElementById('gameCanvas');
     canvas.classList.add('placing-building');
-    showNotification(`Placing ${type}. Click to place. Press ESC to cancel.`);
+    const workerCount = (gameState.placingWorkerIds || []).length;
+    showNotification(type === 'bridge'
+        ? `Placing ${displayName(type)}. Click to place. Press ESC to cancel.`
+        : `Placing ${displayName(type)} with ${workerCount} villager(s). Click to place. Press ESC to cancel.`
+    );
 }
 
 function placeBuilding(type, x, y) {
@@ -69,6 +391,12 @@ function placeBuilding(type, x, y) {
     if (type !== 'bridge') {
         if (!canAfford(buildingConfig.cost)) {
             showNotification(`Not enough resources!`);
+            return;
+        }
+        const settings = getConstructionSettings();
+        const workers = getBuilderUnitsFromIds(gameState.placingWorkerIds || []).slice(0, settings.maxWorkers);
+        if (workers.length < settings.minWorkers) {
+            showNotification(`Select ${settings.minWorkers}-${settings.maxWorkers} villager(s) to build ${displayName(type)}.`);
             return;
         }
         deductResources(buildingConfig.cost);
@@ -147,8 +475,8 @@ function placeBuilding(type, x, y) {
     const maxHealth = typeof getEffectiveBuildingMaxHealth === 'function'
         ? getEffectiveBuildingMaxHealth(type, 'player')
         : buildingConfig.maxHealth;
-
-    gameState.buildings.push({
+    const buildTime = getBuildingBuildTimeMs(type);
+    const building = {
         id: generateId(),
         type: type,
         player: 'player',
@@ -156,17 +484,23 @@ function placeBuilding(type, x, y) {
         y: buildingY,
         width: buildingConfig.width,
         height: buildingConfig.height,
-        health: maxHealth,
+        health: Math.max(1, Math.ceil(maxHealth * 0.08)),
         maxHealth: maxHealth,
         rallyPoint: null,
-        isSelected: false
-    });
-    if (type === 'house') {
-        gameState.population.max += buildingConfig.population;
-    }
+        isSelected: false,
+        underConstruction: true,
+        construction: {
+            timeRemaining: buildTime,
+            totalTime: buildTime,
+            workerIds: []
+        },
+        trainingQueue: []
+    };
+    gameState.buildings.push(building);
     if (typeof markPathfindingDirty === 'function') markPathfindingDirty();
-    if (typeof window.SFX !== 'undefined') window.SFX.play('build');
-    showNotification(`${type.charAt(0).toUpperCase() + type.slice(1)} constructed!`);
+    const assigned = assignWorkersToConstruction(building, getBuilderUnitsFromIds(gameState.placingWorkerIds || []));
+    if (typeof SFX !== 'undefined') SFX.buildingPlace();
+    showNotification(`${displayName(type)} foundation placed. ${assigned} villager(s) building.`);
 }
 
 function canPlaceBuilding(type, x, y) {
@@ -303,6 +637,23 @@ function showBuildingActions(building) {
 
     unitList.innerHTML = '';
 
+    if (building.underConstruction) {
+        const pct = typeof getConstructionProgressPct === 'function'
+            ? getConstructionProgressPct(building)
+            : 0;
+        const workerCount = typeof getConstructionWorkers === 'function'
+            ? getConstructionWorkers(building).length
+            : (building.construction?.workerIds || []).length;
+        unitList.innerHTML = `
+            <div class="empty-command-state construction-state">
+                <div>Under Construction</div>
+                <div><span class="construction-pct">${Math.floor(pct)}%</span> complete / <span class="construction-workers">${workerCount}/${getConstructionSettings().maxWorkers}</span> workers</div>
+                <div class="progress-bar construction-progress"><div class="progress-fill" style="width: ${pct}%;"></div></div>
+            </div>
+        `;
+        return;
+    }
+
     const buildingUnits = {
         'town-center': ['villager'],
         'barracks': ['militia', 'warrior', 'axeman'],
@@ -432,13 +783,29 @@ function handleBuildingDestruction(building) {
         ParticleSystem.emitBuildingRubble(building.x, building.y, building.width, building.height);
     }
     if (typeof SFX !== 'undefined') SFX.buildingDestroyed();
+    const cfg = getBuildingConfig(building.type);
+    gameState.units.forEach(unit => {
+        if (unit.buildTargetId !== building.id) return;
+        clearConstructionMovement(unit);
+        unit.buildTargetId = null;
+        unit.buildSlotIndex = null;
+        unit.buildSpot = null;
+        unit.state = 'idle';
+    });
     building.health = 0;
     if (building.player === 'player') {
+        if (!building.underConstruction && building.type === 'house' && cfg?.population) {
+            gameState.population.max = Math.max(0, gameState.population.max - cfg.population);
+        }
         const idx = gameState.buildings.indexOf(building);
         if (idx > -1) gameState.buildings.splice(idx, 1);
     } else {
         const idx = gameState.enemyBuildings.indexOf(building);
         if (idx > -1) gameState.enemyBuildings.splice(idx, 1);
+    }
+    if (gameState.selectedBuilding === building) {
+        gameState.selectedBuilding = null;
+        updateSelectionInfo();
     }
     if (typeof markPathfindingDirty === 'function') markPathfindingDirty();
     checkWinConditions();

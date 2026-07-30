@@ -1035,16 +1035,12 @@ function drawMinimap() {
     ctx.fillStyle = '#2a8f52';
     ctx.fillRect(0, 0, minimapCanvas.width, minimapCanvas.height);
 
-    if (tilemap && tilemap.hasWater && tilemap.waterPath) {
+    if (tilemap && tilemap.hasWater) {
+        // The minimap uses the exact gameplay water mask. This keeps it honest:
+        // blue on the minimap means that same location is water in the game.
         ctx.fillStyle = '#47ABA9';
-        ctx.save();
-        ctx.scale(scaleX, scaleY);
-        ctx.fill(tilemap.waterPath);
-        ctx.restore();
-    } else if (tilemap && tilemap.hasWater) {
-        ctx.fillStyle = '#47ABA9';
-        const cellW = Math.max(1, tilemap.tileSize * scaleX);
-        const cellH = Math.max(1, tilemap.tileSize * scaleY);
+        const cellW = tilemap.tileSize * scaleX;
+        const cellH = tilemap.tileSize * scaleY;
         for (let ty = 0; ty < tilemap.height; ty++) {
             for (let tx = 0; tx < tilemap.width; tx++) {
                 if (tilemap.getTile(tx, ty) !== TILE_TYPES.WATER) continue;

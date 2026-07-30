@@ -528,8 +528,14 @@ function extractContours({ sample, x0, y0, x1, y1, step = 32, smoothPasses = 2 }
             cur = segments[nextIdx];
         }
 
-        // Keep only rings substantial enough to be a real shoreline.
-        if (ring.length >= 6) {
+        const first = ring[0];
+        const last = ring[ring.length - 1];
+        const closes = first && last && Math.hypot(first.x - last.x, first.y - last.y) <= step * 1.5;
+
+        // Keep only closed rings substantial enough to be a real shoreline.
+        // Open chains happen when water exits the sampled region; closing those
+        // would draw long diagonal chords across the map.
+        if (ring.length >= 6 && closes) {
             rings.push(decimateRing(chaikinClosed(ring, smoothPasses), Math.max(2, step * 0.12)));
         }
     }
@@ -583,13 +589,13 @@ function buildWorldWaterField({ worldWidth, worldHeight, layout, seed }) {
     field.layoutName = layout || 'highland-river';
 
     if (field.layoutName === 'coastal-bay') {
-        // A broad southern sea with two coves and a river mouth. This supports
-        // navy play without splitting the whole land map in half.
+        // A broad southern bay with two coves and a river mouth. It stays inside
+        // the world bounds so contour extraction never creates edge chords.
         field.addLake({
             x: W * 0.54 + jitter(rng, W * 0.04),
-            y: H * 1.05,
-            rx: W * 0.48,
-            ry: H * 0.30
+            y: H * 0.76,
+            rx: W * 0.40,
+            ry: H * 0.16
         });
         field.addLake({
             x: W * 0.30 + jitter(rng, W * 0.03),
@@ -607,8 +613,8 @@ function buildWorldWaterField({ worldWidth, worldHeight, layout, seed }) {
             { x: W * 0.48 + jitter(rng, W * 0.03), y: H * 0.34, r: 70 },
             { x: W * 0.42 + jitter(rng, W * 0.04), y: H * 0.48, r: 90 },
             { x: W * 0.52 + jitter(rng, W * 0.04), y: H * 0.64, r: 110 },
-            { x: W * 0.54 + jitter(rng, W * 0.03), y: H * 0.86, r: 145 },
-            { x: W * 0.54, y: H * 1.08, r: 170 }
+            { x: W * 0.54 + jitter(rng, W * 0.03), y: H * 0.78, r: 140 },
+            { x: W * 0.54, y: H * 0.88, r: 120 }
         ]);
         field.flowAngle = Math.PI / 2;
         field.warpAmplitude = 28;
@@ -648,10 +654,11 @@ function buildWorldWaterField({ worldWidth, worldHeight, layout, seed }) {
             const t = i / (n - 1);
             const bend = Math.sin(t * Math.PI * 2.15 + 0.5) * amp;
             const strategicWidening = 1 + 0.18 * Math.sin(t * Math.PI);
+            const endTaper = Math.sin(t * Math.PI) * 0.72 + 0.28;
             pts.push({
                 x: W * 0.52 + bend + jitter(rng, W * 0.018),
-                y: -H * 0.08 + t * (H * 1.16),
-                r: (H * 0.036 + 36) * strategicWidening
+                y: H * 0.08 + t * (H * 0.84),
+                r: (H * 0.036 + 36) * strategicWidening * endTaper
             });
         }
         field.addRiver(pts);

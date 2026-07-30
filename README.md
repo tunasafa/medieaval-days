@@ -24,14 +24,17 @@ version 0:
 <img width="1555" height="832" alt="Screenshot 2025-09-01 at 17 36 28" src="https://github.com/user-attachments/assets/52262901-e901-4446-bbee-4baa4c9626b7" />
 
 
-possible updates:
+recent updates:
+
+- improved enemy movement/ai so enemy units use pathfinding and respect terrain better
+- improved mechanics for embarking / disembarking units with transport ships
+- added visible projectiles for catapult, ballista, archer and crossbowman attacks
+- replaced generated music with better 8 bit CC0 medieval chiptune songs
+
+possible future updates:
 
 - special enemy sprites and buildings
 - completely isometric tiling map configuration
-- improved enemy ai
 - more maps
-- better mechanics for embarking / disembarking to ships
-- improved animations for catapult, ballista , archer and crossbowman (to show what they throw)
-- better 8 bit songs
 - zoom in and out from the map
 - 2 and more player real time playable option

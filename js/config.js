@@ -6,7 +6,9 @@ const GAME_CONFIG = {
     // footprints stay the same size regardless of how fine the mask gets.
     terrain: {
         tileSize: 32,          // logical water-mask resolution in world units
-        bridgeBlockSize: 128,  // bridge footprint, decoupled from tileSize
+        bridgeBlockSize: 160,  // bridge deck width, decoupled from tileSize
+        bridgeBankApron: 64,   // land overlap on each bank so paths connect cleanly
+        bridgeMaxSpan: 640,    // maximum river width one bridge placement can cross
         contourStep: 24,       // marching-squares sampling step for the drawn coast
         maxWaterDepth: 3       // number of depth bands for shading
     },

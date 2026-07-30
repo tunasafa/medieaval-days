@@ -189,6 +189,8 @@ class Tilemap {
         }
 
         if (!field || field.bodies.length === 0) {
+            this._applyBridgeTerrainOverrides();
+            this._refreshWaterState();
             this._buildDepthField();
             this._rebuildContours();
             return;
@@ -243,6 +245,8 @@ class Tilemap {
             }
         }
 
+        this._applyBridgeTerrainOverrides();
+        this._refreshWaterState();
         this._buildDepthField();
         this._rebuildContours();
     }
@@ -441,6 +445,8 @@ class Tilemap {
                     }
                 }
             }
+            this._applyBridgeTerrainOverrides();
+            this._refreshWaterState();
             this._buildDepthField();
             this._rebuildContours();
             return;
@@ -461,6 +467,55 @@ class Tilemap {
             });
         }
         this.applyWaterField(field);
+    }
+
+    applyBridgeTerrain(bridge) {
+        if (!bridge) return;
+        this._carveBridgeObject(bridge);
+        this._refreshWaterState();
+        this._buildDepthField();
+        this._rebuildContours();
+    }
+
+    _applyBridgeTerrainOverrides() {
+        if (typeof gameState === 'undefined' || !gameState.worldObjects) return;
+        for (const obj of gameState.worldObjects) {
+            if (obj.type === 'bridge') this._carveBridgeObject(obj);
+        }
+    }
+
+    _carveBridgeObject(bridge) {
+        const ts = this.tileSize;
+        const startX = Math.max(0, Math.floor(bridge.x / ts));
+        const startY = Math.max(0, Math.floor(bridge.y / ts));
+        const endX = Math.min(this.width - 1, Math.ceil((bridge.x + bridge.width) / ts) - 1);
+        const endY = Math.min(this.height - 1, Math.ceil((bridge.y + bridge.height) / ts) - 1);
+
+        for (let ty = startY; ty <= endY; ty++) {
+            for (let tx = startX; tx <= endX; tx++) {
+                const cellX = tx * ts;
+                const cellY = ty * ts;
+                const overlaps = cellX < bridge.x + bridge.width &&
+                    cellX + ts > bridge.x &&
+                    cellY < bridge.y + bridge.height &&
+                    cellY + ts > bridge.y;
+                if (!overlaps) continue;
+                this.tiles[ty][tx] = TILE_TYPES.FLAT_GROUND;
+                this.waterKinds[ty][tx] = null;
+            }
+        }
+    }
+
+    _refreshWaterState() {
+        this.hasWater = false;
+        for (let ty = 0; ty < this.height; ty++) {
+            for (let tx = 0; tx < this.width; tx++) {
+                if (this.tiles[ty][tx] === TILE_TYPES.WATER) {
+                    this.hasWater = true;
+                    return;
+                }
+            }
+        }
     }
 
     // ===== PROCEDURAL WATER PATTERNS =====

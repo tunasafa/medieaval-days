@@ -49,6 +49,49 @@ class PathfindingGrid {
         return x >= 0 && x < this.width && y >= 0 && y < this.height;
     }
 
+    _pointInRect(x, y, rect, margin = 0) {
+        return x >= rect.x - margin && x <= rect.x + rect.width + margin &&
+            y >= rect.y - margin && y <= rect.y + rect.height + margin;
+    }
+
+    _pointInRoundedRect(x, y, rect, margin = 0) {
+        const cornerRadius = Math.min(32, Math.min(rect.width, rect.height) * 0.4);
+        const left = rect.x - margin;
+        const right = rect.x + rect.width + margin;
+        const top = rect.y - margin;
+        const bottom = rect.y + rect.height + margin;
+
+        if (x >= left + cornerRadius && x <= right - cornerRadius && y >= top && y <= bottom) return true;
+        if (y >= top + cornerRadius && y <= bottom - cornerRadius && x >= left && x <= right) return true;
+
+        const corners = [
+            { x: left + cornerRadius, y: top + cornerRadius },
+            { x: right - cornerRadius, y: top + cornerRadius },
+            { x: left + cornerRadius, y: bottom - cornerRadius },
+            { x: right - cornerRadius, y: bottom - cornerRadius }
+        ];
+        return corners.some(c => {
+            const dx = x - c.x;
+            const dy = y - c.y;
+            return dx * dx + dy * dy <= cornerRadius * cornerRadius;
+        });
+    }
+
+    _markCellsInBounds(rect, predicate, apply) {
+        const startX = Math.max(0, Math.floor(rect.x / this.cellSize) - 1);
+        const startY = Math.max(0, Math.floor(rect.y / this.cellSize) - 1);
+        const endX = Math.min(this.width - 1, Math.ceil((rect.x + rect.width) / this.cellSize) + 1);
+        const endY = Math.min(this.height - 1, Math.ceil((rect.y + rect.height) / this.cellSize) + 1);
+
+        for (let y = startY; y <= endY; y++) {
+            for (let x = startX; x <= endX; x++) {
+                const pos = this.gridToWorld(x, y);
+                if (!predicate(pos.x, pos.y)) continue;
+                apply(this.grid[y][x]);
+            }
+        }
+    }
+
     updateObstacles() {
         // Reset grid
         for (let y = 0; y < this.height; y++) {
@@ -140,44 +183,33 @@ class PathfindingGrid {
             }
         });
 
-        // Mark large buildings as obstacles with extra padding to avoid hugging walls
-        gameState.buildings.forEach(building => {
-            const margin = 4; // tight margin so corridors between buildings remain passable
-            const startX = Math.floor((building.x - margin) / this.cellSize);
-            const startY = Math.floor((building.y - margin) / this.cellSize);
-            const endX = Math.ceil((building.x + building.width + margin) / this.cellSize);
-            const endY = Math.ceil((building.y + building.height + margin) / this.cellSize);
-
-            for (let y = startY; y < endY; y++) {
-                for (let x = startX; x < endX; x++) {
-                    if (this.isValidCell(x, y)) {
-                        this.grid[y][x].walkable = false;
-                        this.grid[y][x].blocksUnits = true;
-                        this.grid[y][x].clearance = 0;
-                    }
+        // Mark large buildings as obstacle seeds. Clearance expands these seeds
+        // by unit radius, which keeps corridors usable when units actually fit.
+        [...(gameState.buildings || []), ...(gameState.enemyBuildings || [])].forEach(building => {
+            this._markCellsInBounds(
+                building,
+                (x, y) => this._pointInRoundedRect(x, y, building, 0),
+                cell => {
+                    cell.walkable = false;
+                    cell.blocksUnits = true;
+                    cell.clearance = 0;
                 }
-            }
+            );
         });
 
         // Mark no-go zones (obstacles, no-go, noZone) as unwalkable so A* avoids them
         // This must match validateTerrainMovement() which blocks these same types
         gameState.worldObjects.forEach(obj => {
             if (obj.type === 'obstacle' || obj.type === 'no-go' || obj.type === 'noZone') {
-                // The clearance field expands this seed area by the unit radius.
-                const margin = 2;
-                const startX = Math.floor((obj.x - margin) / this.cellSize);
-                const startY = Math.floor((obj.y - margin) / this.cellSize);
-                const endX = Math.ceil((obj.x + obj.width + margin) / this.cellSize);
-                const endY = Math.ceil((obj.y + obj.height + margin) / this.cellSize);
-                for (let y = startY; y < endY; y++) {
-                    for (let x = startX; x < endX; x++) {
-                        if (this.isValidCell(x, y)) {
-                            this.grid[y][x].walkable = false;
-                            this.grid[y][x].blocksUnits = true;
-                            this.grid[y][x].clearance = 0;
-                        }
+                this._markCellsInBounds(
+                    obj,
+                    (x, y) => this._pointInRect(x, y, obj, 0),
+                    cell => {
+                        cell.walkable = false;
+                        cell.blocksUnits = true;
+                        cell.clearance = 0;
                     }
-                }
+                );
             }
         });
 
@@ -186,7 +218,7 @@ class PathfindingGrid {
 
         // Increase cost near obstacles to prefer the middle of corridors
         const influenceRadius = 3; // cells
-        const proximityWeight = 3.0; // moderate penalty near walls/corners
+        const proximityWeight = 1.15; // keep some preference for open lanes without rejecting good shortcuts
         for (let y = 0; y < this.height; y++) {
             for (let x = 0; x < this.width; x++) {
                 const cell = this.grid[y][x];
@@ -623,7 +655,7 @@ class AStarPathfinder {
         const clearance = isShip ? cell.waterClearance : cell.clearance;
         if (Number.isFinite(clearance)) {
             const edgePressure = Math.max(0, 4 - Math.min(4, clearance));
-            cost += edgePressure * 0.75;
+            cost += edgePressure * 0.25;
         }
 
         // Lightweight unit-density penalty at query time (avoids full-grid scan)
@@ -661,8 +693,8 @@ class AStarPathfinder {
         const clamped = Math.max(-1, Math.min(1, dot));
         const angle = Math.acos(clamped); // 0..pi
         // Favor gentle curves: scale by normalized angle squared
-        const baseWeight = isShip ? 0.6 : 1.0;
-        return baseWeight * (angle / Math.PI) ** 2 * 2.0; // tweak factor
+        const baseWeight = isShip ? 0.4 : 0.65;
+        return baseWeight * (angle / Math.PI) ** 2 * 1.4; // light preference for smooth paths
     }
 
     heuristic(a, b) {

@@ -334,29 +334,145 @@ function canEmbark(unit) {
 }
 
 
-// Compute a single bridge block aligned to the tile grid
-// Returns { ok, isLake, x, y, width, height }
-function computeBridgeBlockAt(cx, cy) {
-    const blockSize = GAME_CONFIG.terrain?.bridgeBlockSize || 128;
-    const x = Math.floor(cx / blockSize) * blockSize;
-    const y = Math.floor(cy / blockSize) * blockSize;
-    const centerX = x + blockSize / 2;
-    const centerY = y + blockSize / 2;
-    const onWater = isPointInWater(centerX, centerY);
-    let isLake = false;
-    if (tilemap && tilemap.isLoaded && typeof tilemap.waterKindAt === 'function') {
-        const kind = tilemap.waterKindAt(centerX, centerY);
-        if (kind === 'lake') isLake = true;
+function scaleCost(cost, multiplier = 1) {
+    const scaled = {};
+    for (const [resource, amount] of Object.entries(cost || {})) {
+        scaled[resource] = Math.max(0, Math.ceil(amount * multiplier));
     }
-    // Cannot place on existing building footprints
+    return scaled;
+}
+
+function formatCost(cost) {
+    return Object.entries(cost || {})
+        .map(([resource, amount]) => `${amount} ${resource}`)
+        .join(', ');
+}
+
+function rectsOverlap(a, b) {
+    return !(a.x + a.width <= b.x || a.x >= b.x + b.width ||
+        a.y + a.height <= b.y || a.y >= b.y + b.height);
+}
+
+function getBridgeTerrainKind(x, y) {
+    if (tilemap && tilemap.isLoaded && typeof tilemap.waterKindAt === 'function') {
+        return tilemap.waterKindAt(x, y);
+    }
+    return isPointInWater(x, y) ? 'river' : null;
+}
+
+function scanBridgeBank(centerX, centerY, axis, sign, step, maxSpan) {
+    let waterDistance = 0;
+    let sawLake = false;
+    for (let d = step; d <= maxSpan / 2 + step; d += step) {
+        const x = centerX + axis.dx * sign * d;
+        const y = centerY + axis.dy * sign * d;
+        if (x < 0 || y < 0 || x >= GAME_CONFIG.world.width || y >= GAME_CONFIG.world.height) {
+            return { ok: false, sawLake };
+        }
+
+        const inWater = isPointInWater(x, y);
+        const onBridge = isPointOnBridge(x, y);
+        const kind = getBridgeTerrainKind(x, y);
+        if (kind === 'lake') sawLake = true;
+
+        if (inWater && !onBridge) {
+            waterDistance = d;
+            continue;
+        }
+
+        return {
+            ok: waterDistance > 0,
+            sawLake,
+            waterDistance,
+            landDistance: d
+        };
+    }
+    return { ok: false, sawLake };
+}
+
+function buildBridgeCandidate(centerX, centerY, axis, deckWidth, bankApron, step, maxSpan) {
+    const centerKind = getBridgeTerrainKind(centerX, centerY);
+    if (!isPointInWater(centerX, centerY) || centerKind === 'lake' || isPointOnBridge(centerX, centerY)) {
+        return { ok: false, isLake: centerKind === 'lake' };
+    }
+
+    const neg = scanBridgeBank(centerX, centerY, axis, -1, step, maxSpan);
+    const pos = scanBridgeBank(centerX, centerY, axis, 1, step, maxSpan);
+    const isLake = centerKind === 'lake' || neg.sawLake || pos.sawLake;
+    if (!neg.ok || !pos.ok || isLake) return { ok: false, isLake };
+
+    const waterSpan = neg.waterDistance + pos.waterDistance + step;
+    if (waterSpan > maxSpan) return { ok: false, isLake: false };
+
+    const halfDeck = deckWidth / 2;
+    const startLong = axis.name === 'horizontal' ? centerX - neg.landDistance - bankApron : centerY - neg.landDistance - bankApron;
+    const endLong = axis.name === 'horizontal' ? centerX + pos.landDistance + bankApron : centerY + pos.landDistance + bankApron;
+    const startWide = axis.name === 'horizontal' ? centerY - halfDeck : centerX - halfDeck;
+    const endWide = axis.name === 'horizontal' ? centerY + halfDeck : centerX + halfDeck;
+    const minLong = Math.floor(startLong / step) * step;
+    const maxLong = Math.ceil(endLong / step) * step;
+    const minWide = Math.floor(startWide / step) * step;
+    const maxWide = Math.ceil(endWide / step) * step;
+    const x = axis.name === 'horizontal' ? minLong : minWide;
+    const y = axis.name === 'horizontal' ? minWide : minLong;
+    const width = axis.name === 'horizontal' ? maxLong - minLong : maxWide - minWide;
+    const height = axis.name === 'horizontal' ? maxWide - minWide : maxLong - minLong;
+    const length = axis.name === 'horizontal' ? width : height;
+    const candidate = {
+        ok: true,
+        isLake: false,
+        x,
+        y,
+        width,
+        height,
+        orientation: axis.name,
+        waterSpan,
+        costMultiplier: Math.max(1, Math.ceil(length / Math.max(deckWidth, step)))
+    };
+
+    return candidate;
+}
+
+// Compute an auto-sized bridge span aligned to the terrain grid.
+// Returns { ok, isLake, x, y, width, height, orientation, costMultiplier }
+function computeBridgeBlockAt(cx, cy) {
+    const terrain = GAME_CONFIG.terrain || {};
+    const step = terrain.tileSize || 32;
+    const deckWidth = Math.max(step * 3, terrain.bridgeBlockSize || 160);
+    const bankApron = Math.max(step, terrain.bridgeBankApron || step * 2);
+    const maxSpan = Math.max(deckWidth, terrain.bridgeMaxSpan || 640);
+    const centerX = Math.floor(cx / step) * step + step / 2;
+    const centerY = Math.floor(cy / step) * step + step / 2;
+    const axes = [
+        { name: 'horizontal', dx: 1, dy: 0 },
+        { name: 'vertical', dx: 0, dy: 1 }
+    ];
+
+    const scanned = axes.map(axis => buildBridgeCandidate(centerX, centerY, axis, deckWidth, bankApron, step, maxSpan));
+    const candidates = scanned.filter(c => c.ok);
+    const sawLake = scanned.some(c => c.isLake);
+
+    if (candidates.length === 0) {
+        return { ok: false, isLake: sawLake, x: centerX - deckWidth / 2, y: centerY - deckWidth / 2, width: deckWidth, height: deckWidth };
+    }
+
+    candidates.sort((a, b) => (a.waterSpan - b.waterSpan) || (a.width * a.height - b.width * b.height));
+    const bridge = candidates[0];
+
     const collidesBuilding = [...gameState.buildings, ...gameState.enemyBuildings].some(b =>
-        !(x + blockSize <= b.x || x >= b.x + b.width || y + blockSize <= b.y || y >= b.y + b.height)
+        rectsOverlap(bridge, b)
     );
-    // Avoid placing twice on same bridge tile
+    const collidesObject = gameState.worldObjects.some(o =>
+        (o.type === 'resource' || o.type === 'obstacle' || o.type === 'no-go' || o.type === 'noZone') &&
+        rectsOverlap(bridge, o)
+    );
     const collidesBridge = gameState.worldObjects.some(o => o.type === 'bridge' &&
-        !(x + blockSize <= o.x || x >= o.x + o.width || y + blockSize <= o.y || y >= o.y + o.height)
+        rectsOverlap(bridge, o)
     );
-    const withinWorld = x >= 0 && y >= 0 && (x + blockSize) <= GAME_CONFIG.world.width && (y + blockSize) <= GAME_CONFIG.world.height;
-    const ok = withinWorld && onWater && !isLake && !collidesBuilding && !collidesBridge;
-    return { ok, isLake, x, y, width: blockSize, height: blockSize };
+    const withinWorld = bridge.x >= 0 && bridge.y >= 0 &&
+        bridge.x + bridge.width <= GAME_CONFIG.world.width &&
+        bridge.y + bridge.height <= GAME_CONFIG.world.height;
+
+    bridge.ok = withinWorld && !collidesBuilding && !collidesObject && !collidesBridge;
+    return bridge;
 }

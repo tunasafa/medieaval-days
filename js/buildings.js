@@ -47,25 +47,33 @@ function placeBuilding(type, x, y) {
     if (type === 'bridge') {
         const blk = computeBridgeBlockAt(x, y);
         if (!blk.ok) {
-            showNotification(blk.isLake ? 'Cannot build bridge blocks on lakes.' : 'Bridge blocks must be placed over river water tiles.');
+            showNotification(blk.isLake ? 'Cannot build bridges on lakes.' : 'Bridge must span river water with land on both banks.');
             return;
         }
-        if (!canAfford(buildingConfig.cost)) {
-            showNotification('Not enough resources for bridge block!');
+        const bridgeCost = scaleCost(buildingConfig.cost, blk.costMultiplier || 1);
+        if (!canAfford(bridgeCost)) {
+            showNotification(`Not enough resources for bridge (${formatCost(bridgeCost)}).`);
             return;
         }
-        deductResources(buildingConfig.cost);
-        gameState.worldObjects.push({
+        deductResources(bridgeCost);
+        const bridge = {
             type: 'bridge',
             x: blk.x,
             y: blk.y,
             width: blk.width,
             height: blk.height,
-            color: '#C8A165'
-        });
+            orientation: blk.orientation,
+            waterSpan: blk.waterSpan,
+            costMultiplier: blk.costMultiplier,
+            color: '#B98645'
+        };
+        gameState.worldObjects.push(bridge);
+        if (tilemap && tilemap.isLoaded && typeof tilemap.applyBridgeTerrain === 'function') {
+            tilemap.applyBridgeTerrain(bridge);
+        }
         if (typeof markPathfindingDirty === 'function') markPathfindingDirty();
         if (typeof SFX !== 'undefined') SFX.buildingPlace();
-        showNotification('Bridge block placed.');
+        showNotification(`Bridge built (${formatCost(bridgeCost)}).`);
         return;
     }
     const footprint = { x: buildingX, y: buildingY, width: buildingConfig.width, height: buildingConfig.height };
@@ -275,14 +283,21 @@ function showBuildingActions(building) {
             unitDiv.innerHTML = `
                 <canvas class="unit-icon bridge" width="40" height="40"></canvas>
                 <div style="font-weight: bold; font-size: 12px;">Bridge</div>
-                <div style="font-size: 11px; color: #ccc;">150W, 50S</div>
+                <div style="font-size: 11px; color: #ccc;">15W, 5S / section</div>
             `;
             unitDiv.addEventListener('click', () => startPlacingBuilding('bridge'));
             unitList.appendChild(unitDiv);
             const canvas = unitDiv.querySelector('canvas.unit-icon.bridge');
             const ctx = canvas.getContext('2d');
-            ctx.fillStyle = '#8B4513';
-            ctx.fillRect(8, 20, 32, 8);
+            ctx.fillStyle = '#5F3A1F';
+            ctx.fillRect(4, 18, 32, 12);
+            ctx.fillStyle = '#B98645';
+            ctx.fillRect(6, 16, 28, 10);
+            ctx.strokeStyle = 'rgba(55, 32, 16, 0.65)';
+            ctx.lineWidth = 1;
+            for (let x = 10; x < 34; x += 6) {
+                ctx.beginPath(); ctx.moveTo(x, 16); ctx.lineTo(x, 26); ctx.stroke();
+            }
             return;
         }
         const unitConfig = GAME_CONFIG.units[unitType];

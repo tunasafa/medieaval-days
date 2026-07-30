@@ -75,6 +75,89 @@ function mapDirForAssets(dir) {
         default: return dir;
     }
 }
+
+function drawBridgeDeck(ctx, x, y, width, height, orientation = 'horizontal', options = {}) {
+    const isHorizontal = orientation !== 'vertical';
+    const alpha = options.alpha ?? 1;
+    const valid = options.valid !== false;
+    const deck = valid ? (options.color || '#B98645') : '#B94A48';
+    const dark = valid ? '#5F3A1F' : '#6E2727';
+    const rail = valid ? '#6F4928' : '#7C2D2D';
+    const stone = valid ? '#8E8A78' : '#8A5555';
+    const plankLight = valid ? 'rgba(239, 196, 126, 0.28)' : 'rgba(255,255,255,0.16)';
+    const plankDark = valid ? 'rgba(72, 43, 21, 0.34)' : 'rgba(70, 20, 20, 0.28)';
+    const radius = Math.min(14, Math.min(width, height) * 0.12);
+    const railInset = Math.max(10, Math.min(width, height) * 0.12);
+    const endCap = Math.min(36, Math.max(18, Math.min(width, height) * 0.18));
+
+    ctx.save();
+    ctx.globalAlpha *= alpha;
+    ctx.fillStyle = 'rgba(34, 24, 16, 0.28)';
+    drawRoundedRect(ctx, x + 5, y + 7, width, height, radius, true, false);
+
+    ctx.fillStyle = dark;
+    drawRoundedRect(ctx, x, y, width, height, radius, true, false);
+
+    ctx.fillStyle = deck;
+    drawRoundedRect(ctx, x + 5, y + 5, width - 10, height - 10, radius, true, false);
+
+    ctx.fillStyle = stone;
+    if (isHorizontal) {
+        ctx.fillRect(x, y + railInset, endCap, height - railInset * 2);
+        ctx.fillRect(x + width - endCap, y + railInset, endCap, height - railInset * 2);
+    } else {
+        ctx.fillRect(x + railInset, y, width - railInset * 2, endCap);
+        ctx.fillRect(x + railInset, y + height - endCap, width - railInset * 2, endCap);
+    }
+
+    ctx.strokeStyle = plankDark;
+    ctx.lineWidth = 2;
+    const longLen = isHorizontal ? width : height;
+    const plankEvery = 24;
+    for (let p = plankEvery; p < longLen; p += plankEvery) {
+        ctx.beginPath();
+        if (isHorizontal) {
+            ctx.moveTo(x + p, y + 12);
+            ctx.lineTo(x + p, y + height - 12);
+        } else {
+            ctx.moveTo(x + 12, y + p);
+            ctx.lineTo(x + width - 12, y + p);
+        }
+        ctx.stroke();
+    }
+
+    ctx.strokeStyle = plankLight;
+    ctx.lineWidth = 1;
+    const crossCount = Math.max(2, Math.floor((isHorizontal ? height : width) / 28));
+    for (let i = 1; i <= crossCount; i++) {
+        const t = i / (crossCount + 1);
+        ctx.beginPath();
+        if (isHorizontal) {
+            const py = y + height * t;
+            ctx.moveTo(x + 12, py);
+            ctx.lineTo(x + width - 12, py);
+        } else {
+            const px = x + width * t;
+            ctx.moveTo(px, y + 12);
+            ctx.lineTo(px, y + height - 12);
+        }
+        ctx.stroke();
+    }
+
+    ctx.strokeStyle = rail;
+    ctx.lineWidth = 5;
+    ctx.lineCap = 'round';
+    if (isHorizontal) {
+        ctx.beginPath(); ctx.moveTo(x + 14, y + railInset); ctx.lineTo(x + width - 14, y + railInset); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x + 14, y + height - railInset); ctx.lineTo(x + width - 14, y + height - railInset); ctx.stroke();
+    } else {
+        ctx.beginPath(); ctx.moveTo(x + railInset, y + 14); ctx.lineTo(x + railInset, y + height - 14); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x + width - railInset, y + 14); ctx.lineTo(x + width - railInset, y + height - 14); ctx.stroke();
+    }
+
+    ctx.restore();
+}
+
 function drawWorldObjects(ctx) {
     const zoom = gameState.zoomLevel || 1.0;
     const viewW = GAME_CONFIG.canvas.width / zoom;
@@ -132,32 +215,7 @@ function drawWorldObjects(ctx) {
             // Water is drawn by the tilemap system. Skip rectangle overlay.
             return;
         } else if (obj.type === 'bridge') {
-            // Draw a lighter wood bridge with subtle texture planks
-            const w = obj.width, h = obj.height;
-            const x = drawX, y = drawY;
-            const cornerRadius = Math.min(24, Math.min(w, h) * 0.3);
-            // Base
-            ctx.fillStyle = obj.color || '#C8A165';
-            drawRoundedRect(ctx, x, y, w, h, cornerRadius, true, false);
-            // Grain lines
-            ctx.strokeStyle = 'rgba(94, 62, 26, 0.25)';
-            ctx.lineWidth = 1;
-            for (let i = 0; i < 6; i++) {
-                const gx = x + (i + 1) * (w / 7);
-                ctx.beginPath();
-                ctx.moveTo(gx, y + 4);
-                ctx.lineTo(gx, y + h - 4);
-                ctx.stroke();
-            }
-            // Plank seams
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
-            for (let j = 0; j < Math.max(2, Math.floor(h / 10)); j++) {
-                const gy = y + (j + 1) * (h / (Math.max(2, Math.floor(h / 10)) + 1));
-                ctx.beginPath();
-                ctx.moveTo(x + 6, gy);
-                ctx.lineTo(x + w - 6, gy);
-                ctx.stroke();
-            }
+            drawBridgeDeck(ctx, drawX, drawY, obj.width, obj.height, obj.orientation, { color: obj.color });
         } else {
             ctx.fillStyle = obj.color;
             ctx.fillRect(drawX, drawY, obj.width, obj.height);
@@ -953,18 +1011,16 @@ function drawPlacingBuilding(ctx) {
         let ghostY = gameState.placingBuildingPosition.y;
         let ghostW = config.width;
         let ghostH = config.height;
+        let ghostOrientation = 'horizontal';
         let isValidPlacement = canPlaceBuilding(type, ghostX, ghostY);
         if (type === 'bridge') {
-            // Preview is exactly one bridge block; snap to its center.
-            const blockSize = GAME_CONFIG.terrain?.bridgeBlockSize || 128;
-            const tx = Math.floor(ghostX / blockSize);
-            const ty = Math.floor(ghostY / blockSize);
-            ghostW = blockSize;
-            ghostH = blockSize;
-            ghostX = tx * blockSize + blockSize / 2;
-            ghostY = ty * blockSize + blockSize / 2;
             const blk = computeBridgeBlockAt(ghostX, ghostY);
             isValidPlacement = blk.ok;
+            ghostW = blk.width;
+            ghostH = blk.height;
+            ghostX = blk.x + blk.width / 2;
+            ghostY = blk.y + blk.height / 2;
+            ghostOrientation = blk.orientation;
         }
         const drawX = ghostX - gameState.camera.x - ghostW / 2;
         const drawY = ghostY - gameState.camera.y - ghostH / 2;
@@ -986,34 +1042,10 @@ function drawPlacingBuilding(ctx) {
         } else if (type === 'navy') {
             drawSpriteGhost(ctx, 'buildings', 'navy', config.width, config.height, isValidPlacement);
         } else if (type === 'bridge') {
-            ctx.save();
-            ctx.globalAlpha = 0.75;
-            const w = ghostW, h = ghostH;
-            const cornerRadius = Math.min(24, Math.min(w, h) * 0.3);
-            // Base ghost
-            ctx.fillStyle = isValidPlacement ? '#C8A165' : 'rgba(255,0,0,0.6)';
-            drawRoundedRect(ctx, 0, 0, w, h, cornerRadius, true, false);
-            if (isValidPlacement) {
-                // Wood grain preview
-                ctx.strokeStyle = 'rgba(94, 62, 26, 0.25)';
-                ctx.lineWidth = 1;
-                for (let i = 0; i < 4; i++) {
-                    const gx = (i + 1) * (w / 5);
-                    ctx.beginPath();
-                    ctx.moveTo(gx, 4);
-                    ctx.lineTo(gx, h - 4);
-                    ctx.stroke();
-                }
-                ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
-                for (let j = 0; j < Math.max(1, Math.floor(h / 12)); j++) {
-                    const gy = (j + 1) * (h / (Math.max(1, Math.floor(h / 12)) + 1));
-                    ctx.beginPath();
-                    ctx.moveTo(6, gy);
-                    ctx.lineTo(w - 6, gy);
-                    ctx.stroke();
-                }
-            }
-            ctx.restore();
+            drawBridgeDeck(ctx, 0, 0, ghostW, ghostH, ghostOrientation, {
+                alpha: 0.76,
+                valid: isValidPlacement
+            });
         }
 
         // Draw placement validity outline with rounded corners

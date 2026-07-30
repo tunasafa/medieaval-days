@@ -8,7 +8,7 @@ const GAME_CONFIG = {
         tileSize: 32,          // logical water-mask resolution in world units
         bridgeBlockSize: 128,  // bridge lane width, decoupled from tileSize
         bridgeBankApron: 64,   // land overlap on each bank so paths connect cleanly
-        bridgeMaxSpan: 640,    // maximum river width one bridge placement can cross
+        bridgeMaxSpan: 960,    // maximum river width one bridge placement can cross
         contourStep: 24,       // marching-squares sampling step for the drawn coast
         maxWaterDepth: 3       // number of depth bands for shading
     },

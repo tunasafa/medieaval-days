@@ -363,7 +363,7 @@ function getBridgeTerrainKind(x, y) {
 function scanBridgeBank(centerX, centerY, axis, sign, step, maxSpan) {
     let waterDistance = 0;
     let sawLake = false;
-    for (let d = step; d <= maxSpan / 2 + step; d += step) {
+    for (let d = step; d <= maxSpan + step; d += step) {
         const x = centerX + axis.dx * sign * d;
         const y = centerY + axis.dy * sign * d;
         if (x < 0 || y < 0 || x >= GAME_CONFIG.world.width || y >= GAME_CONFIG.world.height) {

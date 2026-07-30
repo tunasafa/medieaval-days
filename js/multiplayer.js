@@ -171,13 +171,19 @@ const Multiplayer = (() => {
         // Close main menu, start rendering
         document.body.classList.remove('menu-open');
         const mainMenu = document.getElementById('main-menu');
-        if (mainMenu) mainMenu.classList.remove('open');
+        if (mainMenu) {
+            mainMenu.classList.remove('open');
+            mainMenu.setAttribute('aria-hidden', 'true');
+        }
         gameState.ui.modalOpen = null;
         gameState.ui.hasStarted = true;
 
         // Close the multiplayer modal
         const mpModal = document.getElementById('mp-modal');
-        if (mpModal) mpModal.setAttribute('aria-hidden', 'true');
+        if (mpModal) {
+            mpModal.classList.remove('open');
+            mpModal.setAttribute('aria-hidden', 'true');
+        }
 
         // Initialize rendering systems that the client needs
         if (typeof resizeCanvas === 'function') resizeCanvas();

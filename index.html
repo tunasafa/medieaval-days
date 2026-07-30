@@ -248,23 +248,22 @@
                 <div>Multiplayer</div>
                 <button class="modal-close" id="mp-close" aria-label="Close multiplayer">x</button>
             </div>
-            <div class="mp-options" style="padding: 20px; display: flex; flex-direction: column; gap: 16px;">
-                <div style="text-align: center;">
-                    <button id="btn-mp-host" class="menu-primary" style="width: 100%; padding: 14px;">Host Game</button>
-                    <p id="mp-host-info" style="display: none; margin-top: 10px; color: #d4af37; font-size: 14px;">
+            <div class="mp-options">
+                <div class="mp-section">
+                    <button id="btn-mp-host" class="mp-action">Host Game</button>
+                    <p id="mp-host-info" class="mp-host-info">
                         Waiting for opponent...<br>
                         Tell your friend to connect to your IP on port <strong>9000</strong><br>
                         <small>(Run <code>npm run server</code> in the game folder first)</small>
                     </p>
                 </div>
-                <hr style="border-color: rgba(255,255,255,0.15);">
-                <div>
-                    <label style="display: block; margin-bottom: 8px; font-size: 14px;">Friend's IP Address:</label>
+                <div class="mp-section">
+                    <label class="mp-label" for="mp-ip-input">Friend's IP Address</label>
                     <input type="text" id="mp-ip-input" placeholder="192.168.1.100 or localhost"
-                           style="width: 100%; padding: 10px; font-size: 16px; background: rgba(0,0,0,0.4); color: #fff; border: 1px solid #555; border-radius: 6px; box-sizing: border-box;">
-                    <button id="btn-mp-join" class="menu-primary" style="width: 100%; padding: 14px; margin-top: 10px;">Join Game</button>
+                           class="mp-input">
+                    <button id="btn-mp-join" class="mp-action">Join Game</button>
                 </div>
-                <p id="mp-status" style="text-align: center; color: #aaa; font-size: 14px; min-height: 20px;"></p>
+                <p id="mp-status" class="mp-status"></p>
             </div>
         </div>
     </div>

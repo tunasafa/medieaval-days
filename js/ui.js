@@ -408,6 +408,7 @@ function toggleTechTreeModal(forceOpen = null) {
     const modal = document.getElementById('tech-tree-modal');
     const open = forceOpen === null ? !modal?.classList.contains('open') : forceOpen;
     setModalOpen('settings-modal', false);
+    setModalOpen('mp-modal', false);
     return setModalOpen('tech-tree-modal', open);
 }
 
@@ -415,13 +416,23 @@ function toggleSettingsModal(forceOpen = null) {
     const modal = document.getElementById('settings-modal');
     const open = forceOpen === null ? !modal?.classList.contains('open') : forceOpen;
     setModalOpen('tech-tree-modal', false);
+    setModalOpen('mp-modal', false);
     return setModalOpen('settings-modal', open);
+}
+
+function toggleMultiplayerModal(forceOpen = null) {
+    const modal = document.getElementById('mp-modal');
+    const open = forceOpen === null ? !modal?.classList.contains('open') : forceOpen;
+    setModalOpen('tech-tree-modal', false);
+    setModalOpen('settings-modal', false);
+    return setModalOpen('mp-modal', open);
 }
 
 function closeOpenModal() {
     const hadOpen = !!document.querySelector('.modal-overlay.open');
     setModalOpen('tech-tree-modal', false);
     setModalOpen('settings-modal', false);
+    setModalOpen('mp-modal', false);
     return hadOpen;
 }
 
@@ -674,18 +685,12 @@ function setupUiControls() {
     // ─── Multiplayer UI Controls ────────────────────
     const mpBtn = document.getElementById('btn-menu-mp');
     if (mpBtn) {
-        mpBtn.addEventListener('click', () => {
-            const mpModal = document.getElementById('mp-modal');
-            if (mpModal) mpModal.setAttribute('aria-hidden', 'false');
-        });
+        mpBtn.addEventListener('click', () => toggleMultiplayerModal(true));
     }
 
     const mpClose = document.getElementById('mp-close');
     if (mpClose) {
-        mpClose.addEventListener('click', () => {
-            const mpModal = document.getElementById('mp-modal');
-            if (mpModal) mpModal.setAttribute('aria-hidden', 'true');
-        });
+        mpClose.addEventListener('click', () => toggleMultiplayerModal(false));
     }
 
     const mpHostBtn = document.getElementById('btn-mp-host');

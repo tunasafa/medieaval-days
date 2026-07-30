@@ -76,6 +76,70 @@ function mapDirForAssets(dir) {
     }
 }
 
+function getFactionAssetName(owner, name) {
+    return owner === 'enemy' ? `enemy/${name}` : name;
+}
+
+function getLoadedUnitAssetName(unit, name) {
+    if (!name) return null;
+    const preferred = getFactionAssetName(unit.player, name);
+    if (assetManager.isLoaded('units', preferred) && assetManager.isGifAsset('units', preferred)) {
+        return preferred;
+    }
+    if (
+        preferred !== name &&
+        assetManager.isLoaded('units', preferred) &&
+        assetManager.isLoaded('units', name) &&
+        assetManager.isGifAsset('units', name)
+    ) {
+        return name;
+    }
+    if (preferred === name && assetManager.isLoaded('units', name) && assetManager.isGifAsset('units', name)) {
+        return name;
+    }
+    return null;
+}
+
+function queueUnitAssetLoad(unit, name) {
+    if (!name) return;
+    const preferred = getFactionAssetName(unit.player, name);
+    assetManager.loadAsset('units', preferred).then(() => {
+        if (
+            preferred !== name &&
+            assetManager.isLoaded('units', preferred) &&
+            !assetManager.isGifAsset('units', preferred)
+        ) {
+            assetManager.loadAsset('units', name).catch(() => {});
+        }
+    }).catch(() => {});
+}
+
+function selectUnitGifAsset(unit, candidates) {
+    for (const name of candidates) {
+        const loadedName = getLoadedUnitAssetName(unit, name);
+        if (loadedName) {
+            return assetManager.getAsset('units', loadedName);
+        }
+    }
+    candidates.forEach(name => queueUnitAssetLoad(unit, name));
+    return null;
+}
+
+function getBuildingAssetName(building, name) {
+    const preferred = getFactionAssetName(building.player, name);
+    if (preferred !== name && !assetManager.isLoaded('buildings', preferred)) {
+        assetManager.loadAsset('buildings', preferred).catch(() => {});
+    }
+    if (
+        preferred !== name &&
+        assetManager.isLoaded('buildings', preferred) &&
+        assetManager.getAsset('buildings', preferred).src
+    ) {
+        return preferred;
+    }
+    return name;
+}
+
 function drawBridgeDeck(ctx, x, y, width, height, orientation = 'horizontal', options = {}) {
     const isHorizontal = orientation !== 'vertical';
     const alpha = options.alpha ?? 1;
@@ -482,24 +546,15 @@ function drawUnit(ctx, unit) {
                 altBase = (prefix === 'villager' && md === 'north') ? `${prefix}/walk/${prefix}_walk_noth` : fileBase;
             }
         }
-        const isRealGif = (name) => name && assetManager.isLoaded('units', name) && assetManager.isGifAsset('units', name);
         // Build a unified candidate list (supports warrior arrays + fileBase/altBase strings)
         const candidates = [];
         if (fileCandidates && Array.isArray(fileCandidates)) candidates.push(...fileCandidates);
         if (fileBase) candidates.push(fileBase);
         if (altBase) candidates.push(altBase);
-        let chosen = null;
-        for (const name of candidates) {
-            if (isRealGif(name)) { chosen = name; break; }
-        }
-        if (chosen) {
-            img = assetManager.getAsset('units', chosen);
+        const selectedGif = selectUnitGifAsset(unit, candidates);
+        if (selectedGif) {
+            img = selectedGif;
             hasGif = true;
-        } else {
-            // Begin loading all candidates; whichever resolves first will be used next frame
-            candidates.forEach(name => {
-                if (name) assetManager.loadAsset('units', name).catch(() => {});
-            });
         }
     } else if (unit.type === 'crossbowman') {
         // Crossbowman: 8-direction idle/walk/attack using files crossbowman/{state}/crossbowman_{dir}.gif
@@ -567,14 +622,10 @@ function drawUnit(ctx, unit) {
                 `crossbowman/walk/crossbowman_${hyphenDir(moveDir)}`
             ];
         }
-        const isRealGif = (name) => name && assetManager.isLoaded('units', name) && assetManager.isGifAsset('units', name);
-        let chosen = null;
-        for (const name of candidates) { if (isRealGif(name)) { chosen = name; break; } }
-        if (chosen) {
-            img = assetManager.getAsset('units', chosen);
+        const selectedGif = selectUnitGifAsset(unit, candidates);
+        if (selectedGif) {
+            img = selectedGif;
             hasGif = true;
-        } else {
-            candidates.forEach(name => { if (name) assetManager.loadAsset('units', name).catch(() => {}); });
         }
     } else if (unit.type === 'ballista') {
         // Directional GIF selection for Ballista (8-way idle/move/attack). No left/right inversion.
@@ -645,16 +696,10 @@ function drawUnit(ctx, unit) {
                 `ballista/walk/ballista_${hyphenDir}`
             ];
         }
-        const isRealGif = (name) => name && assetManager.isLoaded('units', name) && assetManager.isGifAsset('units', name);
-        let chosen = null;
-        for (const name of candidates) {
-            if (isRealGif(name)) { chosen = name; break; }
-        }
-        if (chosen) {
-            img = assetManager.getAsset('units', chosen);
+        const selectedGif = selectUnitGifAsset(unit, candidates);
+        if (selectedGif) {
+            img = selectedGif;
             hasGif = true;
-        } else {
-            candidates.forEach(name => { if (name) assetManager.loadAsset('units', name).catch(() => {}); });
         }
     } else if (unit.type === 'catapult') {
         // Catapult directional selection (8-way idle/move/attack).
@@ -720,16 +765,10 @@ function drawUnit(ctx, unit) {
                 `catapult/move/catapult_move_${hyphenDir}`
             ];
         }
-        const isRealGif = (name) => name && assetManager.isLoaded('units', name) && assetManager.isGifAsset('units', name);
-        let chosen = null;
-        for (const name of candidates) {
-            if (isRealGif(name)) { chosen = name; break; }
-        }
-        if (chosen) {
-            img = assetManager.getAsset('units', chosen);
+        const selectedGif = selectUnitGifAsset(unit, candidates);
+        if (selectedGif) {
+            img = selectedGif;
             hasGif = true;
-        } else {
-            candidates.forEach(name => { if (name) assetManager.loadAsset('units', name).catch(() => {}); });
         }
     } else if (unit.type === 'fishingBoat' || unit.type === 'transportLarge' || unit.type === 'warship') {
     // Navy units: use the same directional GIFs for all states (idle/move/attack/fishing), no inversions
@@ -762,14 +801,10 @@ function drawUnit(ctx, unit) {
             `${folder}/${base}${renderDir}`,
             `${folder}/${base}${hyphenDir}`
         ];
-        const isRealGif = (name) => name && assetManager.isLoaded('units', name) && assetManager.isGifAsset('units', name);
-        let chosen = null;
-        for (const name of candidates) { if (isRealGif(name)) { chosen = name; break; } }
-        if (chosen) {
-            img = assetManager.getAsset('units', chosen);
+        const selectedGif = selectUnitGifAsset(unit, candidates);
+        if (selectedGif) {
+            img = selectedGif;
             hasGif = true;
-        } else {
-            candidates.forEach(name => { if (name) assetManager.loadAsset('units', name).catch(() => {}); });
         }
     }
     if (hasGif) {
@@ -839,7 +874,9 @@ function drawUnit(ctx, unit) {
             const idleFaceRaw = unit._lastFaceNatural || 'south';
             const idleFace = mapDirForAssets(idleFaceRaw);
             const idleDir = idleFace.replace('northeast','north-east').replace('northwest','north-west').replace('southeast','south-east').replace('southwest','south-west');
-            const src = `${assetManager.basePath}units/militia/idle/militia_idle-idle_${idleDir}.gif`;
+            const fallbackName = `militia/idle/militia_idle-idle_${idleDir}`;
+            const srcName = getFactionAssetName(unit.player, fallbackName);
+            const src = `${assetManager.basePath}units/${srcName}.gif`;
             if (!unit._domGif) {
                 const el = document.createElement('img');
                 el.style.position = 'absolute';
@@ -860,7 +897,7 @@ function drawUnit(ctx, unit) {
             el.style.height = `${dh}px`;
             el.style.transform = `translate(${Math.round(screenX - dw/2)}px, ${Math.round(screenY - dh/2)}px)`;
             // Also queue the asset in manager for cache
-            assetManager.loadAsset('units', `militia/idle/militia_idle-idle_${idleDir}`).catch(() => {});
+            queueUnitAssetLoad(unit, fallbackName);
         } else {
             // Hide overlay for this unit and draw fallback icons
             if (unit._domGif) unit._domGif.style.display = 'none';
@@ -921,17 +958,17 @@ function drawBuildings(ctx) {
 
         ctx.translate(drawX, drawY);
         if (building.type === 'town-center') {
-            drawTownCenterIcon(ctx, building.width, building.height);
+            drawSprite(ctx, 'buildings', getBuildingAssetName(building, 'townCenter'), building.width, building.height);
         } else if (building.type === 'house') {
-            drawHouseIcon(ctx, building.width, building.height);
+            drawSprite(ctx, 'buildings', getBuildingAssetName(building, 'house'), building.width, building.height);
         } else if (building.type === 'barracks') {
-            drawBarracksIcon(ctx, building.width, building.height);
+            drawSprite(ctx, 'buildings', getBuildingAssetName(building, 'barracks'), building.width, building.height);
         } else if (building.type === 'archeryRange') {
-            drawArcheryRangeIcon(ctx, building.width, building.height);
+            drawSprite(ctx, 'buildings', getBuildingAssetName(building, 'archeryRange'), building.width, building.height);
         } else if (building.type === 'craftery') {
-            drawCrafteryIcon(ctx, building.width, building.height);
+            drawSprite(ctx, 'buildings', getBuildingAssetName(building, 'craftery'), building.width, building.height);
         } else if (building.type === 'navy') {
-            drawNavyIcon(ctx, building.width, building.height);
+            drawSprite(ctx, 'buildings', getBuildingAssetName(building, 'navy'), building.width, building.height);
         }
 
         if (building.isSelected) {

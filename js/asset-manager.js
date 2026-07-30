@@ -409,6 +409,19 @@ class AssetManager {
             { category: 'resources', name: 'gold2' }
         ];
 
+        ['house', 'townCenter', 'barracks', 'archeryRange', 'craftery', 'navy'].forEach(name => {
+            assetList.push({ category: 'buildings', name: `enemy/${name}` });
+        });
+
+        const enemyUnitPrefixes = [
+            'archer/', 'militia/', 'warrior/', 'axeman/', 'crossbowman/',
+            'ballista/', 'catapult/', 'warship/', 'FishingBoat/', 'TransportLarge/'
+        ];
+        const enemyUnitAssets = assetList
+            .filter(asset => asset.category === 'units' && enemyUnitPrefixes.some(prefix => asset.name.startsWith(prefix)))
+            .map(asset => ({ category: 'units', name: `enemy/${asset.name}` }));
+        assetList.push(...enemyUnitAssets);
+
         console.log('Loading game assets...');
         await this.loadAssets(assetList);
         console.log('All game assets loaded!');

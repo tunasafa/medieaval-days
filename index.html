@@ -9,42 +9,114 @@
     <link href="https://fonts.googleapis.com/css2?family=Almendra+SC&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/style.css">
 </head>
-<body>
+<body class="menu-open">
+    <div class="main-menu open" id="main-menu" aria-hidden="false">
+        <div class="menu-art" aria-hidden="true"></div>
+        <div class="menu-shell">
+            <div class="menu-kicker">Real-Time Command</div>
+            <h1>MEDIEVAL DAYS</h1>
+            <div class="menu-mode">Circular World Campaign</div>
+            <div class="menu-radial-map" aria-hidden="true">
+                <span class="map-ring ring-outer"></span>
+                <span class="map-ring ring-mid"></span>
+                <span class="map-ring ring-core"></span>
+                <span class="map-route route-a"></span>
+                <span class="map-route route-b"></span>
+                <span class="map-node node-north"></span>
+                <span class="map-node node-east"></span>
+                <span class="map-node node-south"></span>
+                <span class="map-node node-west"></span>
+            </div>
+            <div class="menu-setup">
+                <div class="menu-field-header">
+                    <span>Opponents</span>
+                    <strong id="enemy-count-label">2 Enemies</strong>
+                </div>
+                <div class="enemy-options" role="radiogroup" aria-label="Enemy count">
+                    <label class="enemy-option">
+                        <input type="radio" name="enemy-count" value="1">
+                        <span>1</span>
+                    </label>
+                    <label class="enemy-option">
+                        <input type="radio" name="enemy-count" value="2" checked>
+                        <span>2</span>
+                    </label>
+                    <label class="enemy-option">
+                        <input type="radio" name="enemy-count" value="3">
+                        <span>3</span>
+                    </label>
+                    <label class="enemy-option">
+                        <input type="radio" name="enemy-count" value="4">
+                        <span>4</span>
+                    </label>
+                </div>
+            </div>
+            <div class="menu-actions">
+                <button id="btn-menu-start" class="menu-primary">Start Battle</button>
+                <button id="btn-menu-tech" class="menu-secondary">Tech Tree</button>
+                <button id="btn-menu-settings" class="menu-secondary">Settings</button>
+            </div>
+            <div class="menu-briefing">
+                <div>
+                    <span>Objective</span>
+                    <strong>Eliminate Enemy Command</strong>
+                </div>
+                <div>
+                    <span>World Size</span>
+                    <strong>Large Circular Map</strong>
+                </div>
+                <div>
+                    <span>Map Shape</span>
+                    <strong>Circular Frontier</strong>
+                </div>
+            </div>
+        </div>
+    </div>
     <div class="game-container">
         <div class="header">
-            <div class="game-title">MEDIEVAL DAYS</div>
-            <div id="game-timer">00:00</div>
+            <div class="brand-block">
+                <div class="game-title">MEDIEVAL DAYS</div>
+                <div class="game-subtitle">Radial Command</div>
+            </div>
+            <div class="battle-status">
+                <span>Mission Clock</span>
+                <div id="game-timer">00:00</div>
+            </div>
             <div class="resources">
-                <div class="resource">
+                <div class="resource" data-resource="food">
                     <canvas class="resource-icon food" width="28" height="28"></canvas>
-                    <div>
+                    <div class="resource-readout">
+                        <div class="resource-label">Food</div>
                         <div id="food-count">200</div>
-                        <div style="font-size: 10px; color: #ccc;">+<span id="food-rate">0</span>/s</div>
+                        <div class="resource-rate">+<span id="food-rate">0</span>/s</div>
                     </div>
                 </div>
-                <div class="resource">
+                <div class="resource" data-resource="wood">
                     <canvas class="resource-icon wood" width="28" height="28"></canvas>
-                    <div>
+                    <div class="resource-readout">
+                        <div class="resource-label">Wood</div>
                         <div id="wood-count">200</div>
-                        <div style="font-size: 10px; color: #ccc;">+<span id="wood-rate">0</span>/s</div>
+                        <div class="resource-rate">+<span id="wood-rate">0</span>/s</div>
                     </div>
                 </div>
-                <div class="resource">
+                <div class="resource" data-resource="stone">
                     <canvas class="resource-icon stone" width="28" height="28"></canvas>
-                    <div>
+                    <div class="resource-readout">
+                        <div class="resource-label">Stone</div>
                         <div id="stone-count">100</div>
-                        <div style="font-size: 10px; color: #ccc;">+<span id="stone-rate">0</span>/s</div>
+                        <div class="resource-rate">+<span id="stone-rate">0</span>/s</div>
                     </div>
                 </div>
-                <div class="resource">
+                <div class="resource" data-resource="gold">
                     <canvas class="resource-icon gold" width="28" height="28"></canvas>
-                    <div>
+                    <div class="resource-readout">
+                        <div class="resource-label">Gold</div>
                         <div id="gold-count">100</div>
-                        <div style="font-size: 10px; color: #ccc;">+<span id="gold-rate">0</span>/s</div>
+                        <div class="resource-rate">+<span id="gold-rate">0</span>/s</div>
                     </div>
                 </div>
-                <div class="resource">
-                    <div style="color: #f0c040;">Population</div>
+                <div class="resource population-resource">
+                    <div class="resource-label">Population</div>
                     <div id="population">1/5</div>
                 </div>
                 <div class="age-display" id="age-display">Dark Age</div>
@@ -53,10 +125,21 @@
         <div class="main-content">
             <div class="game-area">
                 <canvas id="gameCanvas"></canvas>
-                <div class="minimap">
-                    <canvas id="minimapCanvas" width="194" height="144"></canvas>
+                <div class="battlefield-plate">
+                    <span>World Ring</span>
+                    <strong>Perimeter Hold</strong>
                 </div>
-                <button id="btn-idle-villager" class="idle-villager-button">Idle Villagers: <span id="idle-villager-count">0</span></button>
+                <div class="minimap">
+                    <div class="minimap-header">
+                        <span>Radial Map</span>
+                        <strong>360</strong>
+                    </div>
+                    <canvas id="minimapCanvas" width="200" height="200"></canvas>
+                </div>
+                <button id="btn-idle-villager" class="idle-villager-button">
+                    <span>Idle</span>
+                    <strong id="idle-villager-count">0</strong>
+                </button>
                 <div class="selection-box" id="selectionBox"></div>
                 <div class="notification" id="notification"></div>
                 <div class="game-over" id="gameOver">
@@ -66,82 +149,93 @@
                 </div>
             </div>
             <div class="sidebar">
-                <div class="selected-info">
+                <div class="sidebar-header">
+                    <span>Player One / Circular Theater</span>
+                    <strong>Command Console</strong>
+                </div>
+                <div class="selected-info command-panel">
                     <div class="section-title">Selection</div>
                     <div id="selection-info">No units or buildings selected</div>
                 </div>
-                <div class="building-actions-section" id="building-actions" style="display: none;">
+                <div class="building-actions-section command-panel" id="building-actions" style="display: none;">
                     <div class="section-title" id="building-title">Building Actions</div>
                     <div class="unit-list" id="building-unit-list">
                         <!-- Dynamic content based on selected building -->
                     </div>
                 </div>
-                <div class="units-section" id="general-units" style="display: block;">
-                    <div class="section-title">Train Units (Select Building First)</div>
+                <div class="units-section command-panel" id="general-units" style="display: block;">
+                    <div class="section-title">Production</div>
                     <div class="unit-list">
-                        <div style="text-align: center; color: #ccc; padding: 20px;">
-                            Click on a building to see available units and upgrades
-                        </div>
+                        <div class="empty-command-state">No production building selected</div>
                     </div>
                 </div>
-                <div class="buildings-section">
+                <div class="buildings-section command-panel">
                     <div class="section-title">Construct Buildings</div>
                     <div class="building-list">
-                        <div class="building" data-type="house">
+                        <div class="building command-tile" data-type="house">
+                            <span class="command-key">Z</span>
                             <canvas class="building-icon house" width="48" height="48"></canvas>
-                            <div style="font-weight: bold;">House</div>
-                            <div style="font-size: 12px; color: #ccc;">25 Wood</div>
-                            <div style="font-size: 10px; color: #8cc;">+5 Pop</div>
+                            <div class="command-name">House</div>
+                            <div class="command-cost">25 Wood</div>
+                            <div class="command-effect">+5 Pop</div>
                         </div>
-                        <div class="building" data-type="barracks">
+                        <div class="building command-tile" data-type="barracks">
+                            <span class="command-key">X</span>
                             <canvas class="building-icon barracks" width="48" height="48"></canvas>
-                            <div style="font-weight: bold;">Barracks</div>
-                            <div style="font-size: 12px; color: #ccc;">175 Wood</div>
+                            <div class="command-name">Barracks</div>
+                            <div class="command-cost">175 Wood</div>
                         </div>
-                        <div class="building" data-type="archeryRange">
+                        <div class="building command-tile" data-type="archeryRange">
+                            <span class="command-key">C</span>
                             <canvas class="building-icon archeryRange" width="48" height="48"></canvas>
-                            <div style="font-weight: bold;">Archery Range</div>
-                            <div style="font-size: 12px; color: #ccc;">150 Wood</div>
+                            <div class="command-name">Archery Range</div>
+                            <div class="command-cost">150 Wood</div>
                         </div>
-                        <div class="building" data-type="craftery">
+                        <div class="building command-tile" data-type="craftery">
+                            <span class="command-key">V</span>
                             <canvas class="building-icon craftery" width="48" height="48"></canvas>
-                            <div style="font-weight: bold;">Craftery</div>
-                            <div style="font-size: 12px; color: #ccc;">200W, 100S</div>
+                            <div class="command-name">Craftery</div>
+                            <div class="command-cost">200W, 100S</div>
                         </div>
-                        <div class="building" data-type="blacksmith">
+                        <div class="building command-tile" data-type="blacksmith">
+                            <span class="command-key">B</span>
                             <canvas class="building-icon blacksmith" width="48" height="48"></canvas>
-                            <div style="font-weight: bold;">Blacksmith</div>
-                            <div style="font-size: 12px; color: #ccc;">150W, 100G</div>
+                            <div class="command-name">Blacksmith</div>
+                            <div class="command-cost">150W, 100G</div>
                         </div>
-                        <div class="building" data-type="university">
+                        <div class="building command-tile" data-type="university">
+                            <span class="command-key">N</span>
                             <canvas class="building-icon university" width="48" height="48"></canvas>
-                            <div style="font-weight: bold;">University</div>
-                            <div style="font-size: 12px; color: #ccc;">200W, 150S</div>
+                            <div class="command-name">University</div>
+                            <div class="command-cost">200W, 150S</div>
                         </div>
-                        <div class="building" data-type="navy">
+                        <div class="building command-tile" data-type="navy">
+                            <span class="command-key">M</span>
                             <canvas class="building-icon navy" width="48" height="48"></canvas>
-                            <div style="font-weight: bold;">Navy</div>
-                            <div style="font-size: 12px; color: #ccc;">200W, 50S</div>
+                            <div class="command-name">Navy</div>
+                            <div class="command-cost">200W, 50S</div>
                         </div>
                     </div>
                 </div>
-                <div class="ai-status">
-                    <div class="section-title">Enemy Status</div>
+                <div class="ai-status command-panel">
+                    <div class="section-title">Perimeter Intel</div>
                     <div id="ai-info">
-                        <div>Enemy Units: <span id="enemy-units">4</span></div>
-                        <div>Enemy Buildings: <span id="enemy-buildings">1</span></div>
-                        <div>Threat Level: <span id="threat-level" style="color: #4CAF50;">Low</span></div>
+                        <div class="intel-row"><span>Enemy Units</span><strong id="enemy-units">4</strong></div>
+                        <div class="intel-row"><span>Enemy Buildings</span><strong id="enemy-buildings">1</strong></div>
+                        <div class="intel-row"><span>Map Shape</span><strong>Circle</strong></div>
+                        <div class="intel-row"><span>Threat Level</span><strong id="threat-level">Low</strong></div>
                     </div>
                 </div>
 
-                <div class="age-section" style="margin-top: 8px;">
+                <div class="age-section command-panel">
                     <div class="section-title">Age Advancement</div>
-                    <button id="btn-age-up">Advance to Feudal Age (500 Food)</button>
+                    <button id="btn-age-up" class="wide-command primary-command">Advance to Feudal Age (500 Food)</button>
                 </div>
             </div>
         </div>
         <div class="controls">
-            <button id="btn-fullscreen">Enter Fullscreen</button>
+            <button id="btn-main-menu">Menu</button>
+            <button id="btn-fullscreen">Fullscreen</button>
             <button id="btn-tech-tree">Tech Tree</button>
             <button id="btn-settings">Settings</button>
             <button id="btn-music" title="Toggle background music">Music: Off</button>

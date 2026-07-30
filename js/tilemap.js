@@ -596,6 +596,27 @@ class Tilemap {
         }
         this._drawLand(ctx, camera);
         this._drawWater(ctx, camera);
+
+        // Draw the out-of-bounds void mask
+        const view = this._visibleWorldSize();
+        const cx = (GAME_CONFIG.world.width / 2) - camera.x;
+        const cy = (GAME_CONFIG.world.height / 2) - camera.y;
+        const r = GAME_CONFIG.world.radius;
+
+        ctx.save();
+        ctx.beginPath();
+        // Outer rect covering the screen
+        ctx.rect(0, 0, view.width, view.height);
+        // Inner circle (drawn counter-clockwise to create a hole)
+        ctx.arc(cx, cy, r, 0, Math.PI * 2, true);
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.95)';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
     }
 
     /** Tile the land texture across the viewport. */

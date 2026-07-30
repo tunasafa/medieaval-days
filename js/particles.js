@@ -13,7 +13,8 @@ const ParticleSystem = (function () {
             size: 1, startSize: 1, endSize: 0,
             r: 255, g: 255, b: 255, alpha: 1,
             gravity: 0, friction: 1, type: 'default',
-            rotation: 0, rotationSpeed: 0, active: false
+            rotation: 0, rotationSpeed: 0, active: false,
+            text: ''
         });
     }
 
@@ -30,6 +31,7 @@ const ParticleSystem = (function () {
         p.alpha = opts.alpha !== undefined ? opts.alpha : 1;
         p.gravity = opts.gravity || 0; p.friction = opts.friction !== undefined ? opts.friction : 0.98;
         p.type = opts.type || 'default'; p.rotation = opts.rotation || 0; p.rotationSpeed = opts.rotationSpeed || 0;
+        p.text = opts.text || '';
         p.active = true; active.push(p);
         return p;
     }
@@ -61,6 +63,12 @@ const ParticleSystem = (function () {
                 case 'rubble': ctx.save(); ctx.translate(sx, sy); ctx.rotate(p.rotation); ctx.fillStyle = `rgb(${p.r},${p.g},${p.b})`; ctx.fillRect(-s/2, -s/2, s, s * 0.7); ctx.restore(); break;
                 case 'smoke': case 'dust': ctx.fillStyle = `rgba(${p.r},${p.g},${p.b},${p.alpha * 0.6})`; ctx.beginPath(); ctx.arc(sx, sy, s, 0, Math.PI * 2); ctx.fill(); break;
                 case 'gather': ctx.fillStyle = `rgb(${p.r},${p.g},${p.b})`; ctx.fillRect(sx - s/2, sy - s/2, s, s); break;
+                case 'text':
+                    ctx.fillStyle = `rgba(${p.r},${p.g},${p.b},${p.alpha})`;
+                    ctx.font = `bold ${Math.floor(s)}px Arial`;
+                    ctx.textAlign = 'center';
+                    ctx.fillText(p.text, sx, sy);
+                    break;
                 default: ctx.fillStyle = `rgb(${p.r},${p.g},${p.b})`; ctx.beginPath(); ctx.arc(sx, sy, s, 0, Math.PI * 2); ctx.fill();
             }
         }
@@ -77,6 +85,7 @@ const ParticleSystem = (function () {
         emitArrowImpact: (x, y) => { for(let i=0;i<3;i++) spawn({x, y, vx:(Math.random()-0.5)*100, vy:(Math.random()-0.5)*100, life:200, size:2, r:200, g:180, b:100, type:'spark'}) },
         emitSiegeImpact: (x, y) => { for(let i=0;i<12;i++) spawn({x, y, vx:(Math.random()-0.5)*200, vy:Math.random()*150-200, life:600, size:4, r:140, g:120, b:80, gravity:300, type:'rubble'}); },
         emitUnitTrainEffect: (x, y) => { for(let i=0;i<8;i++) spawn({x, y, vx:(Math.random()-0.5)*80, vy:-40-Math.random()*40, life:500, size:2, r:100, g:200, b:255, type:'spark'}) },
+        emitDamageText: (x, y, amount) => { spawn({x: x + (Math.random()-0.5)*10, y: y - 10, vx: (Math.random()-0.5)*20, vy: -30, life: 800, size: 14, endSize: 14, r: 255, g: 50, b: 50, gravity: -10, friction: 0.95, type: 'text', text: '-' + Math.round(amount)}); },
         getActiveCount: () => active.length
     };
 })();

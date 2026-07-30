@@ -35,10 +35,10 @@ function findNearestResource(unit, resourceType) {
 function scatterResourcesAcrossWorld(options = {}) {
     const {
     // 70% fewer nodes than before (keep 30%)
-    foodCount = 36,
-    woodCount = 60,
-    stoneCount = 18,
-    goldCount = 18,
+    foodCount = 64,
+    woodCount = 108,
+    stoneCount = 32,
+    goldCount = 32,
         minSpacing = 24
     } = options;
 
@@ -50,6 +50,10 @@ function scatterResourcesAcrossWorld(options = {}) {
             attempts++;
             const x = Math.floor(Math.random() * (GAME_CONFIG.world.width - width));
             const y = Math.floor(Math.random() * (GAME_CONFIG.world.height - height));
+            // Reject if outside circular map radius
+            const cx = GAME_CONFIG.world.width / 2;
+            const cy = GAME_CONFIG.world.height / 2;
+            if (Math.hypot(x + width / 2 - cx, y + height / 2 - cy) > GAME_CONFIG.world.radius) continue;
             // Reject if any part overlaps water (supports lakes/rivers)
             if (!isRectOnLand(x, y, width, height)) continue;
             // Reject if overlapping buildings
@@ -97,7 +101,7 @@ function scatterResourcesAcrossWorld(options = {}) {
 // Randomly scatter environmental decorations (bushes/trees) across land
 function scatterDecorationsAcrossWorld(options = {}) {
     const {
-        count = 80,
+        count = 140,
         minSpacing = 18
     } = options;
 
@@ -120,8 +124,13 @@ function scatterDecorationsAcrossWorld(options = {}) {
         const x = Math.floor(Math.random() * Math.max(1, (GAME_CONFIG.world.width - w)));
         const y = Math.floor(Math.random() * Math.max(1, (GAME_CONFIG.world.height - h)));
 
-    // Avoid water (reject if any sampled point is in water)
-    if (!isRectOnLand(x, y, w, h)) continue;
+        // Reject if outside circular map radius
+        const cx = GAME_CONFIG.world.width / 2;
+        const cy = GAME_CONFIG.world.height / 2;
+        if (Math.hypot(x + w / 2 - cx, y + h / 2 - cy) > GAME_CONFIG.world.radius) continue;
+
+        // Avoid water (reject if any sampled point is in water)
+        if (!isRectOnLand(x, y, w, h)) continue;
         // Avoid buildings
         const overlapsBuilding = [...gameState.buildings, ...gameState.enemyBuildings].some(b => (
             x + w > b.x && x < b.x + b.width && y + h > b.y && y < b.y + b.height

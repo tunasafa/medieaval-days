@@ -12,6 +12,15 @@ const Hotkeys = (function() {
         'e': 2, // 3rd unit
         'r': 3  // 4th unit
     };
+    const quickBuildMap = {
+        'z': 'house',
+        'x': 'barracks',
+        'c': 'archeryRange',
+        'v': 'craftery',
+        'b': 'blacksmith',
+        'n': 'university',
+        'm': 'navy'
+    };
 
     function isTextInput(target) {
         return target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
@@ -29,6 +38,7 @@ const Hotkeys = (function() {
         if (isTextInput(e.target)) return false;
 
         const key = e.key.toLowerCase();
+        if (gameState.ui?.modalOpen) return false;
 
         // --- Control Groups (Ctrl + 1-9 to save, 1-9 to load) ---
         if (key >= '1' && key <= '9') {
@@ -107,6 +117,13 @@ const Hotkeys = (function() {
             return true;
         }
 
+        // --- Quick Build ---
+        if (quickBuildMap[key]) {
+            e.preventDefault();
+            startPlacingBuilding(quickBuildMap[key]);
+            return true;
+        }
+
         // --- Quick Train ---
         if (quickTrainMap[key] !== undefined && gameState.selectedBuilding && gameState.selectedBuilding.player === 'player') {
             e.preventDefault();
@@ -116,12 +133,21 @@ const Hotkeys = (function() {
             if (buildingType === 'town-center') trainableUnits = ['villager'];
             else if (buildingType === 'barracks') trainableUnits = ['militia', 'warrior', 'axeman'];
             else if (buildingType === 'archeryRange') trainableUnits = ['archer', 'crossbowman'];
-            else if (buildingType === 'craftery') trainableUnits = ['catapult', 'ballista'];
+            else if (buildingType === 'craftery') {
+                trainableUnits = ['ballista', 'catapult'];
+                const hasWater = typeof hasWaterTerrain === 'function' ? hasWaterTerrain() :
+                    gameState.worldObjects.some(o => o.type === 'water' || o.type === 'lake');
+                if (hasWater) trainableUnits.push('bridge');
+            }
             else if (buildingType === 'navy') trainableUnits = ['fishingBoat', 'transportLarge', 'warship'];
 
             const unitToTrain = trainableUnits[quickTrainMap[key]];
             if (unitToTrain) {
-                trainUnit(unitToTrain, gameState.selectedBuilding);
+                if (unitToTrain === 'bridge') {
+                    startPlacingBuilding('bridge');
+                } else {
+                    trainUnit(unitToTrain, gameState.selectedBuilding);
+                }
             }
             return true;
         }

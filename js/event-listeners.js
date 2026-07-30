@@ -37,18 +37,25 @@ function setupEventListeners() {
             const rect = minimap.getBoundingClientRect();
             const mx = e.clientX - rect.left;
             const my = e.clientY - rect.top;
-            const worldX = (mx / Math.max(1, minimap.width)) * GAME_CONFIG.world.width;
-            const worldY = (my / Math.max(1, minimap.height)) * GAME_CONFIG.world.height;
+            const nx = mx / Math.max(1, rect.width);
+            const ny = my / Math.max(1, rect.height);
+            const dx = nx - 0.5;
+            const dy = ny - 0.5;
+            if (Math.hypot(dx, dy) > 0.5) {
+                return false;
+            }
+            const worldX = nx * GAME_CONFIG.world.width;
+            const worldY = ny * GAME_CONFIG.world.height;
             // Center camera on clicked world position
             const zoom = gameState.zoomLevel || 1;
             gameState.camera.x = worldX - (GAME_CONFIG.canvas.width / zoom) / 2;
             gameState.camera.y = worldY - (GAME_CONFIG.canvas.height / zoom) / 2;
             if (typeof clampCameraToBounds === 'function') clampCameraToBounds();
+            return true;
         };
         minimap.addEventListener('mousedown', (e) => {
             if (e.button !== 0) return;
-            mmDown = true;
-            moveCameraToMinimap(e);
+            mmDown = moveCameraToMinimap(e);
         });
         window.addEventListener('mouseup', () => { mmDown = false; });
         minimap.addEventListener('mousemove', (e) => {
@@ -255,6 +262,11 @@ function setupEventListeners() {
             e.preventDefault();
             return;
         }
+        if (e.key === 'Escape' && typeof isMainMenuOpen === 'function' && isMainMenuOpen()) {
+            e.preventDefault();
+            toggleMainMenu(false);
+            return;
+        }
         if (gameState.placingBuilding && e.key === 'Escape') {
             gameState.placingBuilding = null;
             canvas.classList.remove('placing-building', 'invalid-placement');
@@ -262,6 +274,9 @@ function setupEventListeners() {
             return;
         }
         if (typeof Hotkeys !== 'undefined' && Hotkeys.handleKeyDown(e)) {
+            return;
+        }
+        if (gameState.ui?.modalOpen) {
             return;
         }
         const key = e.key.toLowerCase();

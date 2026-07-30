@@ -47,6 +47,29 @@ const GAME_UPGRADES = {
             state.modifiers.buildingHpMult += 0.2;
             refreshPlayerBuildingMaxHealths();
         }
+    },
+    chemistry: {
+        name: 'Chemistry',
+        desc: 'Unlocks Fire Arrows. Archers deal +3 damage.',
+        cost: { food: 200, gold: 200 },
+        time: 60,
+        researchedAt: 'university',
+        requiredAge: 'castle',
+        effect: (state) => {
+            state.modifiers.rangedAttack += 3;
+            state.modifiers.projectileFire = true;
+        }
+    },
+    ballistics: {
+        name: 'Ballistics',
+        desc: 'Projectiles travel 40% faster and track better.',
+        cost: { wood: 200, gold: 100 },
+        time: 50,
+        researchedAt: 'university',
+        requiredAge: 'castle',
+        effect: (state) => {
+            state.modifiers.projectileSpeedMult += 0.4;
+        }
     }
 };
 
@@ -56,7 +79,9 @@ const UPGRADE_DEFAULT_MODIFIERS = {
     rangedRange: 0,
     villagerSpeed: 0,
     villagerCarry: 0,
-    buildingHpMult: 0
+    buildingHpMult: 0,
+    projectileSpeedMult: 0,
+    projectileFire: false
 };
 
 const UPGRADE_MELEE_TYPES = new Set(['militia', 'warrior', 'axeman']);

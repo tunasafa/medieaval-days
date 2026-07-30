@@ -567,6 +567,9 @@ function updateUnit(unit, deltaTime) {
                     }
                 } else {
                     unit.target.health -= config.attack;
+                    if (typeof ParticleSystem !== 'undefined') {
+                        ParticleSystem.emitDamageText(unit.target.x + (unit.target.width||0)/2, unit.target.y, config.attack);
+                    }
                     if (typeof SFX !== 'undefined') SFX.swordHit();
                     if (typeof ParticleSystem !== 'undefined' && !(unit.target.width && unit.target.height)) {
                         ParticleSystem.emitBlood(unit.target.x, unit.target.y);
@@ -1633,9 +1636,18 @@ function validateTerrainMovement(unit, newX, newY) {
         ? getTerrainClearanceRadius(unit)
         : 16;
 
+    // Rectangular bounds fallback (still useful for extreme edges)
     if (newX - clearanceRadius < 0 || newY - clearanceRadius < 0 ||
         newX + clearanceRadius >= GAME_CONFIG.world.width ||
         newY + clearanceRadius >= GAME_CONFIG.world.height) {
+        return false;
+    }
+
+    // Circular map boundaries
+    const cx = GAME_CONFIG.world.width / 2;
+    const cy = GAME_CONFIG.world.height / 2;
+    const distFromCenter = Math.hypot(newX - cx, newY - cy);
+    if (distFromCenter + clearanceRadius > GAME_CONFIG.world.radius) {
         return false;
     }
 

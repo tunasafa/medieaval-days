@@ -1,23 +1,39 @@
 function createInitialBuildings() {
-    const edgePad = 24;
     const tcCfg = getBuildingConfig('town-center');
-    const tcMaxHealth = typeof getEffectiveBuildingMaxHealth === 'function'
-        ? getEffectiveBuildingMaxHealth('town-center', 'player')
-        : tcCfg.maxHealth;
-    const spawnX = edgePad;
-    const spawnY = edgePad;
-    gameState.buildings.push({
-        id: generateId(),
-        type: 'town-center',
-        player: 'player',
-        x: spawnX,
-        y: spawnY,
-        health: tcMaxHealth,
-        maxHealth: tcMaxHealth,
-        width: tcCfg.width,
-        height: tcCfg.height,
-        rallyPoint: null
-    });
+    const numPlayers = GAME_CONFIG.world.numPlayers || 2;
+    const cx = GAME_CONFIG.world.width / 2;
+    const cy = GAME_CONFIG.world.height / 2;
+    const spawnRadius = GAME_CONFIG.world.radius * 0.85; // Spawn near the edge
+
+    for (let i = 0; i < numPlayers; i++) {
+        const angle = (i * 2 * Math.PI) / numPlayers;
+        const playerType = i === 0 ? 'player' : 'enemy';
+        const spawnX = cx + Math.cos(angle) * spawnRadius - (tcCfg.width / 2);
+        const spawnY = cy + Math.sin(angle) * spawnRadius - (tcCfg.height / 2);
+
+        const tcMaxHealth = typeof getEffectiveBuildingMaxHealth === 'function'
+            ? getEffectiveBuildingMaxHealth('town-center', playerType)
+            : tcCfg.maxHealth;
+
+        const building = {
+            id: generateId(),
+            type: 'town-center',
+            player: playerType,
+            x: spawnX,
+            y: spawnY,
+            health: tcMaxHealth,
+            maxHealth: tcMaxHealth,
+            width: tcCfg.width,
+            height: tcCfg.height,
+            rallyPoint: null
+        };
+
+        if (playerType === 'player') {
+            gameState.buildings.push(building);
+        } else {
+            gameState.enemyBuildings.push(building);
+        }
+    }
 }
 
 function startPlacingBuilding(type) {
@@ -137,7 +153,7 @@ function placeBuilding(type, x, y) {
         gameState.population.max += buildingConfig.population;
     }
     if (typeof markPathfindingDirty === 'function') markPathfindingDirty();
-    if (typeof SFX !== 'undefined') SFX.buildingPlace();
+    if (typeof window.SFX !== 'undefined') window.SFX.play('build');
     showNotification(`${type.charAt(0).toUpperCase() + type.slice(1)} constructed!`);
 }
 
@@ -146,9 +162,17 @@ function canPlaceBuilding(type, x, y) {
     const proposedX = x - config.width / 2;
     const proposedY = y - config.height / 2;
 
-    if (proposedX < 0 || proposedY < 0 ||
-        proposedX + config.width > GAME_CONFIG.world.width ||
-        proposedY + config.height > GAME_CONFIG.world.height) {
+    const cx = GAME_CONFIG.world.width / 2;
+    const cy = GAME_CONFIG.world.height / 2;
+    const r = GAME_CONFIG.world.radius;
+    // Check all four corners against the circular boundary
+    const corners = [
+        { x: proposedX, y: proposedY },
+        { x: proposedX + config.width, y: proposedY },
+        { x: proposedX, y: proposedY + config.height },
+        { x: proposedX + config.width, y: proposedY + config.height }
+    ];
+    if (corners.some(corner => Math.hypot(corner.x - cx, corner.y - cy) > r)) {
         return false;
     }
     const allBuildings = [...gameState.buildings, ...gameState.enemyBuildings];
@@ -263,7 +287,7 @@ function showBuildingActions(building) {
     actionsSection.style.display = 'block';
     generalUnitsSection.style.display = 'none';
 
-    buildingTitle.textContent = `${building.type.charAt(0).toUpperCase() + building.type.slice(1)} Actions`;
+    buildingTitle.textContent = `${displayName(building.type)} Actions`;
 
     unitList.innerHTML = '';
 
@@ -284,15 +308,17 @@ function showBuildingActions(building) {
         availableUnits = [...availableUnits, 'bridge'];
     }
 
-    availableUnits.forEach(unitType => {
+    availableUnits.forEach((unitType, index) => {
+        const commandKey = ['Q', 'W', 'E', 'R'][index] || '';
         if (unitType === 'bridge') {
             const unitDiv = document.createElement('div');
-            unitDiv.className = 'unit';
+            unitDiv.className = 'unit command-tile';
             unitDiv.dataset.type = 'bridge';
             unitDiv.innerHTML = `
+                ${commandKey ? `<span class="command-key">${commandKey}</span>` : ''}
                 <canvas class="unit-icon bridge" width="40" height="40"></canvas>
-                <div style="font-weight: bold; font-size: 12px;">Bridge</div>
-                <div style="font-size: 11px; color: #ccc;">15W, 5S / section</div>
+                <div class="command-name">Bridge</div>
+                <div class="command-cost">15W, 5S / section</div>
             `;
             unitDiv.addEventListener('click', () => startPlacingBuilding('bridge'));
             unitList.appendChild(unitDiv);
@@ -324,7 +350,7 @@ function showBuildingActions(building) {
 
         if (ageRestrictions[unitType] && !ageRestrictions[unitType].includes(gameState.currentAge)) {
             const unitDiv = document.createElement('div');
-            unitDiv.className = 'unit disabled';
+            unitDiv.className = 'unit command-tile disabled';
             unitDiv.dataset.type = unitType;
 
             const costText = Object.entries(unitConfig.cost)
@@ -334,10 +360,11 @@ function showBuildingActions(building) {
             const requiredAge = ageRestrictions[unitType][0];
 
             unitDiv.innerHTML = `
+                ${commandKey ? `<span class="command-key">${commandKey}</span>` : ''}
                 <img class="unit-icon-img" src="${getUnitPortraitSrc(unitType)}" alt="">
-                <div style="font-weight: bold; font-size: 12px;">${unitType.charAt(0).toUpperCase() + unitType.slice(1)}</div>
-                <div style="font-size: 11px; color: #ccc;">${costText}</div>
-                <div style="font-size: 9px; color: #ff6666;">Requires ${requiredAge}</div>
+                <div class="command-name">${displayName(unitType)}</div>
+                <div class="command-cost">${costText}</div>
+                <div class="command-lock">Requires ${requiredAge}</div>
                 <div class="progress-bar"><div class="progress-fill" style="width: 0%;"></div></div>
             `;
 
@@ -351,7 +378,7 @@ function showBuildingActions(building) {
         }
 
         const unitDiv = document.createElement('div');
-        unitDiv.className = 'unit';
+        unitDiv.className = 'unit command-tile';
         unitDiv.dataset.type = unitType;
 
         const costText = Object.entries(unitConfig.cost)
@@ -366,12 +393,11 @@ function showBuildingActions(building) {
         const progressPct = isCurrentThisType ? Math.max(0, Math.min(100, (1 - (current.timeRemaining / current.totalTime)) * 100)) : 0;
 
         unitDiv.innerHTML = `
+            ${commandKey ? `<span class="command-key">${commandKey}</span>` : ''}
+            <div class="queue-pill" style="display:${queuedCount > 0 ? 'inline-flex' : 'none'};">x${queuedCount}</div>
             <img class="unit-icon-img" src="${getUnitPortraitSrc(unitType)}" alt="">
-            <div style="display:flex; align-items:center; gap:6px;">
-                <div style="font-weight: bold; font-size: 12px;">${unitType.charAt(0).toUpperCase() + unitType.slice(1)}</div>
-                <div class="queue-pill" style="display:${queuedCount>0?'inline-flex':'none'}; background:#333; color:#fff; border-radius:10px; padding:0 6px; font-size:10px; line-height:16px; height:16px;">x${queuedCount}</div>
-            </div>
-            <div style="font-size: 11px; color: #ccc;">${costText}</div>
+            <div class="command-name">${displayName(unitType)}</div>
+            <div class="command-cost">${costText}</div>
             <div class="progress-bar" data-type="${unitType}"><div class="progress-fill" style="width: ${progressPct}%;"></div></div>
         `;
 

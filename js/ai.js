@@ -1,28 +1,15 @@
 // AI Functions
 function createEnemyBase() {
-    const edgePad = 24;
-    const tcCfg = getBuildingConfig('town-center');
-    const spawnX = Math.max(edgePad, GAME_CONFIG.world.width - tcCfg.width - edgePad);
-    const spawnY = Math.max(edgePad, GAME_CONFIG.world.height - tcCfg.height - edgePad);
-    const enemyTC = {
-        id: generateId(),
-        type: 'town-center',
-        player: 'enemy',
-        x: spawnX,
-        y: spawnY,
-        health: tcCfg.maxHealth,
-        width: tcCfg.width,
-        height: tcCfg.height
-    };
-    gameState.enemyBuildings.push(enemyTC);
+    const enemyTCs = gameState.enemyBuildings.filter(b => b.type === 'town-center');
 
-    // Spawn requested idle defenders around the enemy Town Center
-    const centerX = enemyTC.x + enemyTC.width / 2;
-    const centerY = enemyTC.y + enemyTC.height / 2;
-    const mapCX = GAME_CONFIG.world.width / 2;
-    const mapCY = GAME_CONFIG.world.height / 2;
-    const baseR = Math.max(enemyTC.width, enemyTC.height) / 2 + 30; // just outside TC bounds
-    const dirToCenter = Math.atan2(mapCY - centerY, mapCX - centerX);
+    enemyTCs.forEach(enemyTC => {
+        // Spawn requested idle defenders around the enemy Town Center
+        const centerX = enemyTC.x + enemyTC.width / 2;
+        const centerY = enemyTC.y + enemyTC.height / 2;
+        const mapCX = GAME_CONFIG.world.width / 2;
+        const mapCY = GAME_CONFIG.world.height / 2;
+        const baseR = Math.max(enemyTC.width, enemyTC.height) / 2 + 30; // just outside TC bounds
+        const dirToCenter = Math.atan2(mapCY - centerY, mapCX - centerX);
 
     const composition = [
         { type: 'axeman', count: 2 },
@@ -110,6 +97,7 @@ function createEnemyBase() {
             placed++;
         }
     });
+});
 }
 
 function updateEnemyAI(unit) {
@@ -185,8 +173,8 @@ const AIManager = (function() {
     }
 
     function launchWave() {
-        const enemyTC = gameState.enemyBuildings.find(b => b.type === 'town-center' && b.player === 'enemy');
-        if (!enemyTC) return;
+        const enemyTCs = gameState.enemyBuildings.filter(b => b.type === 'town-center' && b.player === 'enemy');
+        if (enemyTCs.length === 0) return;
 
         // Scale wave based on waveCount
         const composition = [];
@@ -212,46 +200,50 @@ const AIManager = (function() {
 
         let spawnedCount = 0;
         const totalUnits = composition.reduce((sum, group) => sum + group.count, 0);
-        composition.forEach(group => {
-            for (let i = 0; i < group.count; i++) {
-                const cfg = GAME_CONFIG.units[group.type];
-                if (!cfg) continue;
-                const spawn = findWaveSpawn(enemyTC, group.type, spawnedCount, totalUnits);
-                if (!spawn) continue;
+        enemyTCs.forEach(enemyTC => {
+            let baseSpawnedCount = 0;
+            composition.forEach(group => {
+                for (let i = 0; i < group.count; i++) {
+                    const cfg = GAME_CONFIG.units[group.type];
+                    if (!cfg) continue;
+                    const spawn = findWaveSpawn(enemyTC, group.type, baseSpawnedCount, totalUnits);
+                    if (!spawn) continue;
 
-                const targetPoint = targetBuilding ? {
-                    x: targetBuilding.x + targetBuilding.width / 2,
-                    y: targetBuilding.y + targetBuilding.height / 2
-                } : undefined;
+                    const targetPoint = targetBuilding ? {
+                        x: targetBuilding.x + targetBuilding.width / 2,
+                        y: targetBuilding.y + targetBuilding.height / 2
+                    } : undefined;
 
-                const newUnit = {
-                    id: generateId(),
-                    type: group.type,
-                    player: 'enemy',
-                    x: spawn.x,
-                    y: spawn.y,
-                    health: cfg.maxHealth,
-                    state: targetBuilding ? 'attacking' : 'idle',
-                    target: targetBuilding || null,
-                    targetPoint,
-                    anim: { action: 'idle', direction: 'south', frame: 0, elapsed: 0 },
-                    _faceDir: 'south',
-                    _lastFaceNatural: 'south',
-                    prevX: spawn.x,
-                    prevY: spawn.y
-                };
+                    const newUnit = {
+                        id: generateId(),
+                        type: group.type,
+                        player: 'enemy',
+                        x: spawn.x,
+                        y: spawn.y,
+                        health: cfg.maxHealth,
+                        state: targetBuilding ? 'attacking' : 'idle',
+                        target: targetBuilding || null,
+                        targetPoint,
+                        anim: { action: 'idle', direction: 'south', frame: 0, elapsed: 0 },
+                        _faceDir: 'south',
+                        _lastFaceNatural: 'south',
+                        prevX: spawn.x,
+                        prevY: spawn.y
+                    };
 
-                gameState.enemyUnits.push(newUnit);
-                spawnedCount++;
+                    gameState.enemyUnits.push(newUnit);
+                    spawnedCount++;
+                    baseSpawnedCount++;
+                }
+            });
+
+            if (baseSpawnedCount > 0 && typeof UI !== 'undefined' && UI.minimapPing) {
+                UI.minimapPing(enemyTC.x, enemyTC.y, '#ff0000');
             }
         });
 
         if (spawnedCount > 0) {
             showNotification(`Warning! An enemy wave of ${spawnedCount} units approaches!`);
-            // Ping minimap for the enemy wave roughly near their TC
-            if (typeof UI !== 'undefined' && UI.minimapPing) {
-                UI.minimapPing(enemyTC.x, enemyTC.y, '#ff0000');
-            }
         }
     }
 

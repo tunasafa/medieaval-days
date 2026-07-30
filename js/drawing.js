@@ -1273,26 +1273,39 @@ function drawMinimap() {
     ctx.clearRect(0, 0, minimapCanvas.width, minimapCanvas.height);
     const scaleX = minimapCanvas.width / GAME_CONFIG.world.width;
     const scaleY = minimapCanvas.height / GAME_CONFIG.world.height;
+    const mapCx = minimapCanvas.width / 2;
+    const mapCy = minimapCanvas.height / 2;
+    const mapRadius = Math.min(minimapCanvas.width, minimapCanvas.height) / 2;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(mapCx, mapCy, mapRadius, 0, Math.PI * 2);
+    ctx.clip();
+
     ctx.fillStyle = '#2a8f52';
     ctx.fillRect(0, 0, minimapCanvas.width, minimapCanvas.height);
 
     if (tilemap && tilemap.hasWater) {
         // The minimap uses the exact gameplay water mask. This keeps it honest:
         // blue on the minimap means that same location is water in the game.
-        ctx.fillStyle = '#47ABA9';
         const cellW = tilemap.tileSize * scaleX;
         const cellH = tilemap.tileSize * scaleY;
         for (let ty = 0; ty < tilemap.height; ty++) {
             for (let tx = 0; tx < tilemap.width; tx++) {
                 if (tilemap.getTile(tx, ty) !== TILE_TYPES.WATER) continue;
-                ctx.fillRect(tx * tilemap.tileSize * scaleX, ty * tilemap.tileSize * scaleY, cellW, cellH);
+                const worldX = (tx + 0.5) * tilemap.tileSize;
+                const worldY = (ty + 0.5) * tilemap.tileSize;
+                const depth = typeof tilemap.depthAt === 'function' ? tilemap.depthAt(worldX, worldY) : 1;
+                const palette = WATER_PALETTE[Math.max(0, Math.min(WATER_PALETTE.length - 1, depth))] || WATER_PALETTE[1];
+                ctx.fillStyle = `rgb(${palette.primary[0]}, ${palette.primary[1]}, ${palette.primary[2]})`;
+                ctx.fillRect(tx * tilemap.tileSize * scaleX, ty * tilemap.tileSize * scaleY, Math.ceil(cellW) + 1, Math.ceil(cellH) + 1);
             }
         }
     }
 
     gameState.worldObjects.forEach(obj => {
-    // Do not mark resources or decorations on the minimap
-    if (obj.type === 'resource' || obj.type === 'decoration') return;
+        // Tilemap water is authoritative; avoid drawing older water rectangles over it.
+        if (obj.type === 'resource' || obj.type === 'decoration' || (tilemap?.hasWater && obj.type === 'water')) return;
         if (obj.type === 'water' || obj.type === 'bridge') {
             ctx.fillStyle = obj.color;
         } else {
@@ -1317,8 +1330,36 @@ function drawMinimap() {
     ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 1;
     const zoom = gameState.zoomLevel || 1;
-    ctx.strokeRect(gameState.camera.x * scaleX, gameState.camera.y * scaleY,
-                  (GAME_CONFIG.canvas.width / zoom) * scaleX, (GAME_CONFIG.canvas.height / zoom) * scaleY);
+    const camW = (GAME_CONFIG.canvas.width / zoom) * scaleX;
+    const camH = (GAME_CONFIG.canvas.height / zoom) * scaleY;
+    const camCX = (gameState.camera.x * scaleX) + (camW / 2);
+    const camCY = (gameState.camera.y * scaleY) + (camH / 2);
+
+    ctx.beginPath();
+    ctx.arc(camCX, camCY, Math.max(3, Math.max(camW, camH) / 2), 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.restore(); // restore from minimap circle clip
+
+    const cx = mapCx;
+    const cy = mapCy;
+    const radius = mapRadius - 1;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(240, 204, 120, 0.5)';
+    ctx.lineWidth = 1;
+    [0.33, 0.66, 1].forEach(multiplier => {
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius * multiplier, 0, Math.PI * 2);
+        ctx.stroke();
+    });
+    ctx.strokeStyle = 'rgba(240, 204, 120, 0.2)';
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - radius);
+    ctx.lineTo(cx, cy + radius);
+    ctx.moveTo(cx - radius, cy);
+    ctx.lineTo(cx + radius, cy);
+    ctx.stroke();
+    ctx.restore();
 }
 
 function drawUnitIcon(ctx, unitType, scale) {

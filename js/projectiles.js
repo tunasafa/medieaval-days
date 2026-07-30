@@ -37,7 +37,12 @@ const ProjectileSystem = (function () {
         const damage = typeof getUnitAttack === 'function'
             ? getUnitAttack(fromUnit)
             : GAME_CONFIG.units[fromUnit.type]?.attack || 0;
-        const proj = { x: fromUnit.x, y: fromUnit.y, startX: fromUnit.x, startY: fromUnit.y, targetX: tx, targetY: ty, totalDist: dist, traveled: 0, vx: (dx/dist)*config.speed, vy: (dy/dist)*config.speed, type: projType, config, target, damage, fromPlayer: fromUnit.player, angle: Math.atan2(dy, dx), trail: [], alive: true };
+
+        // Apply ballistics tech speed multiplier
+        const speedMult = 1 + (fromUnit.player === 'player' && typeof gameState !== 'undefined' ? (gameState.modifiers?.projectileSpeedMult || 0) : 0);
+        const finalSpeed = config.speed * speedMult;
+
+        const proj = { x: fromUnit.x, y: fromUnit.y, startX: fromUnit.x, startY: fromUnit.y, targetX: tx, targetY: ty, totalDist: dist, traveled: 0, vx: (dx/dist)*finalSpeed, vy: (dy/dist)*finalSpeed, type: projType, config, target, damage, fromPlayer: fromUnit.player, angle: Math.atan2(dy, dx), trail: [], alive: true };
         projectiles.push(proj);
         return proj;
     }
@@ -64,6 +69,7 @@ const ProjectileSystem = (function () {
                 p.alive = false;
                 if (p.target && p.target.health > 0) {
                     p.target.health -= p.damage;
+                    if (typeof ParticleSystem !== 'undefined') ParticleSystem.emitDamageText(p.target.x + (p.target.width||0)/2, p.target.y, p.damage);
                     if (p.target.health <= 0) {
                         if (p.target.width) handleBuildingDestruction(p.target);
                         else handleUnitDeath(p.target);
@@ -71,7 +77,17 @@ const ProjectileSystem = (function () {
                     }
                 }
                 if (typeof ParticleSystem !== 'undefined' && p.config.impactFn) ParticleSystem[p.config.impactFn](p.x, p.y);
-                if (typeof SFX !== 'undefined') p.type === 'arrow' || p.type === 'bolt' ? SFX.arrowHit() : SFX.siegeImpact();
+                if (typeof SFX !== 'undefined') {
+                    if (p.type === 'arrow' || p.type === 'bolt') {
+                        SFX.play('arrow');
+                    } else {
+                        SFX.play('impact');
+                        if (typeof gameState !== 'undefined' && gameState.camera) {
+                            gameState.camera.shakeTime = 300;
+                            gameState.camera.shakeIntensity = 6;
+                        }
+                    }
+                }
                 projectiles.splice(i, 1);
             } else if (p.traveled > p.totalDist * 2) {
                 projectiles.splice(i, 1);
@@ -87,8 +103,12 @@ const ProjectileSystem = (function () {
             if (sx < -30 || sx > GAME_CONFIG.canvas.width + 30 || sy < -30 || sy > GAME_CONFIG.canvas.height + 30) continue;
 
             const cfg = p.config;
+            const isFireArrow = p.fromPlayer === 'player' && (p.type === 'arrow' || p.type === 'bolt') && typeof gameState !== 'undefined' && gameState.modifiers?.projectileFire;
+
             if (p.trail.length > 1) {
-                ctx.save(); ctx.globalAlpha = 0.3; ctx.strokeStyle = cfg.color; ctx.lineWidth = cfg.width * 0.6;
+                ctx.save(); ctx.globalAlpha = 0.3;
+                ctx.strokeStyle = isFireArrow ? '#FF6B00' : cfg.color;
+                ctx.lineWidth = isFireArrow ? cfg.width * 1.5 : cfg.width * 0.6;
                 ctx.beginPath(); ctx.moveTo(p.trail[0].x - camera.x, p.trail[0].y - camera.y);
                 for (let j = 1; j < p.trail.length; j++) ctx.lineTo(p.trail[j].x - camera.x, p.trail[j].y - camera.y);
                 ctx.lineTo(sx, sy); ctx.stroke(); ctx.restore();

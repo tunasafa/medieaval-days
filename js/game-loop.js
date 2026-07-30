@@ -5,33 +5,37 @@
  */
 function gameLoop() {
     const now = Date.now();
-    const deltaTime = now - gameState.lastUpdate;
+    const rawDeltaTime = now - gameState.lastUpdate;
     gameState.lastUpdate = now;
-    gameState.gameTime = (gameState.gameTime || 0) + deltaTime;
-    handleInput();
+    const uiPaused = !!gameState.ui?.modalOpen;
+    const deltaTime = uiPaused ? 0 : rawDeltaTime;
+    if (!uiPaused) {
+        gameState.gameTime = (gameState.gameTime || 0) + deltaTime;
+        handleInput();
+    }
     gameState.camera.x = Math.round(gameState.camera.x || 0);
     gameState.camera.y = Math.round(gameState.camera.y || 0);
-    if (typeof updateResearchQueues === 'function') {
+    if (!uiPaused && typeof updateResearchQueues === 'function') {
         updateResearchQueues(deltaTime);
     }
-    updateUnits(deltaTime);
-    if (typeof ProjectileSystem !== 'undefined') {
+    if (!uiPaused) updateUnits(deltaTime);
+    if (!uiPaused && typeof ProjectileSystem !== 'undefined') {
         ProjectileSystem.update(deltaTime);
     }
-    if (typeof ParticleSystem !== 'undefined') {
+    if (!uiPaused && typeof ParticleSystem !== 'undefined') {
         ParticleSystem.update(deltaTime);
     }
-    if (typeof FogOfWar !== 'undefined') {
+    if (!uiPaused && typeof FogOfWar !== 'undefined') {
         FogOfWar.update();
     }
-    if (typeof AIManager !== 'undefined') {
+    if (!uiPaused && typeof AIManager !== 'undefined') {
         AIManager.tick(deltaTime);
     }
-    if (tilemap && typeof tilemap.tickWaterAnimation === 'function') {
+    if (!uiPaused && tilemap && typeof tilemap.tickWaterAnimation === 'function') {
         tilemap.tickWaterAnimation(deltaTime);
     }
-    updateUnitAnimations();
-    checkWinConditions();
+    if (!uiPaused) updateUnitAnimations();
+    if (!uiPaused) checkWinConditions();
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     const dpr = window.devicePixelRatio || 1;
@@ -43,8 +47,17 @@ function gameLoop() {
     const zoom = gameState.zoomLevel || 1.0;
     ctx.scale(zoom, zoom);
 
+    // Apply screen shake
+    if (gameState.camera.shakeTime > 0) {
+        const shake = gameState.camera.shakeIntensity || 5;
+        ctx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
+        gameState.camera.shakeTime -= deltaTime;
+    }
+
     if (tilemap) {
-        tilemap.tickWaterAnimation(deltaTime);
+        if (!uiPaused && typeof tilemap.tickWaterAnimation === 'function') {
+            tilemap.tickWaterAnimation(deltaTime);
+        }
         tilemap.draw(ctx, gameState.camera);
     } else {
         const gradient = ctx.createLinearGradient(0, 0, GAME_CONFIG.canvas.width, GAME_CONFIG.canvas.height);

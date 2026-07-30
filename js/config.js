@@ -1,6 +1,7 @@
 const GAME_CONFIG = {
     canvas: { width: 5000, height: 2500 },
-    world: { width: 7500, height: 4000 },
+    minimap: { width: 200, height: 200 },
+    world: { width: 8000, height: 8000, radius: 4000, numPlayers: 3 },
     // Terrain/water tuning. terrain.tileSize is the logical water-mask resolution
     // that all gameplay reads; bridgeBlockSize is kept independent so bridge
     // footprints stay the same size regardless of how fine the mask gets.

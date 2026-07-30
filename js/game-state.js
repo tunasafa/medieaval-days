@@ -35,7 +35,10 @@ const gameState = {
         idleVillagers: [],
         idleVillagerIndex: -1,
         resourceValues: {},
-        secondTick: 0
+        secondTick: 0,
+        modalOpen: 'main-menu',
+        hasStarted: false,
+        gameLoading: false
     },
     camera: { x: 0, y: 0 },
     zoomLevel: 1.0,

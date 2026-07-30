@@ -30,6 +30,17 @@ function formatNumber(value, digits = 1) {
     return Number.isInteger(value) ? String(value) : value.toFixed(digits);
 }
 
+function getRadialMapPosition(entity) {
+    if (!entity || !Number.isFinite(entity.x) || !Number.isFinite(entity.y)) return 'Unknown';
+    const centerX = GAME_CONFIG.world.width / 2;
+    const centerY = GAME_CONFIG.world.height / 2;
+    const entityX = entity.x + (entity.width ? entity.width / 2 : 0);
+    const entityY = entity.y + (entity.height ? entity.height / 2 : 0);
+    const distancePct = Math.min(100, (Math.hypot(entityX - centerX, entityY - centerY) / GAME_CONFIG.world.radius) * 100);
+    const bearing = (Math.atan2(entityY - centerY, entityX - centerX) * 180 / Math.PI + 360) % 360;
+    return `${Math.round(distancePct)}% ring / ${Math.round(bearing)} deg`;
+}
+
 function setResourceCounter(resource, value) {
     const el = document.getElementById(`${resource}-count`);
     if (!el) return;
@@ -126,13 +137,29 @@ function updateSelectionInfo() {
             ? getActiveResearchForBuilding(building)
             : null;
         const researchLine = activeResearch && GAME_UPGRADES[activeResearch.id]
-            ? `<div>Research: ${GAME_UPGRADES[activeResearch.id].name} ${Math.floor(getResearchProgressPct(activeResearch))}%</div>`
+            ? `
+                <div class="selection-stat">
+                    <span>Research</span>
+                    <strong>${GAME_UPGRADES[activeResearch.id].name} ${Math.floor(getResearchProgressPct(activeResearch))}%</strong>
+                </div>
+            `
             : '';
         info.innerHTML = `
-            <div><strong>${displayName(building.type)}</strong></div>
-            <div>Health: ${Math.ceil(building.health)}/${maxHealth}</div>
-            <div>Player: ${building.player}</div>
-            ${researchLine}
+            <div class="selected-entity-title">
+                <strong>${displayName(building.type)}</strong>
+                <span class="faction-tag">${building.player}</span>
+            </div>
+            <div class="selection-stat-grid">
+                <div class="selection-stat">
+                    <span>Health</span>
+                    <strong>${Math.ceil(building.health)}/${maxHealth}</strong>
+                </div>
+                <div class="selection-stat">
+                    <span>Radial Position</span>
+                    <strong>${getRadialMapPosition(building)}</strong>
+                </div>
+                ${researchLine}
+            </div>
         `;
     } else if (gameState.selectedUnits.length === 0) {
         info.textContent = 'No units or buildings selected';
@@ -142,23 +169,36 @@ function updateSelectionInfo() {
             ? getEffectiveUnitConfig(unit)
             : GAME_CONFIG.units[unit.type];
         info.innerHTML = `
-            <div><strong>${displayName(unit.type)}</strong></div>
-            <div>Health: ${Math.ceil(unit.health)}/${cfg.maxHealth}</div>
-            <div>Attack: ${formatNumber(cfg.attack || 0)} / Range: ${formatNumber(cfg.attackRange || 0, 0)}</div>
-            <div>State: ${unit.state}</div>
+            <div class="selected-entity-title">
+                <strong>${displayName(unit.type)}</strong>
+                <span class="faction-tag">${unit.state}</span>
+            </div>
+            <div class="selection-stat-grid">
+                <div class="selection-stat">
+                    <span>Health</span>
+                    <strong>${Math.ceil(unit.health)}/${cfg.maxHealth}</strong>
+                </div>
+                <div class="selection-stat">
+                    <span>Attack</span>
+                    <strong>${formatNumber(cfg.attack || 0)} / ${formatNumber(cfg.attackRange || 0, 0)}</strong>
+                </div>
+                <div class="selection-stat">
+                    <span>Radial Position</span>
+                    <strong>${getRadialMapPosition(unit)}</strong>
+                </div>
+            </div>
         `;
         if (isTransport(unit)) {
             unit.cargo = unit.cargo || [];
             const cap = cfg.capacity || 0;
             const used = unit.cargo.length;
             const btns = document.createElement('div');
-            btns.style.marginTop = '6px';
-            btns.innerHTML = `<div>Cargo: ${used}/${cap}</div>`;
+            btns.className = 'transport-actions';
+            btns.innerHTML = `<div class="selection-stat"><span>Cargo</span><strong>${used}/${cap}</strong></div>`;
 
             if (used > 0) {
                 const disembarkBtn = document.createElement('button');
                 disembarkBtn.textContent = `Disembark ${used} unit(s)`;
-                disembarkBtn.style.marginTop = '4px';
                 disembarkBtn.onclick = () => disembarkCargoNearShore(unit);
                 btns.appendChild(disembarkBtn);
             }
@@ -172,7 +212,12 @@ function updateSelectionInfo() {
             list.push(unit);
             groups.set(unit.type, list);
         });
-        info.innerHTML = `<div><strong>${gameState.selectedUnits.length} units selected</strong></div>`;
+        info.innerHTML = `
+            <div class="selected-entity-title">
+                <strong>${gameState.selectedUnits.length} units selected</strong>
+                <span class="faction-tag">formation</span>
+            </div>
+        `;
         const grid = document.createElement('div');
         grid.className = 'selection-unit-grid';
         groups.forEach((units, type) => {
@@ -321,7 +366,7 @@ function setModalOpen(id, open) {
     if (!modal) return false;
     modal.classList.toggle('open', open);
     modal.setAttribute('aria-hidden', open ? 'false' : 'true');
-    gameState.ui.modalOpen = open ? id : null;
+    gameState.ui.modalOpen = open ? id : (isMainMenuOpen() ? 'main-menu' : null);
     return true;
 }
 
@@ -345,6 +390,91 @@ function closeOpenModal() {
     setModalOpen('tech-tree-modal', false);
     setModalOpen('settings-modal', false);
     return hadOpen;
+}
+
+function isMainMenuOpen() {
+    return !!document.getElementById('main-menu')?.classList.contains('open');
+}
+
+function syncMainMenuButtons() {
+    const startBtn = document.getElementById('btn-menu-start');
+    if (startBtn) {
+        if (gameState.ui.gameLoading) {
+            startBtn.textContent = 'Generating World...';
+            startBtn.disabled = true;
+        } else {
+            startBtn.textContent = gameState.ui.hasStarted ? 'Resume Battle' : 'Start Battle';
+            startBtn.disabled = false;
+        }
+    }
+    const menuBtn = document.getElementById('btn-main-menu');
+    if (menuBtn) {
+        menuBtn.textContent = isMainMenuOpen() ? 'Resume' : 'Menu';
+    }
+    document.querySelectorAll('input[name="enemy-count"]').forEach(input => {
+        input.disabled = !!gameState.ui.hasStarted || !!gameState.ui.gameLoading;
+    });
+}
+
+function getSelectedEnemyCount() {
+    const selected = document.querySelector('input[name="enemy-count"]:checked');
+    const value = Number.parseInt(selected?.value || '2', 10);
+    return Math.max(1, Math.min(4, Number.isFinite(value) ? value : 2));
+}
+
+function updateEnemyCountLabel() {
+    const count = getSelectedEnemyCount();
+    const label = document.getElementById('enemy-count-label');
+    if (label) label.textContent = `${count} ${count === 1 ? 'Enemy' : 'Enemies'}`;
+}
+
+async function beginGameFromMenu() {
+    if (gameState.ui.hasStarted) {
+        toggleMainMenu(false);
+        return;
+    }
+    if (gameState.ui.gameLoading) return;
+
+    gameState.ui.gameLoading = true;
+    updateEnemyCountLabel();
+    syncMainMenuButtons();
+    GAME_CONFIG.world.numPlayers = getSelectedEnemyCount() + 1;
+
+    try {
+        const initResult = initGame();
+        if (initResult && typeof initResult.then === 'function') {
+            await initResult;
+        }
+        toggleMainMenu(false);
+    } catch (error) {
+        console.error(error);
+        showNotification('World generation failed. Check the console for details.');
+    } finally {
+        gameState.ui.gameLoading = false;
+        syncMainMenuButtons();
+    }
+}
+
+function toggleMainMenu(forceOpen = null) {
+    const menu = document.getElementById('main-menu');
+    if (!menu) return false;
+    const open = forceOpen === null ? !menu.classList.contains('open') : forceOpen;
+    if (open) {
+        closeOpenModal();
+    }
+    menu.classList.toggle('open', open);
+    menu.setAttribute('aria-hidden', open ? 'false' : 'true');
+    document.body.classList.toggle('menu-open', open);
+    gameState.ui.modalOpen = open ? 'main-menu' : null;
+    if (!open) {
+        const firstLaunch = !gameState.ui.hasStarted;
+        gameState.ui.hasStarted = true;
+        if (firstLaunch) {
+            showNotification('Battle launched. Secure the circular frontier and destroy every enemy Town Center.');
+        }
+    }
+    syncMainMenuButtons();
+    return true;
 }
 
 function updateGameTimerUI() {
@@ -455,6 +585,17 @@ function setupUiControls() {
 
     const idleBtn = document.getElementById('btn-idle-villager');
     if (idleBtn) idleBtn.addEventListener('click', selectNextIdleVillager);
+    const mainMenuBtn = document.getElementById('btn-main-menu');
+    if (mainMenuBtn) mainMenuBtn.addEventListener('click', () => toggleMainMenu());
+    const menuStartBtn = document.getElementById('btn-menu-start');
+    if (menuStartBtn) menuStartBtn.addEventListener('click', beginGameFromMenu);
+    document.querySelectorAll('input[name="enemy-count"]').forEach(input => {
+        input.addEventListener('change', updateEnemyCountLabel);
+    });
+    const menuTechBtn = document.getElementById('btn-menu-tech');
+    if (menuTechBtn) menuTechBtn.addEventListener('click', () => toggleTechTreeModal(true));
+    const menuSettingsBtn = document.getElementById('btn-menu-settings');
+    if (menuSettingsBtn) menuSettingsBtn.addEventListener('click', () => toggleSettingsModal(true));
     const techBtn = document.getElementById('btn-tech-tree');
     if (techBtn) techBtn.addEventListener('click', () => toggleTechTreeModal());
     const settingsBtn = document.getElementById('btn-settings');
@@ -483,6 +624,8 @@ function setupUiControls() {
     scanIdleVillagers();
     updateIdleVillagerUI();
     updateGameTimerUI();
+    updateEnemyCountLabel();
+    syncMainMenuButtons();
 }
 
 function advanceAge() {
@@ -577,14 +720,6 @@ function centerOnTownCenter() {
 
 // Initialize the game when the page loads
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('dw loaded, initializing game...');
-    const initResult = initGame();
-    if (initResult && typeof initResult.then === 'function') {
-        initResult.then(setupUiControls).catch(error => {
-            console.error(error);
-            setupUiControls();
-        });
-    } else {
-        setupUiControls();
-    }
+    console.log('dw loaded, awaiting game setup...');
+    setupUiControls();
 });

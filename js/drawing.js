@@ -140,83 +140,196 @@ function getBuildingAssetName(building, name) {
     return name;
 }
 
-function drawBridgeDeck(ctx, x, y, width, height, orientation = 'horizontal', options = {}) {
+function drawPolygon(ctx, points, fillStyle, strokeStyle = null, lineWidth = 1) {
+    if (!points || points.length === 0) return;
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+        ctx.lineTo(points[i].x, points[i].y);
+    }
+    ctx.closePath();
+    if (fillStyle) {
+        ctx.fillStyle = fillStyle;
+        ctx.fill();
+    }
+    if (strokeStyle) {
+        ctx.strokeStyle = strokeStyle;
+        ctx.lineWidth = lineWidth;
+        ctx.stroke();
+    }
+}
+
+function interpolatePoint(a, b, t) {
+    return {
+        x: a.x + (b.x - a.x) * t,
+        y: a.y + (b.y - a.y) * t
+    };
+}
+
+function getBridgeIsoGeometry(x, y, width, height, orientation = 'horizontal') {
     const isHorizontal = orientation !== 'vertical';
+    const cross = isHorizontal ? height : width;
+    const long = isHorizontal ? width : height;
+    const deckCross = Math.min(cross * 0.66, Math.max(64, cross - 32));
+    const endInset = Math.min(34, Math.max(18, long * 0.06));
+    const skew = Math.min(22, Math.max(12, deckCross * 0.24));
+    const drop = Math.min(13, Math.max(7, deckCross * 0.12));
+    const railGap = Math.max(9, Math.min(14, deckCross * 0.12));
+
+    if (isHorizontal) {
+        const top = y + (height - deckCross) / 2;
+        const bottom = top + deckCross;
+        const left = x + endInset;
+        const right = x + width - endInset;
+        return {
+            isHorizontal,
+            drop,
+            railGap,
+            leftEnd: [
+                { x: x + 4, y: y + height / 2 + skew * 0.35 },
+                { x: left, y: top + skew },
+                { x: left, y: bottom + skew },
+                { x: x + 4, y: y + height / 2 + deckCross * 0.46 + skew * 0.35 }
+            ],
+            rightEnd: [
+                { x: right, y: top - skew },
+                { x: x + width - 4, y: y + height / 2 - deckCross * 0.46 - skew * 0.35 },
+                { x: x + width - 4, y: y + height / 2 - skew * 0.35 },
+                { x: right, y: bottom - skew }
+            ],
+            topFace: [
+                { x: left, y: top + skew },
+                { x: right, y: top - skew },
+                { x: right, y: bottom - skew },
+                { x: left, y: bottom + skew }
+            ]
+        };
+    }
+
+    const left = x + (width - deckCross) / 2;
+    const right = left + deckCross;
+    const top = y + endInset;
+    const bottom = y + height - endInset;
+    return {
+        isHorizontal,
+        drop,
+        railGap,
+        leftEnd: [
+            { x: x + width / 2 - deckCross * 0.46 - skew * 0.35, y: y + 4 },
+            { x: x + width / 2 - skew * 0.35, y: y + 4 },
+            { x: right - skew, y: top },
+            { x: left - skew, y: top }
+        ],
+        rightEnd: [
+            { x: left + skew, y: bottom },
+            { x: right + skew, y: bottom },
+            { x: x + width / 2 + skew * 0.35, y: y + height - 4 },
+            { x: x + width / 2 - deckCross * 0.46 + skew * 0.35, y: y + height - 4 }
+        ],
+        topFace: [
+            { x: left - skew, y: top },
+            { x: right - skew, y: top },
+            { x: right + skew, y: bottom },
+            { x: left + skew, y: bottom }
+        ]
+    };
+}
+
+function drawBridgePlacementOutline(ctx, width, height, orientation, isValidPlacement) {
+    const geom = getBridgeIsoGeometry(0, 0, width, height, orientation);
+    ctx.save();
+    ctx.setLineDash([7, 5]);
+    ctx.lineWidth = 2;
+    drawPolygon(ctx, geom.topFace, null, isValidPlacement ? '#00ff00' : '#ff0000', 2);
+    ctx.restore();
+}
+
+function drawBridgeDeck(ctx, x, y, width, height, orientation = 'horizontal', options = {}) {
     const alpha = options.alpha ?? 1;
     const valid = options.valid !== false;
-    const deck = valid ? (options.color || '#B98645') : '#B94A48';
-    const dark = valid ? '#5F3A1F' : '#6E2727';
-    const rail = valid ? '#6F4928' : '#7C2D2D';
-    const stone = valid ? '#8E8A78' : '#8A5555';
-    const plankLight = valid ? 'rgba(239, 196, 126, 0.28)' : 'rgba(255,255,255,0.16)';
-    const plankDark = valid ? 'rgba(72, 43, 21, 0.34)' : 'rgba(70, 20, 20, 0.28)';
-    const radius = Math.min(14, Math.min(width, height) * 0.12);
-    const railInset = Math.max(10, Math.min(width, height) * 0.12);
-    const endCap = Math.min(36, Math.max(18, Math.min(width, height) * 0.18));
+    const geom = getBridgeIsoGeometry(x, y, width, height, orientation);
+    const deck = valid ? (options.color || '#A66C3C') : '#A64A45';
+    const deckDark = valid ? '#58351E' : '#672828';
+    const rail = valid ? '#5C3720' : '#713333';
+    const railLight = valid ? '#B98249' : '#B96D68';
+    const stone = valid ? '#9E9883' : '#8A6660';
+    const stoneDark = valid ? '#625F54' : '#614443';
+    const plankDark = valid ? 'rgba(54, 30, 17, 0.62)' : 'rgba(70, 20, 20, 0.45)';
+    const plankLight = valid ? 'rgba(238, 188, 105, 0.34)' : 'rgba(255, 210, 210, 0.24)';
+    const sideDrop = geom.drop;
 
     ctx.save();
     ctx.globalAlpha *= alpha;
-    ctx.fillStyle = 'rgba(34, 24, 16, 0.28)';
-    drawRoundedRect(ctx, x + 5, y + 7, width, height, radius, true, false);
 
-    ctx.fillStyle = dark;
-    drawRoundedRect(ctx, x, y, width, height, radius, true, false);
+    const shadow = geom.topFace.map(p => ({ x: p.x + 7, y: p.y + sideDrop + 4 }));
+    drawPolygon(ctx, shadow, 'rgba(24, 16, 10, 0.28)');
 
-    ctx.fillStyle = deck;
-    drawRoundedRect(ctx, x + 5, y + 5, width - 10, height - 10, radius, true, false);
+    drawPolygon(ctx, geom.leftEnd, stone, stoneDark, 1.5);
+    drawPolygon(ctx, geom.rightEnd, stone, stoneDark, 1.5);
 
-    ctx.fillStyle = stone;
-    if (isHorizontal) {
-        ctx.fillRect(x, y + railInset, endCap, height - railInset * 2);
-        ctx.fillRect(x + width - endCap, y + railInset, endCap, height - railInset * 2);
-    } else {
-        ctx.fillRect(x + railInset, y, width - railInset * 2, endCap);
-        ctx.fillRect(x + railInset, y + height - endCap, width - railInset * 2, endCap);
-    }
+    const top = geom.topFace;
+    const sideFace = [
+        top[3],
+        top[2],
+        { x: top[2].x + 4, y: top[2].y + sideDrop },
+        { x: top[3].x + 4, y: top[3].y + sideDrop }
+    ];
+    drawPolygon(ctx, sideFace, deckDark, 'rgba(35, 21, 12, 0.65)', 1);
+    drawPolygon(ctx, top, deck, deckDark, 2);
 
     ctx.strokeStyle = plankDark;
-    ctx.lineWidth = 2;
-    const longLen = isHorizontal ? width : height;
-    const plankEvery = 24;
-    for (let p = plankEvery; p < longLen; p += plankEvery) {
+    ctx.lineWidth = 1.5;
+    const planks = Math.max(4, Math.floor((geom.isHorizontal ? width : height) / 26));
+    for (let i = 1; i < planks; i++) {
+        const t = i / planks;
+        const a = interpolatePoint(top[0], top[1], t);
+        const b = interpolatePoint(top[3], top[2], t);
         ctx.beginPath();
-        if (isHorizontal) {
-            ctx.moveTo(x + p, y + 12);
-            ctx.lineTo(x + p, y + height - 12);
-        } else {
-            ctx.moveTo(x + 12, y + p);
-            ctx.lineTo(x + width - 12, y + p);
-        }
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
         ctx.stroke();
     }
 
     ctx.strokeStyle = plankLight;
     ctx.lineWidth = 1;
-    const crossCount = Math.max(2, Math.floor((isHorizontal ? height : width) / 28));
-    for (let i = 1; i <= crossCount; i++) {
-        const t = i / (crossCount + 1);
-        ctx.beginPath();
-        if (isHorizontal) {
-            const py = y + height * t;
-            ctx.moveTo(x + 12, py);
-            ctx.lineTo(x + width - 12, py);
-        } else {
-            const px = x + width * t;
-            ctx.moveTo(px, y + 12);
-            ctx.lineTo(px, y + height - 12);
-        }
-        ctx.stroke();
-    }
+    const midA = interpolatePoint(top[0], top[3], 0.5);
+    const midB = interpolatePoint(top[1], top[2], 0.5);
+    ctx.beginPath();
+    ctx.moveTo(midA.x, midA.y);
+    ctx.lineTo(midB.x, midB.y);
+    ctx.stroke();
 
     ctx.strokeStyle = rail;
-    ctx.lineWidth = 5;
+    ctx.lineWidth = 4;
     ctx.lineCap = 'round';
-    if (isHorizontal) {
-        ctx.beginPath(); ctx.moveTo(x + 14, y + railInset); ctx.lineTo(x + width - 14, y + railInset); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(x + 14, y + height - railInset); ctx.lineTo(x + width - 14, y + height - railInset); ctx.stroke();
-    } else {
-        ctx.beginPath(); ctx.moveTo(x + railInset, y + 14); ctx.lineTo(x + railInset, y + height - 14); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(x + width - railInset, y + 14); ctx.lineTo(x + width - railInset, y + height - 14); ctx.stroke();
+    const railTopA = interpolatePoint(top[0], top[3], 0.18);
+    const railTopB = interpolatePoint(top[1], top[2], 0.18);
+    const railBottomA = interpolatePoint(top[0], top[3], 0.82);
+    const railBottomB = interpolatePoint(top[1], top[2], 0.82);
+    ctx.beginPath();
+    ctx.moveTo(railTopA.x, railTopA.y);
+    ctx.lineTo(railTopB.x, railTopB.y);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(railBottomA.x, railBottomA.y);
+    ctx.lineTo(railBottomB.x, railBottomB.y);
+    ctx.stroke();
+
+    ctx.strokeStyle = railLight;
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(railTopA.x, railTopA.y - 1);
+    ctx.lineTo(railTopB.x, railTopB.y - 1);
+    ctx.stroke();
+
+    const postCount = Math.max(3, Math.floor((geom.isHorizontal ? width : height) / 80));
+    ctx.fillStyle = rail;
+    for (let i = 0; i <= postCount; i++) {
+        const t = i / postCount;
+        const pa = interpolatePoint(railTopA, railTopB, t);
+        const pb = interpolatePoint(railBottomA, railBottomB, t);
+        ctx.fillRect(pa.x - 2, pa.y - geom.railGap * 0.4, 4, geom.railGap);
+        ctx.fillRect(pb.x - 2, pb.y - geom.railGap * 0.4, 4, geom.railGap);
     }
 
     ctx.restore();
@@ -1085,11 +1198,15 @@ function drawPlacingBuilding(ctx) {
             });
         }
 
-        // Draw placement validity outline with rounded corners
-        ctx.strokeStyle = isValidPlacement ? '#00ff00' : '#ff0000';
-        ctx.lineWidth = 2;
-        const cornerRadius = Math.min(32, Math.min(ghostW, ghostH) * 0.4);
-        drawRoundedRect(ctx, 0, 0, ghostW, ghostH, cornerRadius, false, true);
+        // Draw placement validity outline
+        if (type === 'bridge') {
+            drawBridgePlacementOutline(ctx, ghostW, ghostH, ghostOrientation, isValidPlacement);
+        } else {
+            ctx.strokeStyle = isValidPlacement ? '#00ff00' : '#ff0000';
+            ctx.lineWidth = 2;
+            const cornerRadius = Math.min(32, Math.min(ghostW, ghostH) * 0.4);
+            drawRoundedRect(ctx, 0, 0, ghostW, ghostH, cornerRadius, false, true);
+        }
 
         ctx.restore();
     }

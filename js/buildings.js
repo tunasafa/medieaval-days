@@ -65,7 +65,7 @@ function placeBuilding(type, x, y) {
             orientation: blk.orientation,
             waterSpan: blk.waterSpan,
             costMultiplier: blk.costMultiplier,
-            color: '#B98645'
+            color: '#A66C3C'
         };
         gameState.worldObjects.push(bridge);
         if (tilemap && tilemap.isLoaded && typeof tilemap.applyBridgeTerrain === 'function') {

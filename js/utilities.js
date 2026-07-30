@@ -408,11 +408,11 @@ function buildBridgeCandidate(centerX, centerY, axis, deckWidth, bankApron, step
     const startLong = axis.name === 'horizontal' ? centerX - neg.landDistance - bankApron : centerY - neg.landDistance - bankApron;
     const endLong = axis.name === 'horizontal' ? centerX + pos.landDistance + bankApron : centerY + pos.landDistance + bankApron;
     const startWide = axis.name === 'horizontal' ? centerY - halfDeck : centerX - halfDeck;
-    const endWide = axis.name === 'horizontal' ? centerY + halfDeck : centerX + halfDeck;
     const minLong = Math.floor(startLong / step) * step;
     const maxLong = Math.ceil(endLong / step) * step;
-    const minWide = Math.floor(startWide / step) * step;
-    const maxWide = Math.ceil(endWide / step) * step;
+    const wideCells = Math.max(3, Math.ceil(deckWidth / step));
+    const minWide = Math.max(0, Math.round(startWide / step) * step);
+    const maxWide = minWide + wideCells * step;
     const x = axis.name === 'horizontal' ? minLong : minWide;
     const y = axis.name === 'horizontal' ? minWide : minLong;
     const width = axis.name === 'horizontal' ? maxLong - minLong : maxWide - minWide;

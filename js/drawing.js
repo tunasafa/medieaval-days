@@ -76,8 +76,23 @@ function mapDirForAssets(dir) {
     }
 }
 
+const FACTION_ASSET_FOLDERS = {
+    enemy: 'enemy',
+    desert: 'desert',
+    eastern: 'eastern',
+    gothic: 'gothic_vampiric',
+    vampiric: 'gothic_vampiric',
+    vampire: 'gothic_vampiric',
+    vampires: 'gothic_vampiric',
+    gothic_vampiric: 'gothic_vampiric',
+    warlike: 'jagged_warlike',
+    jagged: 'jagged_warlike',
+    jagged_warlike: 'jagged_warlike'
+};
+
 function getFactionAssetName(owner, name) {
-    return owner === 'enemy' ? `enemy/${name}` : name;
+    const folder = FACTION_ASSET_FOLDERS[String(owner || '').toLowerCase()];
+    return folder ? `${folder}/${name}` : name;
 }
 
 function getLoadedUnitAssetName(unit, name) {
@@ -123,6 +138,20 @@ function selectUnitGifAsset(unit, candidates) {
     }
     candidates.forEach(name => queueUnitAssetLoad(unit, name));
     return null;
+}
+
+function getUnitHealthBarMetrics(unit) {
+    if (unit.type === 'catapult' || unit.type === 'ballista') {
+        const spriteHeight = unit.__spriteDrawHeight || 96;
+        return {
+            x: -18,
+            y: -Math.ceil(spriteHeight / 2 + 10),
+            width: 36,
+            height: 4
+        };
+    }
+
+    return { x: -15, y: -35, width: 30, height: 4 };
 }
 
 function getBuildingAssetName(building, name) {
@@ -993,6 +1022,8 @@ function drawUnit(ctx, unit) {
         el.style.display = 'block';
         el.style.width = `${dw}px`;
         el.style.height = `${dh}px`;
+        unit.__spriteDrawWidth = dw;
+        unit.__spriteDrawHeight = dh;
         el.style.transform = `translate(${Math.round(screenX - dw/2)}px, ${Math.round(screenY - dh/2)}px)`;
         // Skip canvas image draw; we still draw selection/health below
     } else {
@@ -1023,6 +1054,8 @@ function drawUnit(ctx, unit) {
             const screenY = drawY;
             el.style.width = `${dw}px`;
             el.style.height = `${dh}px`;
+            unit.__spriteDrawWidth = dw;
+            unit.__spriteDrawHeight = dh;
             el.style.transform = `translate(${Math.round(screenX - dw/2)}px, ${Math.round(screenY - dh/2)}px)`;
             // Also queue the asset in manager for cache
             queueUnitAssetLoad(unit, fallbackName);
@@ -1060,10 +1093,11 @@ function drawUnit(ctx, unit) {
         : GAME_CONFIG.units[unit.type]).maxHealth;
     const healthPercent = unit.health / maxHealth;
     if (healthPercent < 1) {
+        const bar = getUnitHealthBarMetrics(unit);
         ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-        ctx.fillRect(-15, -35, 30, 4);
+        ctx.fillRect(bar.x, bar.y, bar.width, bar.height);
         ctx.fillStyle = healthPercent > 0.6 ? '#4CAF50' : healthPercent > 0.3 ? '#FF9800' : '#F44336';
-        ctx.fillRect(-15, -35, 30 * healthPercent, 4);
+        ctx.fillRect(bar.x, bar.y, bar.width * healthPercent, bar.height);
     }
 
     ctx.restore();

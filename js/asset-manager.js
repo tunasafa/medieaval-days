@@ -394,6 +394,7 @@ class AssetManager {
             { category: 'buildings', name: 'archeryRange' },
             { category: 'buildings', name: 'craftery' },
             { category: 'buildings', name: 'navy' },
+            { category: 'buildings', name: 'university' },
             { category: 'resources', name: 'food1' },
             { category: 'resources', name: 'food2' },
             { category: 'resources', name: 'food3' },
@@ -409,7 +410,7 @@ class AssetManager {
             { category: 'resources', name: 'gold2' }
         ];
 
-        ['house', 'townCenter', 'barracks', 'archeryRange', 'craftery', 'navy'].forEach(name => {
+        ['house', 'townCenter', 'barracks', 'archeryRange', 'craftery', 'navy', 'university'].forEach(name => {
             assetList.push({ category: 'buildings', name: `enemy/${name}` });
         });
 

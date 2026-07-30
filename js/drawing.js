@@ -143,7 +143,7 @@ function getBuildingAssetName(building, name) {
 function getBuildingRenderAssetName(type) {
     if (type === 'town-center') return 'townCenter';
     if (type === 'blacksmith') return 'craftery';
-    if (type === 'university') return 'archeryRange';
+
     return type;
 }
 

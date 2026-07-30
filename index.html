@@ -13,6 +13,7 @@
     <div class="game-container">
         <div class="header">
             <div class="game-title">MEDIEVAL DAYS</div>
+            <div id="game-timer">00:00</div>
             <div class="resources">
                 <div class="resource">
                     <canvas class="resource-icon food" width="28" height="28"></canvas>
@@ -55,6 +56,7 @@
                 <div class="minimap">
                     <canvas id="minimapCanvas" width="194" height="144"></canvas>
                 </div>
+                <button id="btn-idle-villager" class="idle-villager-button">Idle Villagers: <span id="idle-villager-count">0</span></button>
                 <div class="selection-box" id="selectionBox"></div>
                 <div class="notification" id="notification"></div>
                 <div class="game-over" id="gameOver">
@@ -106,6 +108,16 @@
                             <div style="font-weight: bold;">Craftery</div>
                             <div style="font-size: 12px; color: #ccc;">200W, 100S</div>
                         </div>
+                        <div class="building" data-type="blacksmith">
+                            <canvas class="building-icon blacksmith" width="48" height="48"></canvas>
+                            <div style="font-weight: bold;">Blacksmith</div>
+                            <div style="font-size: 12px; color: #ccc;">150W, 100G</div>
+                        </div>
+                        <div class="building" data-type="university">
+                            <canvas class="building-icon university" width="48" height="48"></canvas>
+                            <div style="font-weight: bold;">University</div>
+                            <div style="font-size: 12px; color: #ccc;">200W, 150S</div>
+                        </div>
                         <div class="building" data-type="navy">
                             <canvas class="building-icon navy" width="48" height="48"></canvas>
                             <div style="font-weight: bold;">Navy</div>
@@ -130,13 +142,41 @@
         </div>
         <div class="controls">
             <button id="btn-fullscreen">Enter Fullscreen</button>
+            <button id="btn-tech-tree">Tech Tree</button>
+            <button id="btn-settings">Settings</button>
             <button id="btn-music" title="Toggle background music">Music: Off</button>
         </div>
     </div>
 
+    <div class="modal-overlay" id="tech-tree-modal" aria-hidden="true">
+        <div class="modal-panel tech-tree-panel">
+            <div class="modal-header">
+                <div>Tech Tree</div>
+                <button class="modal-close" id="tech-tree-close" aria-label="Close tech tree">x</button>
+            </div>
+            <div class="tech-tree-content" id="tech-tree-content"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="settings-modal" aria-hidden="true">
+        <div class="modal-panel settings-panel">
+            <div class="modal-header">
+                <div>Settings</div>
+                <button class="modal-close" id="settings-close" aria-label="Close settings">x</button>
+            </div>
+            <label class="settings-row">
+                <span>Edge Scrolling</span>
+                <input type="checkbox" id="setting-edge-scrolling" checked>
+            </label>
+        </div>
+    </div>
+
+    <div class="game-tooltip" id="game-tooltip"></div>
+
     <!-- JavaScript Files -->
     <script src="js/config.js"></script>
     <script src="js/game-state.js"></script>
+    <script src="js/upgrades.js"></script>
     <script src="js/hotkeys.js"></script>
     <script src="js/water-shape.js"></script>
     <script src="js/tilemap.js"></script>

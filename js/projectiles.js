@@ -34,7 +34,10 @@ const ProjectileSystem = (function () {
         const dist = Math.hypot(dx, dy);
         if (dist < 1) return null;
 
-        const proj = { x: fromUnit.x, y: fromUnit.y, startX: fromUnit.x, startY: fromUnit.y, targetX: tx, targetY: ty, totalDist: dist, traveled: 0, vx: (dx/dist)*config.speed, vy: (dy/dist)*config.speed, type: projType, config, target, damage: GAME_CONFIG.units[fromUnit.type]?.attack || 0, fromPlayer: fromUnit.player, angle: Math.atan2(dy, dx), trail: [], alive: true };
+        const damage = typeof getUnitAttack === 'function'
+            ? getUnitAttack(fromUnit)
+            : GAME_CONFIG.units[fromUnit.type]?.attack || 0;
+        const proj = { x: fromUnit.x, y: fromUnit.y, startX: fromUnit.x, startY: fromUnit.y, targetX: tx, targetY: ty, totalDist: dist, traveled: 0, vx: (dx/dist)*config.speed, vy: (dy/dist)*config.speed, type: projType, config, target, damage, fromPlayer: fromUnit.player, angle: Math.atan2(dy, dx), trail: [], alive: true };
         projectiles.push(proj);
         return proj;
     }

@@ -55,11 +55,31 @@ body {
     display: block;
     image-rendering: pixelated;
 }
+#food-count,
+#wood-count,
+#stone-count,
+#gold-count {
+    display: inline-block;
+}
 .game-title {
     font-size: 36px;
     font-weight: 700;
     font-family: 'Almendra SC', 'Times New Roman', serif;
     color: #f0c040;
+}
+#game-timer {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    min-width: 84px;
+    text-align: center;
+    padding: 6px 12px;
+    border: 2px solid #8a6d3b;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.45);
+    color: #f0c040;
+    font-weight: 700;
+    letter-spacing: 0;
 }
 .main-content {
     display: flex;
@@ -90,6 +110,19 @@ body {
     border: 3px solid #8a6d3b;
     border-radius: 8px;
     backdrop-filter: blur(5px);
+}
+.idle-villager-button {
+    position: absolute;
+    right: 20px;
+    bottom: 178px;
+    z-index: 5;
+    padding: 8px 10px;
+    border: 2px solid #8a6d3b;
+    border-radius: 6px;
+    background: linear-gradient(135deg, #2c5f72, #1a3e4a);
+    color: #f0c040;
+    font-size: 12px;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
 }
 .sidebar {
     width: 280px;
@@ -229,6 +262,236 @@ button:hover {
     background: linear-gradient(90deg, #4CAF50, #8BC34A);
     border-radius: 2px;
     transition: width 0.3s ease;
+}
+.research-group {
+    grid-column: 1 / -1;
+    display: grid;
+    gap: 10px;
+    margin-top: 4px;
+}
+.research-heading {
+    color: #f0c040;
+    font-size: 13px;
+    font-weight: 700;
+    text-align: left;
+}
+.research-card {
+    position: relative;
+    width: 100%;
+    min-height: 70px;
+    padding: 10px;
+    border: 2px solid #5a8c95;
+    border-radius: 8px;
+    background: linear-gradient(135deg, rgba(17, 44, 51, 0.95), rgba(30, 66, 71, 0.85));
+    color: #e8f4f8;
+    text-align: left;
+    overflow: hidden;
+}
+.research-card:hover:not(:disabled) {
+    border-color: #f0c040;
+}
+.research-card:disabled {
+    cursor: not-allowed;
+    opacity: 0.68;
+    transform: none;
+}
+.research-card.researched {
+    border-color: #8BC34A;
+}
+.research-card.researching {
+    border-color: #4bb4f5;
+}
+.research-name {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 700;
+}
+.research-desc,
+.research-cost,
+.research-status {
+    margin-top: 4px;
+    font-size: 11px;
+    color: #cfdfe2;
+}
+.research-status {
+    color: #f0c040;
+}
+.research-progress {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 5px;
+    background: rgba(255, 255, 255, 0.16);
+}
+.research-fill {
+    width: 0%;
+    height: 100%;
+    background: linear-gradient(90deg, #228fd0, #8bd4ff);
+    transition: width 0.3s ease;
+}
+.unit-icon-img {
+    display: block;
+    width: 48px;
+    height: 48px;
+    object-fit: contain;
+    margin: 0 auto 6px;
+    image-rendering: pixelated;
+}
+.selection-unit-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin-top: 8px;
+}
+.selection-unit-card {
+    border: 1px solid #5a8c95;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.25);
+    padding: 6px 4px;
+    color: #e8f4f8;
+    font-size: 11px;
+    text-align: center;
+    cursor: pointer;
+}
+.selection-unit-card:hover {
+    border-color: #f0c040;
+}
+.selection-unit-card img {
+    width: 34px;
+    height: 34px;
+    object-fit: contain;
+    image-rendering: pixelated;
+}
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1200;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(5, 15, 18, 0.72);
+}
+.modal-overlay.open {
+    display: flex;
+}
+.modal-panel {
+    width: min(900px, calc(100vw - 48px));
+    max-height: calc(100vh - 80px);
+    overflow: auto;
+    border: 3px solid #8a6d3b;
+    border-radius: 8px;
+    background:
+        linear-gradient(135deg, rgba(70, 52, 29, 0.92), rgba(29, 61, 68, 0.94)),
+        #2f392d;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+}
+.settings-panel {
+    width: min(420px, calc(100vw - 48px));
+}
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    border-bottom: 2px solid #8a6d3b;
+    color: #f0c040;
+    font-size: 22px;
+    font-weight: 700;
+}
+.modal-close {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border-radius: 6px;
+    line-height: 32px;
+}
+.tech-tree-content {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(180px, 1fr));
+    gap: 14px;
+    padding: 16px;
+}
+.tech-age-column {
+    min-height: 260px;
+    border: 2px solid rgba(240, 192, 64, 0.35);
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.22);
+    padding: 12px;
+}
+.tech-age-title {
+    margin-bottom: 12px;
+    color: #f0c040;
+    font-weight: 700;
+    text-align: center;
+}
+.tech-upgrade-card {
+    position: relative;
+    margin-bottom: 10px;
+    padding: 10px;
+    border: 2px solid #5a8c95;
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.24);
+}
+.tech-upgrade-card.locked {
+    opacity: 0.55;
+}
+.tech-upgrade-card.researched {
+    border-color: #8BC34A;
+}
+.tech-upgrade-card.researching {
+    border-color: #4bb4f5;
+}
+.tech-upgrade-title {
+    color: #e8f4f8;
+    font-weight: 700;
+    font-size: 13px;
+}
+.tech-upgrade-meta {
+    margin-top: 5px;
+    color: #cfdfe2;
+    font-size: 11px;
+}
+.settings-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 18px;
+    color: #e8f4f8;
+    font-size: 15px;
+}
+.settings-row input {
+    width: 20px;
+    height: 20px;
+    accent-color: #f0c040;
+}
+.game-tooltip {
+    position: fixed;
+    z-index: 1400;
+    display: none;
+    max-width: 240px;
+    padding: 9px 10px;
+    border: 2px solid #8a6d3b;
+    border-radius: 6px;
+    background: rgba(11, 25, 28, 0.95);
+    color: #e8f4f8;
+    font-size: 12px;
+    pointer-events: none;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+.game-tooltip strong {
+    color: #f0c040;
+}
+.bounce-text {
+    animation: resourceBounce 0.45s ease;
+}
+@keyframes resourceBounce {
+    0% { transform: scale(1); }
+    35% { transform: scale(1.22); color: #f0c040; }
+    100% { transform: scale(1); }
 }
 .age-display {
     font-size: 18px;

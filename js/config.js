@@ -167,6 +167,20 @@ const GAME_CONFIG = {
             width: 315,
             height: 315
         },
+        blacksmith: {
+            cost: { wood: 150, gold: 100 },
+            health: 1200,
+            maxHealth: 1200,
+            width: 270,
+            height: 270
+        },
+        university: {
+            cost: { wood: 200, stone: 150 },
+            health: 1400,
+            maxHealth: 1400,
+            width: 315,
+            height: 315
+        },
         navy: {
             cost: { wood: 200, stone: 50 },
             health: 1000,

@@ -1,6 +1,9 @@
 function createInitialBuildings() {
     const edgePad = 24;
     const tcCfg = getBuildingConfig('town-center');
+    const tcMaxHealth = typeof getEffectiveBuildingMaxHealth === 'function'
+        ? getEffectiveBuildingMaxHealth('town-center', 'player')
+        : tcCfg.maxHealth;
     const spawnX = edgePad;
     const spawnY = edgePad;
     gameState.buildings.push({
@@ -9,8 +12,8 @@ function createInitialBuildings() {
         player: 'player',
         x: spawnX,
         y: spawnY,
-        health: tcCfg.maxHealth,
-        maxHealth: tcCfg.maxHealth,
+        health: tcMaxHealth,
+        maxHealth: tcMaxHealth,
         width: tcCfg.width,
         height: tcCfg.height,
         rallyPoint: null
@@ -113,6 +116,10 @@ function placeBuilding(type, x, y) {
         }
     }
 
+    const maxHealth = typeof getEffectiveBuildingMaxHealth === 'function'
+        ? getEffectiveBuildingMaxHealth(type, 'player')
+        : buildingConfig.maxHealth;
+
     gameState.buildings.push({
         id: generateId(),
         type: type,
@@ -121,8 +128,8 @@ function placeBuilding(type, x, y) {
         y: buildingY,
         width: buildingConfig.width,
         height: buildingConfig.height,
-        health: buildingConfig.maxHealth,
-        maxHealth: buildingConfig.maxHealth,
+        health: maxHealth,
+        maxHealth: maxHealth,
         rallyPoint: null,
         isSelected: false
     });
@@ -262,10 +269,12 @@ function showBuildingActions(building) {
 
     const buildingUnits = {
         'town-center': ['villager'],
-    'barracks': ['militia', 'warrior', 'axeman'],
+        'barracks': ['militia', 'warrior', 'axeman'],
         'archeryRange': ['archer', 'crossbowman'],
         'craftery': ['ballista', 'catapult'],
-        'navy': ['fishingBoat', 'transportLarge', 'warship']
+        'navy': ['fishingBoat', 'transportLarge', 'warship'],
+        'blacksmith': [],
+        'university': []
     };
 
     let availableUnits = buildingUnits[building.type] || [];
@@ -298,6 +307,9 @@ function showBuildingActions(building) {
             for (let x = 10; x < 34; x += 6) {
                 ctx.beginPath(); ctx.moveTo(x, 16); ctx.lineTo(x, 26); ctx.stroke();
             }
+            if (typeof attachGameTooltip === 'function') {
+                attachGameTooltip(unitDiv, () => '<strong>Bridge</strong><br>Creates land passage across valid river water.');
+            }
             return;
         }
         const unitConfig = GAME_CONFIG.units[unitType];
@@ -322,7 +334,7 @@ function showBuildingActions(building) {
             const requiredAge = ageRestrictions[unitType][0];
 
             unitDiv.innerHTML = `
-                <canvas class="unit-icon ${unitType}" width="40" height="40"></canvas>
+                <img class="unit-icon-img" src="${getUnitPortraitSrc(unitType)}" alt="">
                 <div style="font-weight: bold; font-size: 12px;">${unitType.charAt(0).toUpperCase() + unitType.slice(1)}</div>
                 <div style="font-size: 11px; color: #ccc;">${costText}</div>
                 <div style="font-size: 9px; color: #ff6666;">Requires ${requiredAge}</div>
@@ -330,10 +342,11 @@ function showBuildingActions(building) {
             `;
 
             unitList.appendChild(unitDiv);
-
-            const canvas = unitDiv.querySelector(`canvas.unit-icon.${unitType}`);
-            const ctx = canvas.getContext('2d');
-            drawUnitIcon(ctx, unitType, 6);
+            const icon = unitDiv.querySelector('img');
+            icon.onerror = () => icon.style.display = 'none';
+            if (typeof attachGameTooltip === 'function') {
+                attachGameTooltip(unitDiv, () => getUnitTooltipHTML(unitType));
+            }
             return;
         }
 
@@ -353,7 +366,7 @@ function showBuildingActions(building) {
         const progressPct = isCurrentThisType ? Math.max(0, Math.min(100, (1 - (current.timeRemaining / current.totalTime)) * 100)) : 0;
 
         unitDiv.innerHTML = `
-            <canvas class="unit-icon ${unitType}" width="40" height="40"></canvas>
+            <img class="unit-icon-img" src="${getUnitPortraitSrc(unitType)}" alt="">
             <div style="display:flex; align-items:center; gap:6px;">
                 <div style="font-weight: bold; font-size: 12px;">${unitType.charAt(0).toUpperCase() + unitType.slice(1)}</div>
                 <div class="queue-pill" style="display:${queuedCount>0?'inline-flex':'none'}; background:#333; color:#fff; border-radius:10px; padding:0 6px; font-size:10px; line-height:16px; height:16px;">x${queuedCount}</div>
@@ -364,11 +377,16 @@ function showBuildingActions(building) {
 
         unitDiv.addEventListener('click', () => trainUnitFromBuilding(unitType, building));
         unitList.appendChild(unitDiv);
-
-        const canvas = unitDiv.querySelector(`canvas.unit-icon.${unitType}`);
-        const ctx = canvas.getContext('2d');
-        drawUnitIcon(ctx, unitType, 6);
+        const icon = unitDiv.querySelector('img');
+        icon.onerror = () => icon.style.display = 'none';
+        if (typeof attachGameTooltip === 'function') {
+            attachGameTooltip(unitDiv, () => getUnitTooltipHTML(unitType));
+        }
     });
+
+    if (typeof renderResearchActions === 'function') {
+        renderResearchActions(building, unitList);
+    }
 }
 
 function handleBuildingDestruction(building) {

@@ -17,6 +17,18 @@ function setupEventListeners() {
         };
     };
 
+    window.addEventListener('mousemove', (e) => {
+        gameState.input.mouseX = e.clientX;
+        gameState.input.mouseY = e.clientY;
+        gameState.input.mouseInsideWindow = true;
+    });
+    window.addEventListener('mouseleave', () => {
+        gameState.input.mouseInsideWindow = false;
+    });
+    window.addEventListener('blur', () => {
+        gameState.input.mouseInsideWindow = false;
+    });
+
     // Minimap click-to-navigate support
     const minimap = document.getElementById('minimapCanvas');
     if (minimap) {
@@ -239,6 +251,10 @@ function setupEventListeners() {
         }
     }, { passive: false });
     document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && typeof closeOpenModal === 'function' && closeOpenModal()) {
+            e.preventDefault();
+            return;
+        }
         if (gameState.placingBuilding && e.key === 'Escape') {
             gameState.placingBuilding = null;
             canvas.classList.remove('placing-building', 'invalid-placement');

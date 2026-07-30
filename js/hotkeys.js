@@ -10,8 +10,7 @@ const Hotkeys = (function() {
         'q': 0, // 1st unit
         'w': 1, // 2nd unit
         'e': 2, // 3rd unit
-        'r': 3, // 4th unit
-        't': 4  // 5th unit
+        'r': 3  // 4th unit
     };
 
     function isTextInput(target) {
@@ -92,27 +91,19 @@ const Hotkeys = (function() {
             return true;
         }
 
+        // --- Tech Tree ---
+        if (key === 't') {
+            e.preventDefault();
+            if (typeof toggleTechTreeModal === 'function') {
+                toggleTechTreeModal();
+            }
+            return true;
+        }
+
         // --- Find Idle Villager ---
         if (key === '.') {
             e.preventDefault();
-            const idleVillager = gameState.units.find(u => u.type === 'villager' && u.state === 'idle');
-            if (idleVillager) {
-                // Clear selection and select this villager
-                gameState.selectedUnits.forEach(u => u.isSelected = false);
-                idleVillager.isSelected = true;
-                gameState.selectedUnits = [idleVillager];
-                if (gameState.selectedBuilding) {
-                    gameState.selectedBuilding.isSelected = false;
-                    gameState.selectedBuilding = null;
-                }
-                updateSelectionInfo();
-
-                // Center camera on villager
-                centerCameraOn(idleVillager.x, idleVillager.y);
-                if (typeof SFX !== 'undefined') SFX.unitSelected();
-            } else {
-                showNotification("No idle villagers found.");
-            }
+            if (typeof selectNextIdleVillager === 'function') selectNextIdleVillager();
             return true;
         }
 

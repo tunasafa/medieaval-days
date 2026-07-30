@@ -107,7 +107,12 @@ function updateUnits(deltaTime) {
 }
 
 function updateUnit(unit, deltaTime) {
-    const config = GAME_CONFIG.units[unit.type];
+    const config = typeof getEffectiveUnitConfig === 'function'
+        ? getEffectiveUnitConfig(unit)
+        : GAME_CONFIG.units[unit.type];
+    const carryCapacity = typeof getUnitCarryCapacity === 'function'
+        ? getUnitCarryCapacity(unit)
+        : 25;
 
     // Handle pending disembark for transports that have arrived near shore
     if (unit._pendingDisembark && isTransport(unit) && unit.cargo && unit.cargo.length > 0) {
@@ -163,7 +168,7 @@ function updateUnit(unit, deltaTime) {
                 unit.state = 'fishing';
                 unit.gatherType = 'food';
                 unit.gatheredAmount = (unit.gatheredAmount || 0) + (config.gatherRate || 2.5) * (deltaTime / 1000);
-                if (unit.gatheredAmount >= 25) {
+                if (unit.gatheredAmount >= carryCapacity) {
                     gameState.resources.food += unit.gatheredAmount;
                     if (typeof SFX !== 'undefined') SFX.resourceDeposit();
                     showNotification(`+${Math.floor(unit.gatheredAmount)} food (fishing)`);
@@ -720,7 +725,7 @@ function updateUnit(unit, deltaTime) {
             const gathered = Math.min(gatherTime * config.gatherRate, unit.targetResource.amount);
             unit.gatheredAmount = gathered;
 
-            if (gathered >= unit.targetResource.amount || gathered >= 25) {
+            if (gathered >= unit.targetResource.amount || gathered >= carryCapacity) {
                 unit.targetResource.amount -= unit.gatheredAmount;
                 if (unit.targetResource.amount <= 0) {
                     unit.targetResource.amount = 0;

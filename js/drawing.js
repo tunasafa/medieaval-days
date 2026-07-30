@@ -140,6 +140,13 @@ function getBuildingAssetName(building, name) {
     return name;
 }
 
+function getBuildingRenderAssetName(type) {
+    if (type === 'town-center') return 'townCenter';
+    if (type === 'blacksmith') return 'craftery';
+    if (type === 'university') return 'archeryRange';
+    return type;
+}
+
 function drawPolygon(ctx, points, fillStyle, strokeStyle = null, lineWidth = 1) {
     if (!points || points.length === 0) return;
     ctx.beginPath();
@@ -496,7 +503,9 @@ function drawUnit(ctx, unit) {
     let useAttack = false;
     let attackDir = dir;
     if ((unit.type === 'archer' || unit.type === 'militia' || unit.type === 'warrior' || unit.type === 'axeman' || unit.type === 'crossbowman') && unit.state === 'attacking' && unit.target) {
-        const cfg = GAME_CONFIG.units[unit.type] || {};
+        const cfg = typeof getEffectiveUnitConfig === 'function'
+            ? getEffectiveUnitConfig(unit)
+            : GAME_CONFIG.units[unit.type] || {};
         const range = cfg.attackRange || 40;
         const { tx, ty } = computeAttackAim(unit, unit.target, unit.targetPoint);
         const adx = tx - unit.x;
@@ -687,7 +696,9 @@ function drawUnit(ctx, unit) {
             unit._lastFaceNatural = unit._faceDir;
         }
         // Attack direction when in range
-        const cfg = GAME_CONFIG.units[unit.type] || {};
+        const cfg = typeof getEffectiveUnitConfig === 'function'
+            ? getEffectiveUnitConfig(unit)
+            : GAME_CONFIG.units[unit.type] || {};
         let useAttack = false;
         let dir = unit._faceDir;
         if (unit.state === 'attacking' && unit.target) {
@@ -760,7 +771,9 @@ function drawUnit(ctx, unit) {
         // Attack direction when in range
         let useAttack = false;
         if (unit.state === 'attacking' && unit.target) {
-            const cfg = GAME_CONFIG.units[unit.type] || {};
+            const cfg = typeof getEffectiveUnitConfig === 'function'
+                ? getEffectiveUnitConfig(unit)
+                : GAME_CONFIG.units[unit.type] || {};
             const range = cfg.attackRange || 40;
             const { tx, ty } = computeAttackAim(unit, unit.target, unit.targetPoint);
             const adx = tx - unit.x;
@@ -833,7 +846,9 @@ function drawUnit(ctx, unit) {
     let dir = unit._faceDir;
         let renderDir = mapDirForAssets(dir);
         let candidates = [];
-        const cfg = GAME_CONFIG.units[unit.type] || {};
+        const cfg = typeof getEffectiveUnitConfig === 'function'
+            ? getEffectiveUnitConfig(unit)
+            : GAME_CONFIG.units[unit.type] || {};
         let useAttack = false;
         if (unit.state === 'attacking' && unit.target) {
             const range = cfg.attackRange || 40;
@@ -1040,7 +1055,9 @@ function drawUnit(ctx, unit) {
         ctx.stroke();
     }
 
-    const maxHealth = GAME_CONFIG.units[unit.type].maxHealth;
+    const maxHealth = (typeof getEffectiveUnitConfig === 'function'
+        ? getEffectiveUnitConfig(unit)
+        : GAME_CONFIG.units[unit.type]).maxHealth;
     const healthPercent = unit.health / maxHealth;
     if (healthPercent < 1) {
         ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
@@ -1070,18 +1087,9 @@ function drawBuildings(ctx) {
         ctx.shadowOffsetY = 3;
 
         ctx.translate(drawX, drawY);
-        if (building.type === 'town-center') {
-            drawSprite(ctx, 'buildings', getBuildingAssetName(building, 'townCenter'), building.width, building.height);
-        } else if (building.type === 'house') {
-            drawSprite(ctx, 'buildings', getBuildingAssetName(building, 'house'), building.width, building.height);
-        } else if (building.type === 'barracks') {
-            drawSprite(ctx, 'buildings', getBuildingAssetName(building, 'barracks'), building.width, building.height);
-        } else if (building.type === 'archeryRange') {
-            drawSprite(ctx, 'buildings', getBuildingAssetName(building, 'archeryRange'), building.width, building.height);
-        } else if (building.type === 'craftery') {
-            drawSprite(ctx, 'buildings', getBuildingAssetName(building, 'craftery'), building.width, building.height);
-        } else if (building.type === 'navy') {
-            drawSprite(ctx, 'buildings', getBuildingAssetName(building, 'navy'), building.width, building.height);
+        const renderAssetName = getBuildingRenderAssetName(building.type);
+        if (renderAssetName) {
+            drawSprite(ctx, 'buildings', getBuildingAssetName(building, renderAssetName), building.width, building.height);
         }
 
         if (building.isSelected) {
@@ -1133,9 +1141,32 @@ function drawBuildings(ctx) {
             drawRoundedRect(ctx, -buffer, -buffer, building.width + 2*buffer, building.height + 2*buffer, cornerRadius, false, true);
         }
 
+        const activeResearch = typeof getActiveResearchForBuilding === 'function'
+            ? getActiveResearchForBuilding(building)
+            : null;
+        if (activeResearch) {
+            const barWidth = building.width * 0.5;
+            const barHeight = 4;
+            const barY = -18;
+            const barX = building.width * 0.25;
+            const progress = getResearchProgressPct(activeResearch) / 100;
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
+            ctx.fillRect(barX, barY, barWidth, barHeight);
+            ctx.fillStyle = '#4bb4f5';
+            ctx.fillRect(barX, barY, barWidth * progress, barHeight);
+            ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(barX, barY, barWidth, barHeight);
+        }
+
         const bcfg = getBuildingConfig(building.type);
-        if (bcfg && bcfg.maxHealth) {
-            const healthPercent = Math.max(0, building.health / bcfg.maxHealth);
+        const maxHealth = building.maxHealth || (
+            typeof getEffectiveBuildingMaxHealth === 'function'
+                ? getEffectiveBuildingMaxHealth(building)
+                : bcfg?.maxHealth
+        );
+        if (bcfg && maxHealth) {
+            const healthPercent = Math.max(0, building.health / maxHealth);
             const barWidth = building.width * 0.5; // Half the building width
             const barHeight = 3; // Half the original height (was 6)
             const barY = -8; // Adjusted position
@@ -1179,23 +1210,13 @@ function drawPlacingBuilding(ctx) {
         ctx.translate(drawX, drawY);
 
         // Draw the building asset with ghost effect
-        if (type === 'house') {
-            drawSpriteGhost(ctx, 'buildings', 'house', config.width, config.height, isValidPlacement);
-        } else if (type === 'barracks') {
-            drawSpriteGhost(ctx, 'buildings', 'barracks', config.width, config.height, isValidPlacement);
-        } else if (type === 'archeryRange') {
-            drawSpriteGhost(ctx, 'buildings', 'archeryRange', config.width, config.height, isValidPlacement);
-        } else if (type === 'craftery') {
-            drawSpriteGhost(ctx, 'buildings', 'craftery', config.width, config.height, isValidPlacement);
-        } else if (type === 'town-center') {
-            drawSpriteGhost(ctx, 'buildings', 'townCenter', config.width, config.height, isValidPlacement);
-        } else if (type === 'navy') {
-            drawSpriteGhost(ctx, 'buildings', 'navy', config.width, config.height, isValidPlacement);
-        } else if (type === 'bridge') {
+        if (type === 'bridge') {
             drawBridgeDeck(ctx, 0, 0, ghostW, ghostH, ghostOrientation, {
                 alpha: 0.76,
                 valid: isValidPlacement
             });
+        } else {
+            drawSpriteGhost(ctx, 'buildings', getBuildingRenderAssetName(type), config.width, config.height, isValidPlacement);
         }
 
         // Draw placement validity outline

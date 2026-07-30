@@ -7,9 +7,13 @@ function gameLoop() {
     const now = Date.now();
     const deltaTime = now - gameState.lastUpdate;
     gameState.lastUpdate = now;
+    gameState.gameTime = (gameState.gameTime || 0) + deltaTime;
     handleInput();
     gameState.camera.x = Math.round(gameState.camera.x || 0);
     gameState.camera.y = Math.round(gameState.camera.y || 0);
+    if (typeof updateResearchQueues === 'function') {
+        updateResearchQueues(deltaTime);
+    }
     updateUnits(deltaTime);
     if (typeof ProjectileSystem !== 'undefined') {
         ProjectileSystem.update(deltaTime);
@@ -65,6 +69,9 @@ function gameLoop() {
     drawMinimap();
     updateUI();
     updateTrainingQueueUI();
+    if (typeof updateTimedUI === 'function') {
+        updateTimedUI(deltaTime);
+    }
     if (!gameState.gameOver) {
         requestAnimationFrame(gameLoop);
     }
@@ -77,22 +84,41 @@ function gameLoop() {
  */
 function handleInput() {
     const cameraSpeed = 10;
+    const edgeSpeed = 12;
+    const edgeSize = 20;
     const zoom = gameState.zoomLevel || 1;
     const visibleWidth = GAME_CONFIG.canvas.width / zoom;
     const visibleHeight = GAME_CONFIG.canvas.height / zoom;
     const maxX = Math.max(0, GAME_CONFIG.world.width - visibleWidth);
     const maxY = Math.max(0, GAME_CONFIG.world.height - visibleHeight);
+    let moveX = 0;
+    let moveY = 0;
 
     if (gameState.keys['w']) {
-        gameState.camera.y = Math.max(0, gameState.camera.y - cameraSpeed);
+        moveY -= cameraSpeed;
     }
     if (gameState.keys['s']) {
-        gameState.camera.y = Math.min(maxY, gameState.camera.y + cameraSpeed);
+        moveY += cameraSpeed;
     }
     if (gameState.keys['a']) {
-        gameState.camera.x = Math.max(0, gameState.camera.x - cameraSpeed);
+        moveX -= cameraSpeed;
     }
     if (gameState.keys['d']) {
-        gameState.camera.x = Math.min(maxX, gameState.camera.x + cameraSpeed);
+        moveX += cameraSpeed;
+    }
+
+    const edgeEnabled = gameState.settings?.edgeScrolling &&
+        gameState.input?.mouseInsideWindow &&
+        !gameState.ui?.modalOpen;
+    if (edgeEnabled) {
+        if (gameState.input.mouseX < edgeSize) moveX -= edgeSpeed;
+        else if (gameState.input.mouseX > window.innerWidth - edgeSize) moveX += edgeSpeed;
+        if (gameState.input.mouseY < edgeSize) moveY -= edgeSpeed;
+        else if (gameState.input.mouseY > window.innerHeight - edgeSize) moveY += edgeSpeed;
+    }
+
+    if (moveX || moveY) {
+        gameState.camera.x = Math.max(0, Math.min(maxX, gameState.camera.x + moveX));
+        gameState.camera.y = Math.max(0, Math.min(maxY, gameState.camera.y + moveY));
     }
 }

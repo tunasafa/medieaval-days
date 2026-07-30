@@ -92,6 +92,10 @@ async function drawUIIcons() {
     drawBarracksIcon(document.querySelector('.building-icon.barracks').getContext('2d'), iconSize, iconSize);
     drawArcheryRangeIcon(document.querySelector('.building-icon.archeryRange').getContext('2d'), iconSize, iconSize);
     drawCrafteryIcon(document.querySelector('.building-icon.craftery').getContext('2d'), iconSize, iconSize);
+    const blacksmithIcon = document.querySelector('.building-icon.blacksmith');
+    if (blacksmithIcon) drawCrafteryIcon(blacksmithIcon.getContext('2d'), iconSize, iconSize);
+    const universityIcon = document.querySelector('.building-icon.university');
+    if (universityIcon) drawArcheryRangeIcon(universityIcon.getContext('2d'), iconSize, iconSize);
     const navyIcon = document.querySelector('.building-icon.navy');
     if (navyIcon) drawNavyIcon(navyIcon.getContext('2d'), iconSize, iconSize);
 }

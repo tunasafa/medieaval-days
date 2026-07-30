@@ -140,6 +140,59 @@ function getSelectionRadius(unitOrType) {
     return 18;
 }
 
+function getTerrainClearanceRadius(unitOrType) {
+    const type = typeof unitOrType === 'string' ? unitOrType : unitOrType?.type;
+    const isVessel = !!GAME_CONFIG.units[type]?.vessel;
+    const visualRadius = getSelectionRadius(unitOrType);
+    return Math.max(isVessel ? 18 : 16, visualRadius - 1);
+}
+
+function getTerrainFootprintSamples(x, y, radius = 0) {
+    const samples = [{ x, y }];
+    if (radius <= 0) return samples;
+
+    const inner = radius * 0.55;
+    const angles = [
+        0, Math.PI / 4, Math.PI / 2, Math.PI * 3 / 4,
+        Math.PI, Math.PI * 5 / 4, Math.PI * 3 / 2, Math.PI * 7 / 4
+    ];
+
+    for (const angle of angles) {
+        samples.push({ x: x + Math.cos(angle) * radius, y: y + Math.sin(angle) * radius });
+    }
+    for (let i = 0; i < angles.length; i += 2) {
+        const angle = angles[i];
+        samples.push({ x: x + Math.cos(angle) * inner, y: y + Math.sin(angle) * inner });
+    }
+    return samples;
+}
+
+function isTerrainPointAllowedForUnit(unitOrType, x, y) {
+    const type = typeof unitOrType === 'string' ? unitOrType : unitOrType?.type;
+    const isVessel = !!GAME_CONFIG.units[type]?.vessel;
+    const inWater = isPointInWater(x, y);
+    const onBridge = isPointOnBridge(x, y);
+
+    if (isVessel) {
+        return inWater && !onBridge;
+    }
+    return !inWater || onBridge;
+}
+
+function isTerrainFootprintAllowedForUnit(unitOrType, x, y, radius = getTerrainClearanceRadius(unitOrType)) {
+    const samples = getTerrainFootprintSamples(x, y, radius);
+    for (const sample of samples) {
+        if (sample.x < 0 || sample.y < 0 ||
+            sample.x >= GAME_CONFIG.world.width || sample.y >= GAME_CONFIG.world.height) {
+            return false;
+        }
+        if (!isTerrainPointAllowedForUnit(unitOrType, sample.x, sample.y)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 // Compute edge-to-edge distance between selection rings of two units
 function selectionEdgeDistance(a, b) {
     const ra = getSelectionRadius(a);

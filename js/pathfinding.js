@@ -21,7 +21,11 @@ class PathfindingGrid {
                     x: x,
                     y: y,
                     walkable: true,
-                    cost: 1
+                    cost: 1,
+                    isWater: false,
+                    blocksUnits: false,
+                    clearance: Infinity,
+                    waterClearance: Infinity
                 };
             }
         }
@@ -52,7 +56,9 @@ class PathfindingGrid {
                 this.grid[y][x].walkable = true;
                 this.grid[y][x].cost = 1;
                 this.grid[y][x].isWater = false; // Reset water flag
+                this.grid[y][x].blocksUnits = false;
                 this.grid[y][x].clearance = Infinity; // distance in cells to nearest obstacle
+                this.grid[y][x].waterClearance = Infinity; // distance in cells to nearest land/blocked cell
             }
         }
 
@@ -126,6 +132,7 @@ class PathfindingGrid {
                         if (this.isValidCell(x, y)) {
                             this.grid[y][x].walkable = true;
                             this.grid[y][x].isWater = false; // treat as land for grid logic
+                            this.grid[y][x].blocksUnits = false;
                             this.grid[y][x].cost = Math.max(1, this.grid[y][x].cost); // ensure reasonable cost
                         }
                     }
@@ -145,6 +152,7 @@ class PathfindingGrid {
                 for (let x = startX; x < endX; x++) {
                     if (this.isValidCell(x, y)) {
                         this.grid[y][x].walkable = false;
+                        this.grid[y][x].blocksUnits = true;
                         this.grid[y][x].clearance = 0;
                     }
                 }
@@ -155,7 +163,8 @@ class PathfindingGrid {
         // This must match validateTerrainMovement() which blocks these same types
         gameState.worldObjects.forEach(obj => {
             if (obj.type === 'obstacle' || obj.type === 'no-go' || obj.type === 'noZone') {
-                const margin = 2; // small margin matching validateTerrainMovement buffer
+                // The clearance field expands this seed area by the unit radius.
+                const margin = 2;
                 const startX = Math.floor((obj.x - margin) / this.cellSize);
                 const startY = Math.floor((obj.y - margin) / this.cellSize);
                 const endX = Math.ceil((obj.x + obj.width + margin) / this.cellSize);
@@ -164,6 +173,7 @@ class PathfindingGrid {
                     for (let x = startX; x < endX; x++) {
                         if (this.isValidCell(x, y)) {
                             this.grid[y][x].walkable = false;
+                            this.grid[y][x].blocksUnits = true;
                             this.grid[y][x].clearance = 0;
                         }
                     }
@@ -171,32 +181,8 @@ class PathfindingGrid {
             }
         });
 
-        // Compute clearance distance (in cells) from obstacles via BFS
-        const q = [];
-        let head = 0;
-        for (let y = 0; y < this.height; y++) {
-            for (let x = 0; x < this.width; x++) {
-                if (!this.grid[y][x].walkable) {
-                    this.grid[y][x].clearance = 0;
-                    q.push({ x, y });
-                }
-            }
-        }
-        const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
-        while (head < q.length) {
-            const { x, y } = q[head++];
-            const base = this.grid[y][x];
-            for (const [dx, dy] of dirs) {
-                const nx = x + dx, ny = y + dy;
-                if (!this.isValidCell(nx, ny)) continue;
-                const ncell = this.grid[ny][nx];
-                const cand = base.clearance + 1;
-                if (cand < ncell.clearance) {
-                    ncell.clearance = cand;
-                    q.push({ x: nx, y: ny });
-                }
-            }
-        }
+        this._computeClearance('clearance', cell => !cell.walkable);
+        this._computeClearance('waterClearance', cell => !cell.isWater || cell.blocksUnits);
 
         // Increase cost near obstacles to prefer the middle of corridors
         const influenceRadius = 3; // cells
@@ -212,6 +198,40 @@ class PathfindingGrid {
             }
         }
         this._dirty = false;
+    }
+
+    _computeClearance(propertyName, isBlocked) {
+        const q = [];
+        let head = 0;
+        for (let y = 0; y < this.height; y++) {
+            for (let x = 0; x < this.width; x++) {
+                const cell = this.grid[y][x];
+                if (isBlocked(cell)) {
+                    cell[propertyName] = 0;
+                    q.push({ x, y });
+                } else {
+                    cell[propertyName] = Infinity;
+                }
+            }
+        }
+        const dirs = [
+            [1, 0], [-1, 0], [0, 1], [0, -1],
+            [1, 1], [-1, 1], [1, -1], [-1, -1]
+        ];
+        while (head < q.length) {
+            const { x, y } = q[head++];
+            const base = this.grid[y][x];
+            for (const [dx, dy] of dirs) {
+                const nx = x + dx, ny = y + dy;
+                if (!this.isValidCell(nx, ny)) continue;
+                const ncell = this.grid[ny][nx];
+                const cand = base[propertyName] + 1;
+                if (cand < ncell[propertyName]) {
+                    ncell[propertyName] = cand;
+                    q.push({ x: nx, y: ny });
+                }
+            }
+        }
     }
 
     markDirty() {
@@ -299,6 +319,13 @@ class AStarPathfinder {
         this.grid = grid;
     }
 
+    getClearanceCellsForUnit(unitType) {
+        const radius = (typeof getTerrainClearanceRadius === 'function')
+            ? getTerrainClearanceRadius(unitType)
+            : 16;
+        return Math.max(1, Math.ceil((radius + this.grid.cellSize * 0.5) / this.grid.cellSize));
+    }
+
     findPath(startX, startY, endX, endY, unitType = 'villager') {
         const start = this.grid.worldToGrid(startX, startY);
         const end = this.grid.worldToGrid(endX, endY);
@@ -308,10 +335,11 @@ class AStarPathfinder {
         }
 
         const isShip = GAME_CONFIG.units[unitType]?.vessel;
+        const clearanceCells = this.getClearanceCellsForUnit(unitType);
 
         // If end position is not walkable, find nearest walkable position
-        if (!this.isWalkable(end.x, end.y, isShip)) {
-            const nearestWalkable = this.findNearestWalkableCell(end.x, end.y, isShip);
+        if (!this.isWalkable(end.x, end.y, isShip, clearanceCells)) {
+            const nearestWalkable = this.findNearestWalkableCell(end.x, end.y, isShip, clearanceCells);
             if (nearestWalkable) {
                 end.x = nearestWalkable.x;
                 end.y = nearestWalkable.y;
@@ -346,10 +374,14 @@ class AStarPathfinder {
                     temp = cameFrom.get(`${temp.x},${temp.y}`);
                 }
                 // Post-process for smoother paths
-                const simplified = this.simplifyPathLOS(path, isShip);
-                const rounded = this.roundCorners(simplified, isShip);
-                const curved = this.splineSmooth(rounded, isShip);
-                return this.validatePath(curved, isShip);
+                const simplified = this.simplifyPathLOS(path, isShip, clearanceCells);
+                const rounded = this.roundCorners(simplified, isShip, clearanceCells);
+                const curved = this.splineSmooth(rounded, isShip, clearanceCells);
+                for (const candidate of [curved, rounded, simplified, path]) {
+                    const safePath = this.validatePath(candidate, isShip, clearanceCells, unitType);
+                    if (safePath && safePath.length > 1) return safePath;
+                }
+                return null;
             }
 
             closedList.add(currentKey);
@@ -362,13 +394,13 @@ class AStarPathfinder {
                 const isDiag = (neighbor.x !== current.x) && (neighbor.y !== current.y);
                 if (isDiag) {
                     const nx = neighbor.x, ny = neighbor.y;
-                    const b1 = this.isWalkable(current.x, ny, isShip);
-                    const b2 = this.isWalkable(nx, current.y, isShip);
+                    const b1 = this.isWalkable(current.x, ny, isShip, clearanceCells);
+                    const b2 = this.isWalkable(nx, current.y, isShip, clearanceCells);
                     if (!b1 || !b2) {
                         continue; // skip diagonals that pass between two blocked orthogonals
                     }
                 }
-                if (closedList.has(neighborKey) || !this.isWalkable(neighbor.x, neighbor.y, isShip)) {
+                if (closedList.has(neighborKey) || !this.isWalkable(neighbor.x, neighbor.y, isShip, clearanceCells)) {
                     continue;
                 }
 
@@ -395,7 +427,7 @@ class AStarPathfinder {
     }
 
     // Check line of sight between two world points using grid walkability
-    hasLineOfSight(x0, y0, x1, y1, isShip = false) {
+    hasLineOfSight(x0, y0, x1, y1, isShip = false, clearanceCells = 0) {
         const dx = x1 - x0;
         const dy = y1 - y0;
         const dist = Math.hypot(dx, dy);
@@ -408,13 +440,13 @@ class AStarPathfinder {
             const sy = y0 + dy * t;
             const cell = this.grid.worldToGrid(sx, sy);
             if (!this.grid.isValidCell(cell.x, cell.y)) return false;
-            if (!this.isWalkable(cell.x, cell.y, isShip)) return false;
+            if (!this.isWalkable(cell.x, cell.y, isShip, clearanceCells)) return false;
         }
         return true;
     }
 
     // Simplify path by removing unnecessary waypoints using LOS
-    simplifyPathLOS(path, isShip = false) {
+    simplifyPathLOS(path, isShip = false, clearanceCells = 0) {
         if (!path || path.length <= 2) return path || [];
         const result = [];
         let i = 0;
@@ -423,7 +455,7 @@ class AStarPathfinder {
             let j = path.length - 1;
             // Find farthest j visible from i
             for (; j > i + 1; j--) {
-                if (this.hasLineOfSight(path[i].x, path[i].y, path[j].x, path[j].y, isShip)) {
+                if (this.hasLineOfSight(path[i].x, path[i].y, path[j].x, path[j].y, isShip, clearanceCells)) {
                     break;
                 }
             }
@@ -434,7 +466,7 @@ class AStarPathfinder {
     }
 
     // Round corners by inserting short in/out points at turns
-    roundCorners(path, isShip = false) {
+    roundCorners(path, isShip = false, clearanceCells = 0) {
         if (!path || path.length <= 2) return path || [];
         // Adaptive rounding: bigger arcs near bridges and narrow corridors
         const baseRadius = Math.max(8, this.grid.cellSize * 1.1);
@@ -471,9 +503,9 @@ class AStarPathfinder {
             // Validate both rounded points are on walkable cells before using them
             const inCell = this.grid.worldToGrid(inPt.x, inPt.y);
             const outCell = this.grid.worldToGrid(outPt.x, outPt.y);
-            const inWalkable = this.isWalkable(inCell.x, inCell.y, isShip);
-            const outWalkable = this.isWalkable(outCell.x, outCell.y, isShip);
-            if (inWalkable && outWalkable && this.hasLineOfSight(inPt.x, inPt.y, outPt.x, outPt.y, isShip)) {
+            const inWalkable = this.isWalkable(inCell.x, inCell.y, isShip, clearanceCells);
+            const outWalkable = this.isWalkable(outCell.x, outCell.y, isShip, clearanceCells);
+            if (inWalkable && outWalkable && this.hasLineOfSight(inPt.x, inPt.y, outPt.x, outPt.y, isShip, clearanceCells)) {
                 out.push(inPt);
                 out.push(outPt);
             } else {
@@ -485,7 +517,7 @@ class AStarPathfinder {
     }
 
     // Additional smoothing using a Catmull-Rom-like spline with LOS checks
-    splineSmooth(path, isShip = false) {
+    splineSmooth(path, isShip = false, clearanceCells = 0) {
         if (!path || path.length < 3) return path || [];
         const pts = path;
         const result = [pts[0]];
@@ -504,8 +536,8 @@ class AStarPathfinder {
                 const dist = Math.hypot(x - prev.x, y - prev.y);
                 // Validate spline point is on a walkable cell
                 const spCell = this.grid.worldToGrid(x, y);
-                const spWalkable = this.grid.isValidCell(spCell.x, spCell.y) && this.isWalkable(spCell.x, spCell.y, isShip);
-                if (spWalkable && dist >= this.grid.cellSize * 0.5 && this.hasLineOfSight(prev.x, prev.y, x, y, isShip)) {
+                const spWalkable = this.grid.isValidCell(spCell.x, spCell.y) && this.isWalkable(spCell.x, spCell.y, isShip, clearanceCells);
+                if (spWalkable && dist >= this.grid.cellSize * 0.5 && this.hasLineOfSight(prev.x, prev.y, x, y, isShip, clearanceCells)) {
                     result.push({ x, y });
                 }
             }
@@ -513,51 +545,86 @@ class AStarPathfinder {
         // Ensure exact final point
         const last = pts[pts.length - 1];
         const prev = result[result.length - 1];
-        if (!prev || this.hasLineOfSight(prev.x, prev.y, last.x, last.y, isShip)) {
-            result.push(last);
-        } else {
+        if (!prev || this.hasLineOfSight(prev.x, prev.y, last.x, last.y, isShip, clearanceCells)) {
             result.push(last);
         }
         return result;
     }
 
-    // Final sweep: drop any waypoint that lands on an unwalkable cell
-    validatePath(path, isShip = false) {
+    hasTerrainFootprintLineOfSight(x0, y0, x1, y1, unitType, skipStart = false) {
+        if (typeof validateTerrainMovement !== 'function') return true;
+        const dx = x1 - x0;
+        const dy = y1 - y0;
+        const dist = Math.hypot(dx, dy);
+        if (dist === 0) return true;
+        const steps = Math.max(2, Math.ceil(dist / Math.max(4, this.grid.cellSize * 0.25)));
+        const unit = { type: unitType };
+        for (let i = skipStart ? 1 : 0; i <= steps; i++) {
+            const t = i / steps;
+            const sx = x0 + dx * t;
+            const sy = y0 + dy * t;
+            if (!validateTerrainMovement(unit, sx, sy)) return false;
+        }
+        return true;
+    }
+
+    // Final sweep: every waypoint and every segment must keep unit clearance.
+    validatePath(path, isShip = false, clearanceCells = 0, unitType = 'villager') {
         if (!path || path.length <= 1) return path || [];
-        const result = [path[0]]; // always keep start
-        for (let i = 1; i < path.length - 1; i++) {
-            const cell = this.grid.worldToGrid(path[i].x, path[i].y);
-            if (this.grid.isValidCell(cell.x, cell.y) && this.isWalkable(cell.x, cell.y, isShip)) {
-                result.push(path[i]);
+        const result = [];
+        for (let i = 0; i < path.length; i++) {
+            const point = path[i];
+            if (i === 0) {
+                result.push(point);
+                continue;
+            }
+
+            const cell = this.grid.worldToGrid(point.x, point.y);
+            if (!this.grid.isValidCell(cell.x, cell.y) || !this.isWalkable(cell.x, cell.y, isShip, clearanceCells)) {
+                return null;
+            }
+            if (typeof validateTerrainMovement === 'function' &&
+                !validateTerrainMovement({ type: unitType }, point.x, point.y)) {
+                return null;
+            }
+
+            const prev = result[result.length - 1];
+            const gridSafe = i === 1 || this.hasLineOfSight(prev.x, prev.y, point.x, point.y, isShip, clearanceCells);
+            const footprintSafe = this.hasTerrainFootprintLineOfSight(prev.x, prev.y, point.x, point.y, unitType, i === 1);
+            if (gridSafe && footprintSafe) {
+                result.push(point);
+            } else {
+                return null;
             }
         }
-        result.push(path[path.length - 1]); // always keep end
-        return result;
+        return result.length > 1 ? result : null;
     }
 
-    isWalkable(x, y, isShip = false) {
+    isWalkable(x, y, isShip = false, clearanceCells = 0) {
         if (!this.grid.isValidCell(x, y)) return false;
 
         const cell = this.grid.grid[y][x];
+        const requiredClearance = Math.max(0, clearanceCells || 0);
 
         if (isShip) {
-            // Ships can ONLY move in water - strictly enforce this
-            return cell.isWater === true;
+            // Ships can only move in water and need clearance from shore/bridges.
+            if (cell.isWater !== true || cell.blocksUnits) return false;
+            return (cell.waterClearance || 0) >= requiredClearance;
         } else {
-            // Land units CANNOT walk on water - strictly enforce this
-            if (cell.isWater) {
-                // Check for bridges as the only exception
-                const worldPos = this.grid.gridToWorld(x, y);
-                return isPointOnBridge && isPointOnBridge(worldPos.x, worldPos.y);
-            }
-            // Land units can walk on land if it's not blocked by buildings/other obstacles
-            return cell.walkable;
+            // Land units can only use cells with enough clearance from water/no-go/buildings.
+            if (cell.isWater || !cell.walkable) return false;
+            return (cell.clearance || 0) >= requiredClearance;
         }
     }
 
     getMoveCost(from, to, isShip = false) {
         const cell = this.grid.grid[to.y][to.x];
         let cost = cell.cost;
+        const clearance = isShip ? cell.waterClearance : cell.clearance;
+        if (Number.isFinite(clearance)) {
+            const edgePressure = Math.max(0, 4 - Math.min(4, clearance));
+            cost += edgePressure * 0.75;
+        }
 
         // Lightweight unit-density penalty at query time (avoids full-grid scan)
         const worldPos = this.grid.gridToWorld(to.x, to.y);
@@ -625,14 +692,14 @@ class AStarPathfinder {
         return neighbors;
     }
 
-    findNearestWalkableCell(x, y, isShip = false, maxRadius = 10) {
+    findNearestWalkableCell(x, y, isShip = false, clearanceCells = 0, maxRadius = 16) {
         for (let radius = 1; radius <= maxRadius; radius++) {
             for (let dx = -radius; dx <= radius; dx++) {
                 for (let dy = -radius; dy <= radius; dy++) {
                     if (Math.abs(dx) === radius || Math.abs(dy) === radius) {
                         const nx = x + dx;
                         const ny = y + dy;
-                        if (this.isWalkable(nx, ny, isShip)) {
+                        if (this.isWalkable(nx, ny, isShip, clearanceCells)) {
                             return { x: nx, y: ny };
                         }
                     }
@@ -703,7 +770,7 @@ function setUnitDestination(unit, targetX, targetY) {
     // STRICT TERRAIN VALIDATION for destination
     if (isVessel) {
         // Water units can only go to water destinations
-        if (!targetInWater) {
+        if (!targetInWater || targetOnBridge) {
             console.warn(`Water unit ${unit.type} cannot move to land destination`);
             return false; // Invalid destination
         }
@@ -718,10 +785,13 @@ function setUnitDestination(unit, targetX, targetY) {
     const path = findPath(unit.x, unit.y, targetX, targetY, unit.type);
 
     if (path && path.length > 1) {
+        const safeEnd = path[path.length - 1];
         unit.path = path.slice(1); // Remove starting position
         unit.state = 'moving';
-        unit.targetX = targetX;
-        unit.targetY = targetY;
+        unit.requestedTargetX = targetX;
+        unit.requestedTargetY = targetY;
+        unit.targetX = safeEnd.x;
+        unit.targetY = safeEnd.y;
         unit.pathfindingFailed = false;
         unit._stuckCount = 0;
         unit._moveProg = null;

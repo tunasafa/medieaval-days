@@ -34,7 +34,7 @@ function spreadIdleUnits(unit) {
             const newX = unit.x + pushX;
             const newY = unit.y + pushY;
 
-            if (!isPositionOccupied(newX, newY, unit, 8)) {
+            if (validateTerrainMovement(unit, newX, newY) && !isPositionOccupied(newX, newY, unit, 8)) {
                 unit.x = newX;
                 unit.y = newY;
             }
@@ -42,7 +42,7 @@ function spreadIdleUnits(unit) {
             const otherNewX = otherUnit.x - pushX;
             const otherNewY = otherUnit.y - pushY;
 
-            if (!isPositionOccupied(otherNewX, otherNewY, otherUnit, 8)) {
+            if (validateTerrainMovement(otherUnit, otherNewX, otherNewY) && !isPositionOccupied(otherNewX, otherNewY, otherUnit, 8)) {
                 otherUnit.x = otherNewX;
                 otherUnit.y = otherNewY;
             }
@@ -315,6 +315,8 @@ function updateUnit(unit, deltaTime) {
                                 unit.path = null;
                                 unit.targetX = undefined;
                                 unit.targetY = undefined;
+                                unit.requestedTargetX = undefined;
+                                unit.requestedTargetY = undefined;
                                 unit._stuckCount = 0;
                             }
                         } else {
@@ -325,12 +327,16 @@ function updateUnit(unit, deltaTime) {
                     }
                 } else {
                     // Reached destination
-                    unit.x = unit.targetX;
-                    unit.y = unit.targetY;
+                    if (validateTerrainMovement(unit, unit.targetX, unit.targetY)) {
+                        unit.x = unit.targetX;
+                        unit.y = unit.targetY;
+                    }
                     unit.state = 'idle';
                     unit._dirX = 0; unit._dirY = 0;
                     unit.targetX = undefined;
                     unit.targetY = undefined;
+                    unit.requestedTargetX = undefined;
+                    unit.requestedTargetY = undefined;
                     unit.path = null;
                     spreadIdleUnits(unit); // Spread out if too close to other idle units
                 }
@@ -407,9 +413,11 @@ function updateUnit(unit, deltaTime) {
 
                     if (isPositionOccupied(finalX, finalY, unit, 15)) {
                         const freePos = getAvailablePosition(finalX, finalY, 15);
-                        unit.x = freePos.x;
-                        unit.y = freePos.y;
-                    } else {
+                        if (validateTerrainMovement(unit, freePos.x, freePos.y)) {
+                            unit.x = freePos.x;
+                            unit.y = freePos.y;
+                        }
+                    } else if (validateTerrainMovement(unit, finalX, finalY)) {
                         unit.x = finalX;
                         unit.y = finalY;
                     }
@@ -418,6 +426,8 @@ function updateUnit(unit, deltaTime) {
                     unit._dirX = 0; unit._dirY = 0;
                     unit.targetX = undefined;
                     unit.targetY = undefined;
+                    unit.requestedTargetX = undefined;
+                    unit.requestedTargetY = undefined;
                     unit.path = null;
                 }
             }
@@ -1614,34 +1624,41 @@ function getAvailablePosition(x, y, radius = 18) {
 function validateTerrainMovement(unit, newX, newY) {
     const unitConfig = GAME_CONFIG.units[unit.type];
     const isVessel = !!unitConfig?.vessel;
-    const isInWater = isPointInWater(newX, newY);
-    const isOnBridge = isPointOnBridge(newX, newY);
+    const clearanceRadius = (typeof getTerrainClearanceRadius === 'function')
+        ? getTerrainClearanceRadius(unit)
+        : 16;
 
-    // Additional building collision check with larger buffer for movement
+    if (newX - clearanceRadius < 0 || newY - clearanceRadius < 0 ||
+        newX + clearanceRadius >= GAME_CONFIG.world.width ||
+        newY + clearanceRadius >= GAME_CONFIG.world.height) {
+        return false;
+    }
+
+    // Building collision checks use the full unit footprint, not only the center.
     for (const building of [...gameState.buildings, ...gameState.enemyBuildings]) {
-        if (isPointInRoundedRectangle(newX, newY, building, 17)) { // at least 2px buffer beyond art
+        if (isPointInRoundedRectangle(newX, newY, building, clearanceRadius)) {
             return false; // Prevent movement into building zones
         }
     }
-    // Block generic no-go zones (obstacles, explicit no-go types)
+
+    // Block generic no-go zones using an inflated rectangle so corners cannot clip.
     for (const obj of gameState.worldObjects) {
         if (obj.type === 'obstacle' || obj.type === 'no-go' || obj.type === 'noZone') {
-            const left = obj.x - 2, right = obj.x + obj.width + 2;
-            const top = obj.y - 2, bottom = obj.y + obj.height + 2;
+            const left = obj.x - clearanceRadius;
+            const right = obj.x + obj.width + clearanceRadius;
+            const top = obj.y - clearanceRadius;
+            const bottom = obj.y + obj.height + clearanceRadius;
             if (newX >= left && newX <= right && newY >= top && newY <= bottom) {
                 return false;
             }
         }
     }
 
-    if (isVessel) {
-        // WATER UNITS: Can ONLY move in water, never on land
-        return isInWater;
-    } else {
-        // LAND UNITS: Can NEVER move in water (except on bridges)
-        if (isInWater) {
-            return isOnBridge; // Only allowed if there's a bridge
-        }
-        return true; // Can move on land
+    if (typeof isTerrainFootprintAllowedForUnit === 'function') {
+        return isTerrainFootprintAllowedForUnit(unit, newX, newY, clearanceRadius);
     }
+
+    const isInWater = isPointInWater(newX, newY);
+    const isOnBridge = isPointOnBridge(newX, newY);
+    return isVessel ? isInWater && !isOnBridge : (!isInWater || isOnBridge);
 }

@@ -99,7 +99,7 @@ function placeBuilding(type, x, y) {
             }
             const free = getAvailablePosition(px, py, 16);
             px = free.x; py = free.y;
-            if (!isPointInWater(px, py)) {
+            if (validateTerrainMovement(u, px, py)) {
                 u.x = px; u.y = py; u.state = 'idle';
             }
         }

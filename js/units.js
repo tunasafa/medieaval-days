@@ -12,36 +12,36 @@
  */
 function spreadIdleUnits(unit) {
     if (unit.state !== 'idle') return;
-    
+
     const unitSize = 24;
     const minDistance = unitSize * 0.5;
     const allUnits = [...gameState.units, ...gameState.enemyUnits];
-    
+
     for (const otherUnit of allUnits) {
         if (otherUnit === unit || otherUnit.state !== 'idle') continue;
-        
+
         const dx = unit.x - otherUnit.x;
         const dy = unit.y - otherUnit.y;
         const distance = Math.hypot(dx, dy);
-        
+
         if (distance < minDistance && distance > 0) {
             const pushDistance = (minDistance - distance) / 2;
             const pushAngle = Math.atan2(dy, dx);
-            
+
             const pushX = Math.cos(pushAngle) * pushDistance;
             const pushY = Math.sin(pushAngle) * pushDistance;
-            
+
             const newX = unit.x + pushX;
             const newY = unit.y + pushY;
-            
+
             if (!isPositionOccupied(newX, newY, unit, 8)) {
                 unit.x = newX;
                 unit.y = newY;
             }
-            
+
             const otherNewX = otherUnit.x - pushX;
             const otherNewY = otherUnit.y - pushY;
-            
+
             if (!isPositionOccupied(otherNewX, otherNewY, otherUnit, 8)) {
                 otherUnit.x = otherNewX;
                 otherUnit.y = otherNewY;
@@ -108,6 +108,20 @@ function updateUnits(deltaTime) {
 
 function updateUnit(unit, deltaTime) {
     const config = GAME_CONFIG.units[unit.type];
+
+    // Handle pending disembark for transports that have arrived near shore
+    if (unit._pendingDisembark && isTransport(unit) && unit.cargo && unit.cargo.length > 0) {
+        // Check if transport is close to land (within disembark range) or has stopped moving
+        const closeToLand = !isPointInWater(unit.x + 30, unit.y) || !isPointInWater(unit.x - 30, unit.y) ||
+            !isPointInWater(unit.x, unit.y + 30) || !isPointInWater(unit.x, unit.y - 30);
+        const stoppedMoving = unit.state !== 'moving' || (unit.path === null && unit.targetX === undefined);
+
+        if (closeToLand || stoppedMoving) {
+            disembarkCargoNearShore(unit);
+            unit._pendingDisembark = false;
+        }
+    }
+
     // NEW EMBARK SYSTEM: When moving toward a transport, check for automatic embark
     if (unit.embarkTargetId && unit.state === 'moving' && !GAME_CONFIG.units[unit.type]?.vessel) {
         const transport = gameState.units.find(u => u.id === unit.embarkTargetId && isTransport(u));
@@ -115,7 +129,7 @@ function updateUnit(unit, deltaTime) {
             const dist = Math.hypot(unit.x - transport.x, unit.y - transport.y);
             const capacity = GAME_CONFIG.units[transport.type].capacity || 0;
             const currentCargo = (transport.cargo || []).length;
-            
+
             // Auto-embark when close enough and there's space
             if (dist <= 30 && currentCargo < capacity) {
                 // Remove from active units and add to transport cargo
@@ -123,19 +137,19 @@ function updateUnit(unit, deltaTime) {
                 unit.embarkedIn = transport.id;
                 transport.cargo = transport.cargo || [];
                 transport.cargo.push(unit);
-                
+
                 // Remove unit from gameState.units
                 const unitIndex = gameState.units.indexOf(unit);
                 if (unitIndex > -1) {
                     gameState.units.splice(unitIndex, 1);
                 }
-                
+
                 // Clean up DOM overlay if exists
                 if (unit._domGif && unit._domGif.parentNode) {
                     unit._domGif.parentNode.removeChild(unit._domGif);
                     unit._domGif = null;
                 }
-                
+
                 return; // Unit is now embarked, stop processing
             }
         } else {
@@ -155,13 +169,13 @@ function updateUnit(unit, deltaTime) {
                     unit.gatheredAmount = 0;
                 }
             } else {
+                // Fishing boat is on land - use pathfinding to return to water
                 const nearestWater = gameState.worldObjects.find(obj => obj.type === 'water');
                 if (nearestWater) {
                     const tx = Math.max(nearestWater.x, Math.min(unit.x, nearestWater.x + nearestWater.width));
                     const ty = Math.max(nearestWater.y, Math.min(unit.y, nearestWater.y + nearestWater.height));
-                    unit.state = 'moving';
-                    unit.targetX = tx;
-                    unit.targetY = ty;
+                    // Use pathfinding instead of direct movement to respect terrain
+                    setUnitDestination(unit, tx, ty);
                 }
             }
         }
@@ -182,9 +196,9 @@ function updateUnit(unit, deltaTime) {
                             unit.path.shift();
                             dx = far.x - unit.x;
                             dy = far.y - unit.y;
+                        }
                     }
-                    }
-                    
+
                     if (distance > 2) {
                         const moveSpeed = config.speed;
                         // Smooth steering especially for vessels
@@ -206,10 +220,10 @@ function updateUnit(unit, deltaTime) {
                         const dirY = dy / distance;
                         const newX = unit.x + dirX * moveSpeed;
                         const newY = unit.y + dirY * moveSpeed;
-                        
+
                         // STRICT TERRAIN VALIDATION - prevent any illegal movement
                         const isValidMove = validateTerrainMovement(unit, newX, newY);
-                        
+
                         // Allow passing through units: ignore unit collisions here, only block on terrain/buildings/water
                         if (isValidMove && !isPositionOccupied(newX, newY, unit, 8, true)) {
                             unit.x = newX;
@@ -219,12 +233,12 @@ function updateUnit(unit, deltaTime) {
                             // Try slight variations if main path is blocked by a unit (but still validate terrain)
                             const alternativeAngles = [-0.2, 0.2, -0.4, 0.4];
                             let moved = false;
-                            
+
                             for (const angleOffset of alternativeAngles) {
                                 const adjustedAngle = Math.atan2(dy, dx) + angleOffset;
                                 const altX = unit.x + Math.cos(adjustedAngle) * moveSpeed;
                                 const altY = unit.y + Math.sin(adjustedAngle) * moveSpeed;
-                                
+
                                 // Always validate terrain first; ignore unit collisions to allow passing
                                 if (validateTerrainMovement(unit, altX, altY) && !isPositionOccupied(altX, altY, unit, 8, true)) {
                                     unit.x = altX;
@@ -234,7 +248,7 @@ function updateUnit(unit, deltaTime) {
                                     break;
                                 }
                             }
-                            
+
                             // Axis-aligned corner slide: try x-only then y-only step
                             if (!moved) {
                                 const sx = unit.x + dirX * moveSpeed;
@@ -268,13 +282,42 @@ function updateUnit(unit, deltaTime) {
                             }
                         }
                     }
-                    // Progress-based stuck detection: if not advancing, force recompute
+                    // Progress-based stuck detection with escalating recovery
                     const progNow = Date.now();
                     if (!unit._moveProg) unit._moveProg = { t: progNow, x: unit.x, y: unit.y };
+                    if (!unit._stuckCount) unit._stuckCount = 0;
                     const dprog = Math.hypot(unit.x - unit._moveProg.x, unit.y - unit._moveProg.y);
                     if (progNow - unit._moveProg.t > 1200) {
                         if (dprog < 4) {
-                            setUnitDestination(unit, unit.targetX, unit.targetY);
+                            unit._stuckCount++;
+                            if (unit._stuckCount <= 2) {
+                                // Normal recalc
+                                setUnitDestination(unit, unit.targetX, unit.targetY);
+                            } else if (unit._stuckCount === 3) {
+                                // Try offset destinations
+                                const offsets = [32, -32];
+                                let unstuck = false;
+                                for (const ox of offsets) {
+                                    for (const oy of offsets) {
+                                        if (setUnitDestination(unit, unit.targetX + ox, unit.targetY + oy)) {
+                                            unstuck = true;
+                                            break;
+                                        }
+                                    }
+                                    if (unstuck) break;
+                                }
+                                if (!unstuck) setUnitDestination(unit, unit.targetX, unit.targetY);
+                            } else {
+                                // Give up — go idle to avoid infinite loop
+                                unit.state = 'idle';
+                                unit.path = null;
+                                unit.targetX = undefined;
+                                unit.targetY = undefined;
+                                unit._stuckCount = 0;
+                            }
+                        } else {
+                            // Making progress — reset stuck counter
+                            unit._stuckCount = 0;
                         }
                         unit._moveProg = { t: progNow, x: unit.x, y: unit.y };
                     }
@@ -294,7 +337,7 @@ function updateUnit(unit, deltaTime) {
                 let dx = unit.targetX - unit.x;
                 let dy = unit.targetY - unit.y;
                 const distance = Math.sqrt(dx * dx + dy * dy);
-                
+
                 if (distance > 5) {
                     const moveSpeed = config.speed;
                     // Smooth steering for vessels
@@ -314,22 +357,23 @@ function updateUnit(unit, deltaTime) {
                     }
                     const newX = unit.x + (dx / distance) * moveSpeed;
                     const newY = unit.y + (dy / distance) * moveSpeed;
-                    
-                    if (!isPositionOccupied(newX, newY, unit, 8, true)) {
+
+                    // STRICT TERRAIN VALIDATION - prevent illegal movement through water/no-go zones
+                    if (validateTerrainMovement(unit, newX, newY) && !isPositionOccupied(newX, newY, unit, 8, true)) {
                         unit.x = newX;
                         unit.y = newY;
                         applyUnitSeparation(unit);
                     } else {
-                        // Try alternative angles
+                        // Try alternative angles (always validate terrain first)
                         const alternativeAngles = [-0.3, 0.3, -0.6, 0.6, -0.9, 0.9];
                         let moved = false;
-                        
+
                         for (const angleOffset of alternativeAngles) {
                             const adjustedAngle = Math.atan2(dy, dx) + angleOffset;
                             const altX = unit.x + Math.cos(adjustedAngle) * moveSpeed;
                             const altY = unit.y + Math.sin(adjustedAngle) * moveSpeed;
-                            
-                            if (!isPositionOccupied(altX, altY, unit, 8, true)) {
+
+                            if (validateTerrainMovement(unit, altX, altY) && !isPositionOccupied(altX, altY, unit, 8, true)) {
                                 unit.x = altX;
                                 unit.y = altY;
                                 moved = true;
@@ -337,7 +381,7 @@ function updateUnit(unit, deltaTime) {
                                 break;
                             }
                         }
-                        
+
                         if (!moved) {
                             // If still stuck, try pathfinding
                             if (!unit.pathfindingFailed) {
@@ -358,7 +402,7 @@ function updateUnit(unit, deltaTime) {
                     // Reached destination
                     const finalX = unit.targetX;
                     const finalY = unit.targetY;
-                    
+
                     if (isPositionOccupied(finalX, finalY, unit, 15)) {
                         const freePos = getAvailablePosition(finalX, finalY, 15);
                         unit.x = freePos.x;
@@ -367,7 +411,7 @@ function updateUnit(unit, deltaTime) {
                         unit.x = finalX;
                         unit.y = finalY;
                     }
-                    
+
                     unit.state = 'idle';
                     unit._dirX = 0; unit._dirY = 0;
                     unit.targetX = undefined;
@@ -405,18 +449,18 @@ function updateUnit(unit, deltaTime) {
                 unit.attackPath = findPath(unit.x, unit.y, tx, ty, unit.type);
                 unit.attackPathTimer = 0;
             }
-            
+
             if (unit.attackPath && unit.attackPath.length > 0) {
                 // Follow attack path
                 const waypoint = unit.attackPath[0];
                 const waypointDx = waypoint.x - unit.x;
                 const waypointDy = waypoint.y - unit.y;
                 const waypointDistance = Math.hypot(waypointDx, waypointDy);
-                
+
                 if (waypointDistance < 18) {
                     unit.attackPath.shift(); // Remove reached waypoint
                 }
-                
+
                 if (waypointDistance > 2) {
                     // LOS skip for attack path
                     if (unit.attackPath.length > 1) {
@@ -429,10 +473,10 @@ function updateUnit(unit, deltaTime) {
                     const dirY = waypointDy / waypointDistance;
                     const tentativeX = unit.x + dirX * config.speed;
                     const tentativeY = unit.y + dirY * config.speed;
-                    
+
                     // Add terrain validation for attacking units
                     const isValidMove = validateTerrainMovement(unit, tentativeX, tentativeY);
-                    
+
                     if (isValidMove && !isPositionOccupied(tentativeX, tentativeY, unit, 12, true)) {
                         unit.x = tentativeX;
                         unit.y = tentativeY;
@@ -440,14 +484,14 @@ function updateUnit(unit, deltaTime) {
                         // Try slight angle variations for immediate obstacles
                         const alternativeAngles = [-0.3, 0.3, -0.6, 0.6];
                         let moved = false;
-                        
+
                         for (const angleOffset of alternativeAngles) {
                             const adjustedAngle = Math.atan2(waypointDy, waypointDx) + angleOffset;
                             const altX = unit.x + Math.cos(adjustedAngle) * config.speed;
                             const altY = unit.y + Math.sin(adjustedAngle) * config.speed;
-                            
+
                             const isValidAltMove = validateTerrainMovement(unit, altX, altY);
-                            
+
                             if (isValidAltMove && !isPositionOccupied(altX, altY, unit, 12, true)) {
                                 unit.x = altX;
                                 unit.y = altY;
@@ -455,7 +499,7 @@ function updateUnit(unit, deltaTime) {
                                 break;
                             }
                         }
-                        
+
                         if (!moved) {
                             // Axis slide
                             const sx = unit.x + dirX * config.speed;
@@ -479,15 +523,15 @@ function updateUnit(unit, deltaTime) {
                 // Fallback to direct movement if pathfinding fails
                 const tentativeX = unit.x + (dx / distance) * config.speed;
                 const tentativeY = unit.y + (dy / distance) * config.speed;
-                
+
                 const isValidMove = validateTerrainMovement(unit, tentativeX, tentativeY);
-                
+
                 if (isValidMove && !isPositionOccupied(tentativeX, tentativeY, unit, 12, true)) {
                     unit.x = tentativeX;
                     unit.y = tentativeY;
                 }
             }
-            
+
             unit.attackPathTimer = (unit.attackPathTimer || 0) + deltaTime;
         } else {
             if (!unit.lastAttack || Date.now() - unit.lastAttack > 1000) {
@@ -503,13 +547,13 @@ function updateUnit(unit, deltaTime) {
                     unit._dirX = 0; unit._dirY = 0;
                     unit.target = null;
                     unit.targetPoint = undefined;
-                spreadIdleUnits(unit);
+                    spreadIdleUnits(unit);
                 }
             }
         }
     } else if (unit.state === 'gathering' && unit.targetResource) {
-        const targetX = unit.targetResource.x + unit.targetResource.width/2 + (unit.gatherOffset?.dx || 0);
-        const targetY = unit.targetResource.y + unit.targetResource.height/2 + (unit.gatherOffset?.dy || 0);
+        const targetX = unit.targetResource.x + unit.targetResource.width / 2 + (unit.gatherOffset?.dx || 0);
+        const targetY = unit.targetResource.y + unit.targetResource.height / 2 + (unit.gatherOffset?.dy || 0);
         const dx = targetX - unit.x;
         const dy = targetY - unit.y;
         const distance = Math.sqrt(dx * dx + dy * dy);
@@ -519,17 +563,17 @@ function updateUnit(unit, deltaTime) {
                 unit.gatherPath = findPath(unit.x, unit.y, targetX, targetY, unit.type);
                 unit.gatherPathTimer = 0;
             }
-            
+
             if (unit.gatherPath && unit.gatherPath.length > 0) {
                 const waypoint = unit.gatherPath[0];
                 const waypointDx = waypoint.x - unit.x;
                 const waypointDy = waypoint.y - unit.y;
                 const waypointDistance = Math.hypot(waypointDx, waypointDy);
-                
+
                 if (waypointDistance < 16) {
                     unit.gatherPath.shift();
                 }
-                
+
                 if (waypointDistance > 2) {
                     // LOS skip for gather path
                     if (unit.gatherPath.length > 1) {
@@ -556,23 +600,23 @@ function updateUnit(unit, deltaTime) {
                     const dirX = ddx / dd, dirY = ddy / dd;
                     const newX = unit.x + dirX * config.speed;
                     const newY = unit.y + dirY * config.speed;
-                    
+
                     const isValidMove = validateTerrainMovement(unit, newX, newY);
-                    
+
                     if (isValidMove && !isPositionOccupied(newX, newY, unit, 8, true)) {
                         unit.x = newX;
                         unit.y = newY;
                     } else {
                         const alternativeAngles = [-0.4, 0.4, -0.8, 0.8];
                         let moved = false;
-                        
+
                         for (const angleOffset of alternativeAngles) {
                             const adjustedAngle = Math.atan2(waypointDy, waypointDx) + angleOffset;
                             const altX = unit.x + Math.cos(adjustedAngle) * config.speed;
                             const altY = unit.y + Math.sin(adjustedAngle) * config.speed;
-                            
+
                             const isValidAltMove = validateTerrainMovement(unit, altX, altY);
-                            
+
                             if (isValidAltMove && !isPositionOccupied(altX, altY, unit, 8, true)) {
                                 unit.x = altX;
                                 unit.y = altY;
@@ -580,7 +624,7 @@ function updateUnit(unit, deltaTime) {
                                 break;
                             }
                         }
-                        
+
                         if (!moved) {
                             // Axis slide to get around corners
                             const sx = unit.x + dirX * config.speed;
@@ -602,23 +646,23 @@ function updateUnit(unit, deltaTime) {
                 // Fallback to direct movement
                 const newX = unit.x + (dx / distance) * config.speed;
                 const newY = unit.y + (dy / distance) * config.speed;
-                
+
                 const isValidMove = validateTerrainMovement(unit, newX, newY);
-                
+
                 if (isValidMove && !isPositionOccupied(newX, newY, unit, 8, true)) {
                     unit.x = newX;
                     unit.y = newY;
                 } else {
                     const alternativeAngles = [-0.5, 0.5, -1, 1];
                     let moved = false;
-                    
+
                     for (const angleOffset of alternativeAngles) {
                         const adjustedAngle = Math.atan2(dy, dx) + angleOffset;
                         const altX = unit.x + Math.cos(adjustedAngle) * config.speed;
                         const altY = unit.y + Math.sin(adjustedAngle) * config.speed;
-                        
+
                         const isValidAltMove = validateTerrainMovement(unit, altX, altY);
-                        
+
                         if (isValidAltMove && !isPositionOccupied(altX, altY, unit, 8, true)) {
                             unit.x = altX;
                             unit.y = altY;
@@ -626,7 +670,7 @@ function updateUnit(unit, deltaTime) {
                             break;
                         }
                     }
-                    
+
                     if (!moved) {
                         // Respect terrain when nudging to avoid stalling
                         const gx = unit.x + (dx / distance) * (config.speed * 0.3);
@@ -638,20 +682,20 @@ function updateUnit(unit, deltaTime) {
                     }
                 }
             }
-            
+
             unit.gatherPathTimer = (unit.gatherPathTimer || 0) + deltaTime;
         } else {
             if (!unit.gatherStartTime) unit.gatherStartTime = Date.now();
             const gatherTime = (Date.now() - unit.gatherStartTime) / 1000;
             const gathered = Math.min(gatherTime * config.gatherRate, unit.targetResource.amount);
             unit.gatheredAmount = gathered;
-            
+
             if (gathered >= unit.targetResource.amount || gathered >= 25) {
                 unit.targetResource.amount -= unit.gatheredAmount;
                 if (unit.targetResource.amount <= 0) {
                     unit.targetResource.amount = 0;
                 }
-                
+
                 unit.state = 'returning';
                 unit.gatherStartTime = null;
                 const tc = gameState.buildings.find(b => b.type === 'town-center' && b.player === 'player');
@@ -728,7 +772,7 @@ function updateUnit(unit, deltaTime) {
         const distance = Math.sqrt(dx * dx + dy * dy);
 
         // Consider delivery successful when within a generous radius of the nearest edge
-    const depositRadius = 16; // pixels, a bit more generous
+        const depositRadius = 16; // pixels, a bit more generous
         if (distance > depositRadius) {
             // Try to use a path when available (recompute periodically)
             unit.returnPathTimer = (unit.returnPathTimer || 0) + deltaTime;
@@ -874,7 +918,7 @@ function updateUnitAnimation(unit, deltaTime) {
     }
     if (moving) {
         const angle = Math.atan2(dy, dx);
-        const dirs = ['east','southeast','south','southwest','west','northwest','north','northeast'];
+        const dirs = ['east', 'southeast', 'south', 'southwest', 'west', 'northwest', 'north', 'northeast'];
         const idx = (Math.round(((angle + Math.PI) / (Math.PI / 4))) % 8 + 8) % 8; // 0..7
         unit.anim.direction = dirs[idx];
     }
@@ -887,7 +931,7 @@ function updateUnitAnimation(unit, deltaTime) {
 function updateUnitAnimations() {
     gameState.units.forEach(unit => {
         if (!unit.anim) unit.anim = { action: 'idle', frame: 0 };
-        
+
         // Update animation based on unit state
         if (unit.state === 'moving' && unit.targetX !== undefined && unit.targetY !== undefined) {
             unit.anim.action = 'walk';
@@ -895,10 +939,10 @@ function updateUnitAnimations() {
             unit.anim.action = 'idle';
         }
     });
-    
+
     gameState.enemyUnits.forEach(unit => {
         if (!unit.anim) unit.anim = { action: 'idle', frame: 0 };
-        
+
         // Simple enemy animation logic
         if (unit.state === 'moving') {
             unit.anim.action = 'walk';
@@ -986,7 +1030,7 @@ function computeSideMinClearance(building, unitType, side) {
 function getAllowedSpawnSides(building, unitType) {
     const unitSize = 24;
     const minRequired = Math.ceil(unitSize * 1.5); // 1.5x unit size
-    const sides = ['top','right','bottom','left'];
+    const sides = ['top', 'right', 'bottom', 'left'];
     const allowed = [];
     for (const s of sides) {
         const clear = computeSideMinClearance(building, unitType, s);
@@ -1054,11 +1098,11 @@ function findSpawnPointNearBuilding(building, unitType) {
     const sides = ['top', 'right', 'bottom', 'left'];
     // Prefer sides with larger clearance
     const byClear = sides.map(s => ({ side: s, clear: computeSideMinClearance(building, unitType, s) }))
-                        .sort((a, b) => b.clear - a.clear)
-                        .map(e => e.side);
+        .sort((a, b) => b.clear - a.clear)
+        .map(e => e.side);
     const stepAlong = 8;
     const pad = 6; // avoid exact corners
-    const offsets = [18, 26, 34, 42, 50, 60, 72, 84, 96];
+    const offsets = [18, 26, 34, 42, 50, 60, 72, 84, 96, 112, 128, 150, 175, 200];
 
     for (const off of offsets) {
         for (const side of byClear) {
@@ -1100,13 +1144,47 @@ function findSpawnPointNearBuilding(building, unitType) {
     return null;
 }
 
+// BFS outward from building to find the nearest water cell for vessel spawning
+function findWaterSpawnPoint(building) {
+    if (!pathfindingGrid) return null;
+    const cx = building.x + building.width / 2;
+    const cy = building.y + building.height / 2;
+    const startCell = pathfindingGrid.worldToGrid(cx, cy);
+    const visited = new Set();
+    const bfsQ = [startCell];
+    let bfsHead = 0;
+    visited.add(`${startCell.x},${startCell.y}`);
+    const bfsDirs = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]];
+    // Search up to ~200px radius (200/16 ≈ 13 cells, but BFS covers more)
+    const maxCells = 8000;
+    while (bfsHead < bfsQ.length && bfsHead < maxCells) {
+        const c = bfsQ[bfsHead++];
+        if (pathfindingGrid.isValidCell(c.x, c.y) && pathfindingGrid.grid[c.y][c.x].isWater) {
+            const wp = pathfindingGrid.gridToWorld(c.x, c.y);
+            // Ensure not occupied
+            if (!isPositionOccupied(wp.x, wp.y, null, 15)) {
+                return wp;
+            }
+        }
+        for (const [ddx, ddy] of bfsDirs) {
+            const nx = c.x + ddx, ny = c.y + ddy;
+            const nk = `${nx},${ny}`;
+            if (!visited.has(nk) && pathfindingGrid.isValidCell(nx, ny)) {
+                visited.add(nk);
+                bfsQ.push({ x: nx, y: ny });
+            }
+        }
+    }
+    return null;
+}
+
 function spawnUnit(type, spawnAnchor) {
     // Check population limit before spawning
     if (gameState.population.current >= gameState.population.max) {
         showNotification('Cannot complete training: population limit reached!');
         return;
     }
-    
+
     let spawnBuilding = spawnAnchor || gameState.selectedBuilding;
     if (!spawnBuilding || (spawnBuilding.player && spawnBuilding.player !== 'player')) {
         const capable = {
@@ -1125,9 +1203,17 @@ function spawnUnit(type, spawnAnchor) {
     const centerX = spawnBuilding.x + spawnBuilding.width / 2;
     const centerY = spawnBuilding.y + spawnBuilding.height / 2;
     const ringRadius = Math.max(spawnBuilding.width, spawnBuilding.height) / 2 + 18;
-    let position = findSpawnPointNearBuilding(spawnBuilding, type);
     const isVessel = !!GAME_CONFIG.units[type]?.vessel;
-    
+
+    // For vessels, use water-specific BFS spawn first
+    let position = null;
+    if (isVessel) {
+        position = findWaterSpawnPoint(spawnBuilding);
+    }
+    if (!position) {
+        position = findSpawnPointNearBuilding(spawnBuilding, type);
+    }
+
     // Fallback position with terrain validation
     if (!position) {
         // Absolute fallback: place at a safe ring offset in front (bottom side) if possible
@@ -1150,11 +1236,11 @@ function spawnUnit(type, spawnAnchor) {
         target: null,
         isSelected: false,
         // Enhanced animation defaults for GIF support
-        anim: type === 'villager' ? { 
-            action: 'idle', 
-            direction: 'down', 
-            frame: 0, 
-            elapsed: 0 
+        anim: type === 'villager' ? {
+            action: 'idle',
+            direction: 'down',
+            frame: 0,
+            elapsed: 0
         } : undefined,
         prevX: position.x,
         prevY: position.y
@@ -1165,17 +1251,17 @@ function spawnUnit(type, spawnAnchor) {
 
 function trainUnit(type, producingBuilding = null) {
     const ageRestrictions = {
-    'axeman': ['Feudal Age', 'Castle Age', 'Imperial Age'],
+        'axeman': ['Feudal Age', 'Castle Age', 'Imperial Age'],
         'catapult': ['Castle Age', 'Imperial Age'],
         'ballista': ['Castle Age', 'Imperial Age'],
         'crossbowman': ['Feudal Age', 'Castle Age', 'Imperial Age']
     };
-    
+
     if (ageRestrictions[type] && !ageRestrictions[type].includes(gameState.currentAge)) {
         showNotification(`Cannot train ${type} in ${gameState.currentAge}!`);
         return;
     }
-    
+
     const unitConfig = GAME_CONFIG.units[type];
     if (!canAfford(unitConfig.cost)) {
         showNotification(`Not enough resources!`);
@@ -1213,29 +1299,29 @@ function trainUnitFromBuilding(type, building) {
 // NEW EMBARK FUNCTION: Simple distance-based embark when units are near transport
 function embarkUnitsNearTransport(selectedUnits, transport) {
     if (!isTransport(transport)) return;
-    
+
     const capacity = GAME_CONFIG.units[transport.type].capacity || 0;
     transport.cargo = transport.cargo || [];
     let embarked = 0;
-    
+
     for (const unit of selectedUnits) {
         if (unit === transport) continue; // Don't embark the transport itself
         if (GAME_CONFIG.units[unit.type]?.vessel) continue; // Only land units can embark
         if (transport.cargo.length >= capacity) break; // No more space
-        
+
         const dist = Math.hypot(unit.x - transport.x, unit.y - transport.y);
         if (dist <= 40) { // Within embark range
             // Store unit in transport cargo
             unit.state = 'embarked';
             unit.embarkedIn = transport.id;
             transport.cargo.push(unit);
-            
+
             // Remove from active units
             const unitIndex = gameState.units.indexOf(unit);
             if (unitIndex > -1) {
                 gameState.units.splice(unitIndex, 1);
             }
-            
+
             // Clean up unit selection
             if (unit.isSelected) {
                 unit.isSelected = false;
@@ -1244,17 +1330,17 @@ function embarkUnitsNearTransport(selectedUnits, transport) {
                     gameState.selectedUnits.splice(selIndex, 1);
                 }
             }
-            
+
             // Clean up DOM overlay
             if (unit._domGif && unit._domGif.parentNode) {
                 unit._domGif.parentNode.removeChild(unit._domGif);
                 unit._domGif = null;
             }
-            
+
             embarked++;
         }
     }
-    
+
     if (embarked > 0) {
         showNotification(`${embarked} unit(s) embarked!`);
         updateSelectionInfo();
@@ -1264,62 +1350,65 @@ function embarkUnitsNearTransport(selectedUnits, transport) {
 // NEW DISEMBARK FUNCTION: Land units near shore in spread formation
 function disembarkCargoNearShore(transport) {
     if (!isTransport(transport) || !transport.cargo || transport.cargo.length === 0) return;
-    
+
     const disembarked = [];
     const baseX = transport.x;
     const baseY = transport.y;
-    
+
     // Find safe landing spots in a spread pattern
     for (let i = 0; i < transport.cargo.length; i++) {
         const unit = transport.cargo[i];
         let landingSpot = null;
-        
+
         // Try different angles and distances to find a safe landing spot on land
         for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 8) {
             for (let radius = 25; radius <= 60; radius += 10) {
                 const testX = baseX + Math.cos(angle) * radius;
                 const testY = baseY + Math.sin(angle) * radius;
-                
-                // Must be on land (not water) and not occupied
-                if (!isPointInWater(testX, testY) && 
+
+                // Must be on valid land terrain (not water, not in no-go zones, not in buildings)
+                // Use validateTerrainMovement with a dummy land unit for full terrain validation
+                const dummyUnit = { type: 'villager' };
+                if (!isPointInWater(testX, testY) &&
+                    validateTerrainMovement(dummyUnit, testX, testY) &&
                     !isPositionOccupied(testX, testY, null, 15) &&
-                    testX >= 0 && testY >= 0 && 
+                    testX >= 0 && testY >= 0 &&
                     testX < GAME_CONFIG.world.width && testY < GAME_CONFIG.world.height) {
-                    
+
                     landingSpot = { x: testX, y: testY };
                     break;
                 }
             }
             if (landingSpot) break;
         }
-        
+
         if (landingSpot) {
             // Place unit on land
             unit.x = landingSpot.x;
             unit.y = landingSpot.y;
             unit.state = 'idle';
             unit.embarkedIn = null;
-            
+
             // Add back to active units
             gameState.units.push(unit);
-            
+
             // Clean up DOM overlay to ensure visibility
             if (unit._domGif) {
                 try {
                     if (unit._domGif.parentNode) {
                         unit._domGif.parentNode.removeChild(unit._domGif);
                     }
-                } catch(e) {}
+                } catch (e) { }
                 unit._domGif = null;
             }
-            
+
             disembarked.push(unit);
         }
     }
-    
+
     // Remove disembarked units from cargo
     transport.cargo = transport.cargo.filter(unit => !disembarked.includes(unit));
-    
+
     if (disembarked.length > 0) {
         showNotification(`${disembarked.length} unit(s) disembarked!`);
     }
@@ -1336,21 +1425,21 @@ function handleUnitDeath(unit) {
         const index = gameState.enemyUnits.indexOf(unit);
         if (index > -1) gameState.enemyUnits.splice(index, 1);
     }
-     if (unit.type === 'resource' && unit.amount !== undefined) {
-         unit.amount = 0;
+    if (unit.type === 'resource' && unit.amount !== undefined) {
+        unit.amount = 0;
     }
 }
 
 // Rounded rectangle collision detection for buildings
 function isPointInRoundedRectangle(x, y, building, buffer) {
     const cornerRadius = Math.min(32, Math.min(building.width, building.height) * 0.4); // Much more rounded corners
-    
+
     // Expand the building bounds by the buffer
     const left = building.x - buffer;
     const right = building.x + building.width + buffer;
     const top = building.y - buffer;
     const bottom = building.y + building.height + buffer;
-    
+
     // Check if point is in the main rectangle (excluding corners)
     if (x >= left + cornerRadius && x <= right - cornerRadius && y >= top && y <= bottom) {
         return true; // In horizontal band
@@ -1358,7 +1447,7 @@ function isPointInRoundedRectangle(x, y, building, buffer) {
     if (y >= top + cornerRadius && y <= bottom - cornerRadius && x >= left && x <= right) {
         return true; // In vertical band
     }
-    
+
     // Check rounded corners
     const corners = [
         { cx: left + cornerRadius, cy: top + cornerRadius },     // Top-left
@@ -1366,17 +1455,17 @@ function isPointInRoundedRectangle(x, y, building, buffer) {
         { cx: left + cornerRadius, cy: bottom - cornerRadius },  // Bottom-left
         { cx: right - cornerRadius, cy: bottom - cornerRadius }  // Bottom-right
     ];
-    
+
     for (const corner of corners) {
         const dx = x - corner.cx;
         const dy = y - corner.cy;
         const distanceSquared = dx * dx + dy * dy;
-        
+
         if (distanceSquared <= cornerRadius * cornerRadius) {
             return true; // In corner circle
         }
     }
-    
+
     return false;
 }
 
@@ -1384,15 +1473,15 @@ function isPositionOccupied(x, y, excludeUnit = null, radius = 15, ignoreUnits =
     // Check unit collisions only if not ignoring units
     if (!ignoreUnits) {
         const allUnits = [...gameState.units, ...gameState.enemyUnits];
-        
+
         if (excludeUnit && excludeUnit.type === 'villager') {
             for (const unit of allUnits) {
                 if (unit === excludeUnit) continue;
-                
+
                 if (unit.type === 'villager' && excludeUnit.state === 'moving') {
                     continue;
                 }
-                
+
                 const distance = Math.sqrt(Math.pow(x - unit.x, 2) + Math.pow(y - unit.y, 2));
                 if (distance < radius) {
                     return true;
@@ -1408,30 +1497,37 @@ function isPositionOccupied(x, y, excludeUnit = null, radius = 15, ignoreUnits =
             }
         }
     }
-    
+
     for (const building of [...gameState.buildings, ...gameState.enemyBuildings]) {
         if (isPointInRoundedRectangle(x, y, building, 17)) {
             return true;
         }
     }
 
-    const inWater = gameState.worldObjects.some(obj => obj.type === 'water' &&
-        x >= obj.x && x <= obj.x + obj.width && y >= obj.y && y <= obj.y + obj.height);
+    // Use isPointInWater() for consistent tilemap-aware water detection
+    const inWater = typeof isPointInWater === 'function' ? isPointInWater(x, y) :
+        gameState.worldObjects.some(obj => obj.type === 'water' &&
+            x >= obj.x && x <= obj.x + obj.width && y >= obj.y && y <= obj.y + obj.height);
     const onBridge = gameState.worldObjects.some(obj => obj.type === 'bridge' &&
         x >= obj.x && x <= obj.x + obj.width && y >= obj.y && y <= obj.y + obj.height);
+
+    // Determine unit type for terrain validation - works even when excludeUnit is null
+    // by checking if the position is in water and not on a bridge (invalid for land units)
     if (excludeUnit) {
         const isVessel = !!GAME_CONFIG.units[excludeUnit.type]?.vessel;
         if (!isVessel) {
             // Land units cannot enter water unless on a bridge
             if (inWater && !onBridge) return true;
-            // Allow approaching shoreline; do not block on shore band alone
         } else {
             // Vessels must remain in water
             if (!inWater) return true;
-            // Allow near inner water band so ships can skim the shore without getting stuck
         }
+    } else {
+        // When no excludeUnit is provided (spawn checks, disembark, etc.),
+        // still validate water/bridge consistency to prevent invalid placements
+        if (inWater && !onBridge) return true;
     }
-    
+
     return false;
 }
 
@@ -1441,10 +1537,10 @@ function getAvailablePosition(x, y, radius = 18) {
     const maxAttempts = 50;
     let currentX = x;
     let currentY = y;
-    
+
     while (attempts < maxAttempts) {
         let foundCollision = false;
-        
+
         for (const unit of allUnits) {
             const distance = Math.sqrt(Math.pow(currentX - unit.x, 2) + Math.pow(currentY - unit.y, 2));
             if (distance < radius) {
@@ -1452,29 +1548,29 @@ function getAvailablePosition(x, y, radius = 18) {
                 break;
             }
         }
-        
+
         for (const building of [...gameState.buildings, ...gameState.enemyBuildings]) {
             if (isPointInRoundedRectangle(currentX, currentY, building, 18)) {
                 foundCollision = true;
                 break;
             }
         }
-        
+
         if (!foundCollision) {
             return { x: currentX, y: currentY };
         }
-        
+
         const angle = (attempts / maxAttempts) * Math.PI * 2 * 3;
         const distance = Math.min((attempts / maxAttempts) * 80, 80);
         currentX = x + Math.cos(angle) * distance;
         currentY = y + Math.sin(angle) * distance;
-        
+
         currentX = Math.max(20, Math.min(GAME_CONFIG.world.width - 20, currentX));
         currentY = Math.max(20, Math.min(GAME_CONFIG.world.height - 20, currentY));
-        
+
         attempts++;
     }
-    
+
     return { x: currentX, y: currentY };
 }
 
@@ -1502,7 +1598,7 @@ function validateTerrainMovement(unit, newX, newY) {
             }
         }
     }
-    
+
     if (isVessel) {
         // WATER UNITS: Can ONLY move in water, never on land
         return isInWater;

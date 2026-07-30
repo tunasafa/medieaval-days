@@ -153,6 +153,30 @@ function clampTargetToAllowed(unit, tx, ty) {
     }
     if (isVessel) {
         if (isPointInWater(tx, ty)) return { x: tx, y: ty };
+        // Grid-based BFS to find nearest water cell
+        if (pathfindingGrid) {
+            const startCell = pathfindingGrid.worldToGrid(tx, ty);
+            const visited = new Set();
+            const bfsQ = [startCell];
+            let bfsHead = 0;
+            visited.add(`${startCell.x},${startCell.y}`);
+            const bfsDirs = [[1,0],[-1,0],[0,1],[0,-1]];
+            while (bfsHead < bfsQ.length && bfsHead < 5000) {
+                const c = bfsQ[bfsHead++];
+                if (pathfindingGrid.isValidCell(c.x, c.y) && pathfindingGrid.grid[c.y][c.x].isWater) {
+                    return pathfindingGrid.gridToWorld(c.x, c.y);
+                }
+                for (const [ddx, ddy] of bfsDirs) {
+                    const nx = c.x + ddx, ny = c.y + ddy;
+                    const nk = `${nx},${ny}`;
+                    if (!visited.has(nk) && pathfindingGrid.isValidCell(nx, ny)) {
+                        visited.add(nk);
+                        bfsQ.push({x: nx, y: ny});
+                    }
+                }
+            }
+        }
+        // Fallback: scan worldObjects
         let best = null;
         let bestDist = Infinity;
         for (const w of gameState.worldObjects) {

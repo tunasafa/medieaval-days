@@ -134,9 +134,11 @@ function updateEnemyAI(unit) {
         } else if (unit.state === 'patrol') {
             if (!unit.targetX || getDistance(unit, unit.patrolCenter) > unit.patrolRadius) {
                 const angle = Math.random() * Math.PI * 2;
-                unit.targetX = unit.patrolCenter.x + Math.cos(angle) * (unit.patrolRadius * 0.5);
-                unit.targetY = unit.patrolCenter.y + Math.sin(angle) * (unit.patrolRadius * 0.5);
-                unit.state = 'moving';
+                const px = unit.patrolCenter.x + Math.cos(angle) * (unit.patrolRadius * 0.5);
+                const py = unit.patrolCenter.y + Math.sin(angle) * (unit.patrolRadius * 0.5);
+                // Use pathfinding so enemy units respect terrain (water, no-go zones, buildings)
+                const clamped = clampTargetToAllowed(unit, px, py);
+                setUnitDestination(unit, clamped.x, clamped.y);
             }
         }
     }

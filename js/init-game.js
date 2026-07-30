@@ -106,7 +106,8 @@ async function drawUIIcons() {
  * movement border identical.
  */
 function createWorldObjects() {
-    const waterRoll = Math.random() < 0.5 ? 'river' : 'lake';
+    const waterLayouts = ['highland-river', 'coastal-bay', 'lake-chain'];
+    const waterRoll = waterLayouts[Math.floor(Math.random() * waterLayouts.length)];
     const seed = (Math.random() * 0x7FFFFFFF) | 0;
 
     if (typeof buildWorldWaterField === 'function') {

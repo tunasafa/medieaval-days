@@ -191,19 +191,18 @@ const GAME_CONFIG = {
     }
 };
 
-// Water depth palette, derived from the original flat water texture colour
-// RGB(71,171,169). Index 0 is shallow (shore) through 3 (deep). Each band has a
-// primary/secondary pair for wave shading plus a specular tone for crests.
+// Natural water palette. Index 0 is shallow shore water through 3 deep water.
+// The renderer uses broad animated bands, not high-frequency dither.
 const WATER_PALETTE = [
-    { primary: [104, 196, 192], secondary: [126, 212, 206], specular: [226, 246, 244] },
-    { primary: [71, 171, 169],  secondary: [88, 186, 182],  specular: [196, 230, 228] },
-    { primary: [48, 138, 140],  secondary: [40, 120, 124],  specular: [150, 198, 200] },
-    { primary: [30, 104, 110],  secondary: [22, 84, 92],    specular: [104, 152, 160] }
+    { primary: [82, 163, 156], secondary: [92, 177, 168], specular: [164, 218, 211] },
+    { primary: [54, 135, 145], secondary: [62, 150, 156], specular: [137, 195, 199] },
+    { primary: [38, 108, 126], secondary: [33, 121, 137], specular: [104, 166, 180] },
+    { primary: [26, 82, 105],  secondary: [23, 94, 116],  specular: [78, 135, 156] }
 ];
 
 // Shore band colours: foam and sand tones used along the smoothed coastline.
 const SHORE_PALETTE = {
-    foam: [226, 245, 243],
-    wetSand: [150, 146, 104],
-    drySand: [176, 172, 118]
+    foam: [210, 234, 228],
+    wetSand: [133, 139, 102],
+    drySand: [163, 160, 109]
 };

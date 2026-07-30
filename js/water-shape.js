@@ -176,12 +176,18 @@ class WaterField {
         this.warpNoise = new WaterNoise(seed ^ 0x9E3779B9);
         /** @type {Array<Object>} Primitive water bodies */
         this.bodies = [];
-        // Noise displacement parameters. amplitude is how far the coast can wander
-        // from the base geometry; scale is the size of coastline features.
-        this.warpAmplitude = 150;
-        this.warpScale = 620;
-        this.detailAmplitude = 46;
-        this.detailScale = 165;
+        /** @type {Array<Object>} Land shapes cut back out of the water. */
+        this.landCuts = [];
+        this.layoutName = 'water';
+        this.flowAngle = 0;
+        // Keep water readable at minimap scale: broad authored forms first,
+        // low-amplitude noise second. Heavy domain warping made small maps look
+        // like a different terrain than the main view.
+        this.warpAmplitude = 22;
+        this.warpScale = 960;
+        this.detailAmplitude = 18;
+        this.detailScale = 260;
+        this.bankNoiseFalloff = 180;
         // Cached bounding box of all water, in world units, inflated for warp.
         this._bounds = null;
     }
@@ -212,18 +218,33 @@ class WaterField {
     }
 
     /**
+     * Cut a dry land shape out of existing water. Used for RTS-readable fords,
+     * beachheads, and base safety zones.
+     */
+    addLandCut({ x, y, rx, ry, angle = 0 }) {
+        this.landCuts.push({ kind: 'ellipse', x, y, rx, ry, angle });
+        return this;
+    }
+
+    _ellipseSdf(shape, x, y) {
+        const ca = Math.cos(shape.angle || 0);
+        const sa = Math.sin(shape.angle || 0);
+        const dx = x - shape.x;
+        const dy = y - shape.y;
+        const px = dx * ca + dy * sa;
+        const py = -dx * sa + dy * ca;
+        const rx = Math.max(1, shape.rx);
+        const ry = Math.max(1, shape.ry);
+        return (Math.hypot(px / rx, py / ry) - 1) * Math.min(rx, ry);
+    }
+
+    /**
      * Signed distance of a single primitive, before noise warping.
      * @returns {number} Negative inside, positive outside, in world units
      */
     _bodySdf(body, x, y) {
         if (body.kind === 'lake') {
-            // Elliptical distance, scaled back toward world units so the value
-            // stays usable as an approximate distance for depth shading.
-            const dx = (x - body.x) / body.rx;
-            const dy = (y - body.y) / body.ry;
-            const d = Math.hypot(dx, dy);
-            const minR = Math.min(body.rx, body.ry);
-            return (d - 1) * minR;
+            return this._ellipseSdf(body, x, y);
         }
         // River: distance to the polyline minus the locally-interpolated radius.
         const poly = body.poly;
@@ -257,10 +278,8 @@ class WaterField {
     sdf(x, y) {
         if (this.bodies.length === 0) return Infinity;
 
-        // Domain warp: shifting the sample point produces meanders and inlets
-        // that a pure radius offset cannot, because it bends the shape itself.
-        const wx = this.warpNoise.fbm(x, y, 3, this.warpScale);
-        const wy = this.warpNoise.fbm(x + 971.3, y - 517.7, 3, this.warpScale);
+        const wx = this.warpNoise.fbm(x, y, 2, this.warpScale);
+        const wy = this.warpNoise.fbm(x + 971.3, y - 517.7, 2, this.warpScale);
         const sx = x + wx * this.warpAmplitude;
         const sy = y + wy * this.warpAmplitude;
 
@@ -269,10 +288,13 @@ class WaterField {
             d = this._smoothMin(d, this._bodySdf(this.bodies[i], sx, sy), 240);
         }
 
-        // Fine detail on the boundary only. Scaling by proximity to the coast
-        // keeps deep water and far inland from being needlessly perturbed.
-        const falloff = Math.exp(-Math.abs(d) / 220);
-        d += this.noise.fbm(x, y, 4, this.detailScale) * this.detailAmplitude * falloff;
+        const falloff = Math.exp(-Math.abs(d) / this.bankNoiseFalloff);
+        d += this.noise.fbm(x, y, 3, this.detailScale) * this.detailAmplitude * falloff;
+
+        for (const cut of this.landCuts) {
+            const cutD = this._ellipseSdf(cut, x, y);
+            d = Math.max(d, -cutD);
+        }
 
         return d;
     }
@@ -305,7 +327,7 @@ class WaterField {
                 }
             }
         }
-        const pad = this.warpAmplitude + this.detailAmplitude + 64;
+        const pad = this.warpAmplitude + this.detailAmplitude + 96;
         this._bounds = {
             x0: Math.max(0, x0 - pad),
             y0: Math.max(0, y0 - pad),
@@ -314,6 +336,30 @@ class WaterField {
         };
         return this._bounds;
     }
+}
+
+function lerp(a, b, t) {
+    return a + (b - a) * t;
+}
+
+function jitter(rng, amount) {
+    return (rng() - 0.5) * amount;
+}
+
+function pointOnPolylineAtY(points, y) {
+    for (let i = 0; i < points.length - 1; i++) {
+        const a = points[i], b = points[i + 1];
+        if ((y >= a.y && y <= b.y) || (y >= b.y && y <= a.y)) {
+            const t = (y - a.y) / ((b.y - a.y) || 1);
+            return { x: lerp(a.x, b.x, t), y, r: lerp(a.r, b.r, t) };
+        }
+    }
+    return points[Math.floor(points.length / 2)];
+}
+
+function addBaseSafetyCuts(field, W, H) {
+    field.addLandCut({ x: W * 0.08, y: H * 0.10, rx: W * 0.17, ry: H * 0.20 });
+    field.addLandCut({ x: W * 0.94, y: H * 0.92, rx: W * 0.18, ry: H * 0.22 });
 }
 
 // ===== CONTOUR EXTRACTION (MARCHING SQUARES) =====
@@ -519,14 +565,13 @@ function ringsToPath(rings) {
 /**
  * Construct the world's water layout for a new game.
  *
- * Produces either a meandering river that spans the map vertically (leaving both
- * bases on opposite banks) or a central lake with an outflow channel. Both are
- * expressed purely as SDF primitives so the coastline is organic by construction.
+ * Produces RTS-style water layouts: readable rivers with fords, coastal bays,
+ * and lake chains that create routes instead of random-looking blobs.
  *
  * @param {Object} o
  * @param {number} o.worldWidth - World width
  * @param {number} o.worldHeight - World height
- * @param {'river'|'lake'} o.layout - Which layout to build
+ * @param {'highland-river'|'coastal-bay'|'lake-chain'} o.layout - Which layout to build
  * @param {number} o.seed - Seed for reproducibility
  * @returns {WaterField} The constructed field
  */
@@ -535,48 +580,105 @@ function buildWorldWaterField({ worldWidth, worldHeight, layout, seed }) {
     const rng = waterMulberry32(seed);
     const W = worldWidth, H = worldHeight;
 
-    if (layout === 'river') {
-        // Vertical meander down the middle. Control points wander laterally;
-        // radius swells mid-map so the crossing is widest where bridges matter.
-        const cx = W / 2;
-        const amp = Math.min(300, W * 0.13);
+    field.layoutName = layout || 'highland-river';
+
+    if (field.layoutName === 'coastal-bay') {
+        // A broad southern sea with two coves and a river mouth. This supports
+        // navy play without splitting the whole land map in half.
+        field.addLake({
+            x: W * 0.54 + jitter(rng, W * 0.04),
+            y: H * 1.05,
+            rx: W * 0.48,
+            ry: H * 0.30
+        });
+        field.addLake({
+            x: W * 0.30 + jitter(rng, W * 0.03),
+            y: H * 0.80 + jitter(rng, H * 0.03),
+            rx: W * 0.16,
+            ry: H * 0.12
+        });
+        field.addLake({
+            x: W * 0.70 + jitter(rng, W * 0.03),
+            y: H * 0.78 + jitter(rng, H * 0.03),
+            rx: W * 0.18,
+            ry: H * 0.13
+        });
+        field.addRiver([
+            { x: W * 0.48 + jitter(rng, W * 0.03), y: H * 0.34, r: 70 },
+            { x: W * 0.42 + jitter(rng, W * 0.04), y: H * 0.48, r: 90 },
+            { x: W * 0.52 + jitter(rng, W * 0.04), y: H * 0.64, r: 110 },
+            { x: W * 0.54 + jitter(rng, W * 0.03), y: H * 0.86, r: 145 },
+            { x: W * 0.54, y: H * 1.08, r: 170 }
+        ]);
+        field.flowAngle = Math.PI / 2;
+        field.warpAmplitude = 28;
+        field.detailAmplitude = 22;
+        field.detailScale = 320;
+    } else if (field.layoutName === 'lake-chain') {
+        // Several water pockets through mid-map, connected by streams. It opens
+        // route decisions around water rather than creating one giant obstacle.
+        const lakes = [
+            { x: W * 0.36 + jitter(rng, W * 0.035), y: H * 0.34 + jitter(rng, H * 0.035), rx: W * 0.13, ry: H * 0.105 },
+            { x: W * 0.53 + jitter(rng, W * 0.035), y: H * 0.52 + jitter(rng, H * 0.035), rx: W * 0.155, ry: H * 0.13 },
+            { x: W * 0.68 + jitter(rng, W * 0.035), y: H * 0.68 + jitter(rng, H * 0.035), rx: W * 0.13, ry: H * 0.105 }
+        ];
+        for (const lake of lakes) field.addLake(lake);
+        field.addRiver([
+            { x: lakes[0].x, y: lakes[0].y, r: 60 },
+            { x: W * 0.44 + jitter(rng, W * 0.025), y: H * 0.42 + jitter(rng, H * 0.025), r: 70 },
+            { x: lakes[1].x, y: lakes[1].y, r: 72 },
+            { x: W * 0.61 + jitter(rng, W * 0.025), y: H * 0.60 + jitter(rng, H * 0.025), r: 68 },
+            { x: lakes[2].x, y: lakes[2].y, r: 58 }
+        ]);
+        // Keep an open central lane so the lakes shape movement without trapping.
+        field.addLandCut({ x: W * 0.50, y: H * 0.43, rx: W * 0.075, ry: H * 0.055, angle: -0.45 });
+        field.addLandCut({ x: W * 0.58, y: H * 0.60, rx: W * 0.080, ry: H * 0.055, angle: -0.45 });
+        field.flowAngle = 0.65;
+        field.warpAmplitude = 24;
+        field.detailAmplitude = 20;
+        field.detailScale = 300;
+    } else {
+        field.layoutName = 'highland-river';
+        // A clear central river with two natural land crossings. This produces
+        // strong RTS route structure while avoiding a total hard lock.
+        const amp = Math.min(W * 0.065, 260);
         const pts = [];
-        const n = 7;
+        const n = 8;
         for (let i = 0; i < n; i++) {
             const t = i / (n - 1);
-            // Alternating lateral offset with jitter produces natural bends.
-            const swing = Math.sin(t * Math.PI * 2.1) * amp + (rng() - 0.5) * amp * 0.5;
-            const radius = 150 + 55 * Math.sin(t * Math.PI); // taper at both ends
+            const bend = Math.sin(t * Math.PI * 2.15 + 0.5) * amp;
+            const strategicWidening = 1 + 0.18 * Math.sin(t * Math.PI);
             pts.push({
-                x: cx + swing,
-                y: -60 + t * (H + 120), // overshoot edges so water meets the border
-                r: radius
+                x: W * 0.52 + bend + jitter(rng, W * 0.018),
+                y: -H * 0.08 + t * (H * 1.16),
+                r: (H * 0.036 + 36) * strategicWidening
             });
         }
         field.addRiver(pts);
-        field.warpAmplitude = 130;
-        field.detailAmplitude = 42;
-    } else {
-        // Central lake plus a channel draining to the bottom edge.
-        const cx = W / 2, cy = H / 2;
-        const rx = Math.min(W, H) * 0.20;
-        const ry = Math.min(W, H) * 0.155;
-        field.addLake({ x: cx, y: cy, rx, ry });
-        const chPts = [];
-        const steps = 5;
-        for (let i = 0; i < steps; i++) {
-            const t = i / (steps - 1);
-            const y = cy + ry * 0.55 + t * (H - (cy + ry * 0.55) + 80);
-            chPts.push({
-                x: cx + Math.sin(t * Math.PI * 1.6) * 130 + (rng() - 0.5) * 60,
-                y,
-                r: 130 - 35 * t // narrows downstream
+
+        const fordYs = [H * 0.38 + jitter(rng, H * 0.035), H * 0.62 + jitter(rng, H * 0.035)];
+        for (const fy of fordYs) {
+            const p = pointOnPolylineAtY(pts, fy);
+            field.addLandCut({
+                x: p.x,
+                y: fy,
+                rx: Math.max(260, p.r * 2.4),
+                ry: Math.max(70, p.r * 0.50),
+                angle: 0
             });
         }
-        field.addRiver(chPts);
-        field.warpAmplitude = 165;
-        field.detailAmplitude = 50;
+
+        // Small side ponds make navy/fishing placement interesting without
+        // dominating the pathing graph.
+        field.addLake({ x: W * 0.31 + jitter(rng, W * 0.03), y: H * 0.67, rx: W * 0.085, ry: H * 0.075 });
+        field.addLake({ x: W * 0.72 + jitter(rng, W * 0.03), y: H * 0.33, rx: W * 0.080, ry: H * 0.070 });
+        field.flowAngle = Math.PI / 2;
+        field.warpAmplitude = 20;
+        field.detailAmplitude = 18;
+        field.detailScale = 280;
     }
+
+    addBaseSafetyCuts(field, W, H);
 
     return field;
 }

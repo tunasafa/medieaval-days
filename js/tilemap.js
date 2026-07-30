@@ -43,6 +43,8 @@ class Tilemap {
 
         // Animation
         this.waterFrame = 0;
+        this.waterFrameCount = 6;
+        this.waterPatternSize = 96;
         this._waterAnimTimer = 0;
         this._waterPatterns = [];  // per-depth CanvasPattern arrays [depth][frame]
         this._depthStencils = null; // per-depth alpha masks at mask resolution
@@ -180,6 +182,7 @@ class Tilemap {
     applyWaterField(field) {
         this.waterField = field;
         this.hasWater = false;
+        this._layerCache = null;
 
         for (let y = 0; y < this.height; y++) {
             this.tiles[y].fill(TILE_TYPES.FLAT_GROUND);
@@ -308,6 +311,7 @@ class Tilemap {
      */
     _buildDepthStencils() {
         this._depthStencils = null;
+        this._layerCache = null;
         if (!this.hasWater) return;
 
         const maxD = GAME_CONFIG.terrain.maxWaterDepth;
@@ -438,29 +442,23 @@ class Tilemap {
     // ===== PROCEDURAL WATER PATTERNS =====
 
     /**
-     * Generate animated pixel-art water textures: one tile per depth band per
+     * Generate calm animated water textures: one tile per depth band per
      * animation frame, registered as repeating CanvasPatterns.
      *
-     * Deliberately hard-edged and dithered to match the game's existing pixel art;
-     * the smoothing in this system is applied to the coastline SHAPE, not to the
-     * water's interior pixels.
+     * The pattern uses broad wave bands and sparse glints, avoiding the
+     * high-frequency dithering that made the old water read as TV static.
      */
     _buildWaterPatterns() {
-        const SIZE = 64;      // pattern tile size in world units
-        const FRAMES = 3;
-        const bayer = [
-            [0, 8, 2, 10],
-            [12, 4, 14, 6],
-            [3, 11, 1, 9],
-            [15, 7, 13, 5]
-        ];
+        const SIZE = this.waterPatternSize;
+        const FRAMES = this.waterFrameCount;
         const probe = document.createElement('canvas').getContext('2d');
         this._waterPatterns = [];
 
+        const wrap = (value, mod) => ((value % mod) + mod) % mod;
+
         for (let depth = 0; depth < WATER_PALETTE.length; depth++) {
             const pal = WATER_PALETTE[depth];
-            // Shallow water gets livelier waves; deep water is calmer.
-            const waveAmp = depth <= 1 ? 1.0 : 0.55;
+            const waveStrength = depth <= 1 ? 1.0 : 0.72;
             const frames = [];
 
             for (let f = 0; f < FRAMES; f++) {
@@ -470,40 +468,43 @@ class Tilemap {
                 const img = cx.createImageData(SIZE, SIZE);
                 const data = img.data;
                 const phase = (f / FRAMES) * Math.PI * 2;
+                const drift = f * 3;
 
                 for (let py = 0; py < SIZE; py++) {
                     for (let px = 0; px < SIZE; px++) {
-                        // Two crossing sine trains scroll to give directional motion.
-                        // Periods divide SIZE so the pattern tiles seamlessly.
-                        const w1 = Math.sin((px / SIZE) * Math.PI * 2 * 2 + (py / SIZE) * Math.PI * 2 + phase);
-                        const w2 = Math.sin((px / SIZE) * Math.PI * 2 - (py / SIZE) * Math.PI * 2 * 2 - phase * 0.7);
-                        const combined = (w1 * 0.6 + w2 * 0.4) * waveAmp;
+                        // Broad wave trains with gentle movement. Avoiding
+                        // checker dithering keeps the water from reading as TV static.
+                        const longWave = Math.sin(((px + drift) / SIZE) * Math.PI * 2 + ((py - drift * 0.6) / SIZE) * Math.PI + phase);
+                        const crossWave = Math.sin(((px - py * 0.35 + drift * 1.5) / SIZE) * Math.PI * 4 - phase * 0.75);
+                        const combined = (longWave * 0.10 + crossWave * 0.055) * waveStrength;
+                        const t = Math.max(0, Math.min(1, 0.48 + combined));
 
-                        const t = Math.max(0, Math.min(1, (combined + 1) / 2));
                         let r = pal.primary[0] + (pal.secondary[0] - pal.primary[0]) * t;
                         let g = pal.primary[1] + (pal.secondary[1] - pal.primary[1]) * t;
                         let b = pal.primary[2] + (pal.secondary[2] - pal.primary[2]) * t;
 
-                        // Crests catch light.
-                        if (combined > 0.72) {
-                            const s = Math.min(1, (combined - 0.72) * 3);
-                            r += (pal.specular[0] - r) * s * 0.85;
-                            g += (pal.specular[1] - g) * s * 0.85;
-                            b += (pal.specular[2] - b) * s * 0.85;
+                        // Sparse, elongated glints. They move between frames,
+                        // but are intentionally low contrast.
+                        const bandA = wrap(py + Math.floor(px * 0.22) + drift, 24);
+                        const bandB = wrap(py - Math.floor(px * 0.18) - drift, 38);
+                        const dashA = wrap(px + drift * 2, 52);
+                        const dashB = wrap(px - drift, 68);
+                        if ((bandA < 2 && dashA > 8 && dashA < 36) || (bandB < 1 && dashB > 20 && dashB < 50)) {
+                            const s = depth <= 1 ? 0.30 : 0.20;
+                            r += (pal.specular[0] - r) * s;
+                            g += (pal.specular[1] - g) * s;
+                            b += (pal.specular[2] - b) * s;
                         }
-                        // Troughs fall into shadow.
-                        if (combined < -0.6) {
-                            const s = Math.min(0.35, (-0.6 - combined) * 0.7);
+
+                        if (combined < -0.11) {
+                            const s = 0.07;
                             r *= (1 - s); g *= (1 - s); b *= (1 - s);
                         }
 
-                        // Ordered dithering keeps the gradient banded like pixel art
-                        // rather than smoothly interpolated.
-                        const dither = (bayer[py & 3][px & 3] / 16 - 0.5) * 7;
                         const o = (py * SIZE + px) * 4;
-                        data[o]     = Math.max(0, Math.min(255, Math.round(r + dither)));
-                        data[o + 1] = Math.max(0, Math.min(255, Math.round(g + dither)));
-                        data[o + 2] = Math.max(0, Math.min(255, Math.round(b + dither)));
+                        data[o]     = Math.max(0, Math.min(255, Math.round(r)));
+                        data[o + 1] = Math.max(0, Math.min(255, Math.round(g)));
+                        data[o + 2] = Math.max(0, Math.min(255, Math.round(b)));
                         data[o + 3] = 255;
                     }
                 }
@@ -523,7 +524,7 @@ class Tilemap {
         const FRAME_MS = 260;
         while (this._waterAnimTimer >= FRAME_MS) {
             this._waterAnimTimer -= FRAME_MS;
-            this.waterFrame = (this.waterFrame + 1) % 3;
+            this.waterFrame = (this.waterFrame + 1) % this.waterFrameCount;
         }
     }
 
@@ -570,8 +571,8 @@ class Tilemap {
     /**
      * Draw the water body.
      *
-     * Approach: clip to the smoothed contour, fill with the animated wave pattern,
-     * overlay depth shading from the baked depth mask, then stroke foam along the
+     * Approach: clip to the smoothed contour, fill with masked animated depth
+     * layers, then stroke foam along the
      * coast. All of it is derived from the gameplay mask, so what the player sees
      * as water is exactly what units treat as water.
      */
@@ -585,7 +586,6 @@ class Tilemap {
             return;
         }
 
-        const frame = this.waterFrame;
         const maxD = GAME_CONFIG.terrain.maxWaterDepth;
 
         // 1) Beach bands on the LAND side. Drawn before the water so the water
@@ -602,40 +602,65 @@ class Tilemap {
         const view = this._visibleWorldSize();
         const viewW = view.width, viewH = view.height;
 
-        // Base layer is the shallow palette; deeper bands are layered over it.
-        const basePattern = this._waterPatterns[0] && this._waterPatterns[0][frame];
-        if (basePattern) {
-            ctx.fillStyle = basePattern;
-            ctx.fillRect(viewX, viewY, viewW, viewH);
-        }
-
-        // Depth layers: deeper palettes drawn through prebaked alpha stencils.
-        // Each stencil covers the whole world and is built once at init, so
-        // panning costs one scaled drawImage per band instead of per-pixel work.
-        const ts = this.tileSize;
-        for (let d = 1; d <= maxD; d++) {
-            const pat = this._waterPatterns[d] && this._waterPatterns[d][frame];
-            const stencil = this._depthStencils && this._depthStencils[d];
-            if (!pat || !stencil) continue;
-
-            ctx.save();
-            ctx.beginPath();
-            ctx.rect(viewX, viewY, viewW, viewH);
-            ctx.clip();
-            // Lay down the band's silhouette, then paint the wave pattern only
-            // where that silhouette is opaque.
-            ctx.imageSmoothingEnabled = true;
-            ctx.drawImage(stencil, 0, 0, this.width * ts, this.height * ts);
-            ctx.globalCompositeOperation = 'source-atop';
-            ctx.fillStyle = pat;
-            ctx.fillRect(viewX, viewY, viewW, viewH);
-            ctx.restore();
+        for (let d = 0; d <= maxD; d++) {
+            const layer = this._getDepthLayerCanvas(d, camera);
+            if (layer) ctx.drawImage(layer, viewX, viewY, viewW, viewH);
         }
 
         ctx.restore();
 
         // 3) Foam straddling the waterline, on top of both.
         this._drawFoam(ctx, camera);
+    }
+
+    /**
+     * Create a viewport-sized water layer for a depth band, masked by the
+     * prebaked stencil. This keeps compositing isolated from the main canvas and
+     * prevents depth bands from bleeding into unrelated water.
+     */
+    _getDepthLayerCanvas(d, camera) {
+        const pat = this._waterPatterns[d] && this._waterPatterns[d][this.waterFrame];
+        const stencil = this._depthStencils && this._depthStencils[d];
+        if (!pat || !stencil) return null;
+
+        const view = this._visibleWorldSize();
+        const viewW = Math.ceil(view.width);
+        const viewH = Math.ceil(view.height);
+        const cacheKey = `${d}`;
+        this._layerCache = this._layerCache || {};
+        let entry = this._layerCache[cacheKey];
+        if (!entry || entry.w !== viewW || entry.h !== viewH) {
+            const cv = document.createElement('canvas');
+            cv.width = viewW;
+            cv.height = viewH;
+            entry = { cv, w: viewW, h: viewH, key: null };
+            this._layerCache[cacheKey] = entry;
+        }
+
+        const key = `${camera.x}|${camera.y}|${this.waterFrame}`;
+        if (entry.key === key) return entry.cv;
+        entry.key = key;
+
+        const cx = entry.cv.getContext('2d');
+        cx.setTransform(1, 0, 0, 1, 0, 0);
+        cx.clearRect(0, 0, viewW, viewH);
+
+        const patternSize = this.waterPatternSize || 96;
+        const ox = -(((camera.x % patternSize) + patternSize) % patternSize);
+        const oy = -(((camera.y % patternSize) + patternSize) % patternSize);
+        cx.save();
+        cx.translate(ox, oy);
+        cx.fillStyle = pat;
+        cx.fillRect(0, 0, viewW + patternSize, viewH + patternSize);
+        cx.restore();
+
+        cx.globalCompositeOperation = 'destination-in';
+        cx.imageSmoothingEnabled = true;
+        const ts = this.tileSize;
+        cx.drawImage(stencil, camera.x / ts, camera.y / ts, viewW / ts, viewH / ts, 0, 0, viewW, viewH);
+        cx.globalCompositeOperation = 'source-over';
+
+        return entry.cv;
     }
 
     /**
@@ -656,12 +681,12 @@ class Tilemap {
         ctx.lineCap = 'round';
 
         // Widest, faintest band first, then tighter and stronger toward the water.
-        ctx.strokeStyle = rgba(S.drySand, 0.34);
-        ctx.lineWidth = 46;
+        ctx.strokeStyle = rgba(S.drySand, 0.24);
+        ctx.lineWidth = 38;
         ctx.stroke(this.waterPath);
 
-        ctx.strokeStyle = rgba(S.wetSand, 0.50);
-        ctx.lineWidth = 24;
+        ctx.strokeStyle = rgba(S.wetSand, 0.34);
+        ctx.lineWidth = 18;
         ctx.stroke(this.waterPath);
 
         ctx.restore();
@@ -675,7 +700,7 @@ class Tilemap {
         if (!this.waterPath) return;
         const S = SHORE_PALETTE;
         const rgba = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
-        const pulse = 0.5 + 0.22 * Math.sin((this.waterFrame / 3) * Math.PI * 2);
+        const pulse = 0.45 + 0.16 * Math.sin((this.waterFrame / this.waterFrameCount) * Math.PI * 2);
 
         ctx.save();
         ctx.translate(-camera.x, -camera.y);
@@ -683,11 +708,11 @@ class Tilemap {
         ctx.lineCap = 'round';
 
         ctx.strokeStyle = rgba(S.foam, pulse * 0.55);
-        ctx.lineWidth = 7;
+        ctx.lineWidth = 6;
         ctx.stroke(this.waterPath);
 
         ctx.strokeStyle = rgba(S.foam, Math.min(1, pulse + 0.3));
-        ctx.lineWidth = 2.5;
+        ctx.lineWidth = 2;
         ctx.stroke(this.waterPath);
 
         ctx.restore();

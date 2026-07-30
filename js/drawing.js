@@ -1035,7 +1035,13 @@ function drawMinimap() {
     ctx.fillStyle = '#2a8f52';
     ctx.fillRect(0, 0, minimapCanvas.width, minimapCanvas.height);
 
-    if (tilemap && tilemap.hasWater) {
+    if (tilemap && tilemap.hasWater && tilemap.waterPath) {
+        ctx.fillStyle = '#47ABA9';
+        ctx.save();
+        ctx.scale(scaleX, scaleY);
+        ctx.fill(tilemap.waterPath);
+        ctx.restore();
+    } else if (tilemap && tilemap.hasWater) {
         ctx.fillStyle = '#47ABA9';
         const cellW = Math.max(1, tilemap.tileSize * scaleX);
         const cellH = Math.max(1, tilemap.tileSize * scaleY);

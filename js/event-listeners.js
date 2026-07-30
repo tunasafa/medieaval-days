@@ -33,7 +33,7 @@ function setupEventListeners() {
     canvas.addEventListener('mousedown', (e) => {
         if (e.button === 0) {
             if (gameState.placingBuilding) {
-                 const rect = canvas.getBoundingClientRect();
+                const rect = canvas.getBoundingClientRect();
                 const worldX = e.clientX - rect.left + gameState.camera.x;
                 const worldY = e.clientY - rect.top + gameState.camera.y;
                 if (canPlaceBuilding(gameState.placingBuilding, worldX, worldY)) {
@@ -45,34 +45,34 @@ function setupEventListeners() {
                 canvas.classList.remove('placing-building', 'invalid-placement');
                 return;
             }
-            
+
             const rect = canvas.getBoundingClientRect();
             const worldX = e.clientX - rect.left + gameState.camera.x;
             const worldY = e.clientY - rect.top + gameState.camera.y;
-            
+
             // Check for building clicks first
             const clickedBuilding = [...gameState.buildings].find(building =>
                 building.player === 'player' &&
                 worldX >= building.x && worldX <= building.x + building.width &&
                 worldY >= building.y && worldY <= building.y + building.height
             );
-            
+
             if (clickedBuilding) {
                 selectBuilding(clickedBuilding);
                 return;
             }
-            
+
             // Check for unit clicks with a small tolerance area (20 pixels radius)
             const clickedUnit = gameState.units.find(unit => {
                 if (unit.player !== 'player') return false;
                 const distance = Math.hypot(unit.x - worldX, unit.y - worldY);
                 return distance <= 20; // 20 pixel radius for easier clicking
             });
-            
+
             if (clickedUnit) {
                 // Single unit selection with multi-select support
                 const isMultiSelect = e.ctrlKey || e.metaKey; // Ctrl on Windows/Linux, Cmd on Mac
-                
+
                 if (!isMultiSelect) {
                     // Clear previous selection
                     gameState.selectedUnits.forEach(unit => unit.isSelected = false);
@@ -95,13 +95,13 @@ function setupEventListeners() {
                         gameState.selectedUnits.push(clickedUnit);
                     }
                 }
-                
+
                 document.getElementById('building-actions').style.display = 'none';
                 document.getElementById('general-units').style.display = 'block';
                 updateSelectionInfo();
                 return;
             }
-            
+
             mouseDown = true;
             dragStart.x = e.clientX - rect.left;
             dragStart.y = e.clientY - rect.top;
@@ -110,7 +110,7 @@ function setupEventListeners() {
         }
     });
     canvas.addEventListener('mousemove', (e) => {
-         if (gameState.placingBuilding) {
+        if (gameState.placingBuilding) {
             const rect = canvas.getBoundingClientRect();
             const worldX = e.clientX - rect.left + gameState.camera.x;
             const worldY = e.clientY - rect.top + gameState.camera.y;
@@ -127,7 +127,7 @@ function setupEventListeners() {
             const rect = canvas.getBoundingClientRect();
             const currentX = e.clientX - rect.left;
             const currentY = e.clientY - rect.top;
-            
+
             // Only show selection box if drag distance is meaningful (> 3 pixels)
             const dragDistance = Math.hypot(currentX - dragStart.x, currentY - dragStart.y);
             if (dragDistance > 3) {
@@ -138,7 +138,7 @@ function setupEventListeners() {
         const worldX = e.clientX - rect2.left + gameState.camera.x;
         const worldY = e.clientY - rect2.top + gameState.camera.y;
         let cursor = 'default';
-        
+
         // NEW CURSOR HINTS for embark/disembark
         const transports = gameState.selectedUnits.filter(u => isTransport(u));
         if (transports.length === 1) {
@@ -148,7 +148,7 @@ function setupEventListeners() {
             const used = (t.cargo || []).length;
             const nearMouseToTransport = Math.hypot(worldX - t.x, worldY - t.y) < 50;
             const anyEmbarkableNearby = others.some(u => Math.hypot(u.x - t.x, u.y - t.y) < 40);
-            
+
             if (nearMouseToTransport && anyEmbarkableNearby && used < cap) {
                 cursor = 'alias'; // embark cursor
             } else if ((t.cargo && t.cargo.length > 0) && !isPointInWater(worldX, worldY)) {
@@ -159,17 +159,17 @@ function setupEventListeners() {
         if (canvasEl) canvasEl.style.cursor = cursor;
     });
     canvas.addEventListener('mouseup', (e) => {
-         if (gameState.placingBuilding) return;
+        if (gameState.placingBuilding) return;
         if (e.button === 0 && mouseDown) {
             mouseDown = false;
             const rect = canvas.getBoundingClientRect();
             if (gameState.isSelecting) {
                 const endX = e.clientX - rect.left;
                 const endY = e.clientY - rect.top;
-                
+
                 // Calculate the drag distance
                 const dragDistance = Math.hypot(endX - dragStart.x, endY - dragStart.y);
-                
+
                 // If drag distance is very small (less than 5 pixels), treat as a click to deselect
                 if (dragDistance < 5) {
                     // Deselect all units and buildings
@@ -177,7 +177,7 @@ function setupEventListeners() {
                     gameState.buildings.forEach(building => building.isSelected = false);
                     gameState.selectedUnits = [];
                     gameState.selectedBuilding = null;
-                    
+
                     document.getElementById('building-actions').style.display = 'none';
                     document.getElementById('general-units').style.display = 'block';
                     updateSelectionInfo();
@@ -185,7 +185,7 @@ function setupEventListeners() {
                     // Perform box selection
                     finishSelection(dragStart, { x: endX, y: endY }, e.ctrlKey || e.metaKey);
                 }
-                
+
                 gameState.isSelecting = false;
                 hideSelectionBox();
             }
@@ -211,10 +211,10 @@ function setupEventListeners() {
     });
     document.addEventListener('keydown', (e) => {
         if (gameState.placingBuilding && e.key === 'Escape') {
-             gameState.placingBuilding = null;
-             canvas.classList.remove('placing-building', 'invalid-placement');
-             showNotification("Building placement cancelled.");
-             return;
+            gameState.placingBuilding = null;
+            canvas.classList.remove('placing-building', 'invalid-placement');
+            showNotification("Building placement cancelled.");
+            return;
         }
         gameState.keys[e.key.toLowerCase()] = true;
         if (e.key === ' ') {
@@ -232,7 +232,7 @@ function setupEventListeners() {
             if (type in GAME_CONFIG.units) {
                 trainUnit(type);
             } else if (type in GAME_CONFIG.buildings) {
-                 startPlacingBuilding(type);
+                startPlacingBuilding(type);
             }
         });
     });
@@ -309,7 +309,7 @@ function finishSelection(start, end, isMultiSelect = false) {
     const top = Math.min(start.y, end.y) + gameState.camera.y;
     const right = Math.max(start.x, end.x) + gameState.camera.x;
     const bottom = Math.max(start.y, end.y) + gameState.camera.y;
-    
+
     if (!isMultiSelect) {
         // Clear previous selection only if not multi-selecting
         gameState.selectedUnits.forEach(unit => unit.isSelected = false);
@@ -317,10 +317,10 @@ function finishSelection(start, end, isMultiSelect = false) {
         gameState.selectedUnits = [];
         gameState.selectedBuilding = null;
     }
-    
+
     document.getElementById('building-actions').style.display = 'none';
     document.getElementById('general-units').style.display = 'block';
-    
+
     // More precise unit selection - check if unit center or any part is within selection box
     gameState.units.forEach(unit => {
         if (unit.player === 'player') {
@@ -329,14 +329,14 @@ function finishSelection(start, end, isMultiSelect = false) {
             const unitRight = unit.x + 8;
             const unitTop = unit.y - 8;
             const unitBottom = unit.y + 8;
-            
+
             const isInSelectionBox = (
                 // Unit center is in selection
                 (unit.x >= left && unit.x <= right && unit.y >= top && unit.y <= bottom) ||
                 // Or selection box overlaps with unit area
                 (unitLeft <= right && unitRight >= left && unitTop <= bottom && unitBottom >= top)
             );
-            
+
             if (isInSelectionBox) {
                 if (isMultiSelect && unit.isSelected) {
                     // Remove from selection if already selected
@@ -353,7 +353,7 @@ function finishSelection(start, end, isMultiSelect = false) {
             }
         }
     });
-    
+
     updateSelectionInfo();
 }
 
@@ -371,29 +371,30 @@ function handleRightClick(x, y) {
             // Check if any units are already close enough to embark immediately
             const nearbyUnits = landUnits.filter(u => Math.hypot(u.x - clickedTransport.x, u.y - clickedTransport.y) <= 40);
             const farUnits = landUnits.filter(u => Math.hypot(u.x - clickedTransport.x, u.y - clickedTransport.y) > 40);
-            
+
             // Embark nearby units immediately
             if (nearbyUnits.length > 0) {
                 embarkUnitsNearTransport(nearbyUnits, clickedTransport);
             }
-            
+
             // Send far units toward the transport for future embarking
+            // Use pathfinding to a point near the transport (on land side) to avoid walking on water
             for (const u of farUnits) {
-                u.state = 'moving';
-                u.targetX = clickedTransport.x;
-                u.targetY = clickedTransport.y;
+                // Clamp target to allowed terrain for this unit type (land units can't path to water)
+                const clamped = clampTargetToAllowed(u, clickedTransport.x, clickedTransport.y);
+                setUnitDestination(u, clamped.x, clamped.y);
                 u.embarkTargetId = clickedTransport.id;
             }
-            
+
             if (farUnits.length > 0) {
                 showNotification(`${farUnits.length} unit(s) moving to embark...`);
             }
-            
+
             updateSelectionInfo();
             return;
         }
     }
-    const enemyUnit = gameState.enemyUnits.find(unit => getDistance(unit, {x, y}) < 20);
+    const enemyUnit = gameState.enemyUnits.find(unit => getDistance(unit, { x, y }) < 20);
     const enemyBuilding = gameState.enemyBuildings.find(building =>
         x >= building.x && x <= building.x + building.width &&
         y >= building.y && y <= building.y + building.height
@@ -420,28 +421,28 @@ function handleRightClick(x, y) {
         x >= obj.x && x <= obj.x + obj.width &&
         y >= obj.y && y <= obj.y + obj.height
     );
-  if (resource) {
-      const offsets = computeFormationOffsets(gameState.selectedUnits.length, 24);
-      gameState.selectedUnits.forEach((unit, idx) => {
+    if (resource) {
+        const offsets = computeFormationOffsets(gameState.selectedUnits.length, 24);
+        gameState.selectedUnits.forEach((unit, idx) => {
             if (unit.type === 'villager') {
                 unit.state = 'gathering';
                 unit.targetResource = resource;
                 unit.gatherType = resource.resourceType;
                 unit.gatherStartTime = null;
-            unit.gatheredAmount = 0;
-            const off = offsets[idx] || {dx:0, dy:0};
-            unit.gatherOffset = { dx: off.dx, dy: off.dy };
+                unit.gatheredAmount = 0;
+                const off = offsets[idx] || { dx: 0, dy: 0 };
+                unit.gatherOffset = { dx: off.dx, dy: off.dy };
             } else {
-                const off = offsets[idx] || {dx:0, dy:0};
+                const off = offsets[idx] || { dx: 0, dy: 0 };
                 const clamped = clampTargetToAllowed(unit, resource.x + resource.width / 2 + off.dx, resource.y + resource.height / 2 + off.dy);
                 setUnitDestination(unit, clamped.x, clamped.y);
                 unit.target = null;
             }
         });
         if (gameState.selectedUnits.some(u => u.type === 'villager')) {
-             showNotification('Gather command issued!');
+            showNotification('Gather command issued!');
         } else {
-             showNotification('Move command issued!');
+            showNotification('Move command issued!');
         }
         return;
     }
@@ -449,28 +450,24 @@ function handleRightClick(x, y) {
     const transports = gameState.selectedUnits.filter(isTransport);
     if (transports.length === 1) {
         const transport = transports[0];
-        
+
         // If right-clicking near the transport and it has cargo, embark other selected units
-        if (getDistance({x, y}, transport) < 50) {
+        if (getDistance({ x, y }, transport) < 50) {
             const landUnits = gameState.selectedUnits.filter(u => u !== transport && canEmbark(u));
             if (landUnits.length > 0) {
                 embarkUnitsNearTransport(landUnits, transport);
                 return;
             }
         }
-        
+
         // If right-clicking on land/shore and transport has cargo, disembark
         if (!isPointInWater(x, y) || isPointOnBridge(x, y)) {
             if (transport.cargo && transport.cargo.length > 0) {
-                // Move transport closer to shore first if needed
-                transport.state = 'moving';
-                transport.targetX = x;
-                transport.targetY = y;
-                
-                // Then disembark
-                setTimeout(() => {
-                    disembarkCargoNearShore(transport);
-                }, 100);
+                // Use pathfinding to move transport toward shore (clamped to water for vessels)
+                const clamped = clampTargetToAllowed(transport, x, y);
+                setUnitDestination(transport, clamped.x, clamped.y);
+                // Mark for disembark when close to shore - checked in updateUnit via flag
+                transport._pendingDisembark = true;
                 return;
             }
         }
@@ -478,11 +475,11 @@ function handleRightClick(x, y) {
     const offsets = computeFormationOffsets(gameState.selectedUnits.length, 24);
     gameState.selectedUnits.forEach((unit, idx) => {
         unit.state = 'moving';
-        const off = offsets[idx] || {dx:0, dy:0};
+        const off = offsets[idx] || { dx: 0, dy: 0 };
         let clamped = clampTargetToAllowed(unit, x + off.dx, y + off.dy);
-    // No special shoreline band logic; clampTargetToAllowed already enforces land/water and bridges
+        // No special shoreline band logic; clampTargetToAllowed already enforces land/water and bridges
         const free = getAvailablePosition(clamped.x, clamped.y, 15);
-        
+
         // Use advanced pathfinding for movement
         setUnitDestination(unit, free.x, free.y);
         unit.target = null;

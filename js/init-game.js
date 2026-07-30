@@ -53,7 +53,7 @@ async function initGame() {
         clampCameraToBounds();
     }
     gameLoop();
-    showNotification('Welcome to MEDIEVAL DAYS! Gather resources, build an army, and destroy the enemy Town Center!');
+    showNotification('Welcome to MEDIEVAL DAYS! Gather resources, build an army, and eliminate every rival command.');
 }
 
 async function drawUIIcons() {

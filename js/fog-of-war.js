@@ -5,6 +5,7 @@
 const FogOfWar = (function () {
     const STATE_UNEXPLORED = 0, STATE_EXPLORED = 1, STATE_VISIBLE = 2;
     let grid = null, cols = 0, rows = 0, cellSize = 64, enabled = true;
+    let visibleCells = [];
     let fogCanvas = null, fogCtx = null;
 
     const SIGHT_RANGES = { villager: 7, militia: 6, warrior: 6, axeman: 6, archer: 9, crossbowman: 9, catapult: 7, ballista: 8, fishingBoat: 6, transportLarge: 6, warship: 8 };
@@ -13,6 +14,7 @@ const FogOfWar = (function () {
     function init(worldWidth, worldHeight) {
         cols = Math.ceil(worldWidth / cellSize); rows = Math.ceil(worldHeight / cellSize);
         grid = Array(rows).fill().map(() => new Uint8Array(cols));
+        visibleCells = [];
         fogCanvas = null; fogCtx = null;
     }
 
@@ -29,14 +31,22 @@ const FogOfWar = (function () {
             for (let dx = -r; dx <= r; dx++) {
                 if (dx * dx + dy * dy > r * r) continue;
                 const gx = cellCX + dx, gy = cellCY + dy;
-                if (gx >= 0 && gy >= 0 && gx < cols && gy < rows) grid[gy][gx] = STATE_VISIBLE;
+                if (gx >= 0 && gy >= 0 && gx < cols && gy < rows) {
+                    if (grid[gy][gx] !== STATE_VISIBLE) visibleCells.push(gy * cols + gx);
+                    grid[gy][gx] = STATE_VISIBLE;
+                }
             }
         }
     }
 
     function update() {
         if (!grid || !enabled) return;
-        for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) if (grid[r][c] === STATE_VISIBLE) grid[r][c] = STATE_EXPLORED;
+        for (const index of visibleCells) {
+            const r = (index / cols) | 0;
+            const c = index % cols;
+            if (grid[r] && grid[r][c] === STATE_VISIBLE) grid[r][c] = STATE_EXPLORED;
+        }
+        visibleCells = [];
         for (const unit of gameState.units) revealCircle(unit.x, unit.y, SIGHT_RANGES[unit.type] || 6);
         for (const building of gameState.buildings) if (building.player === 'player') revealCircle(building.x + building.width/2, building.y + building.height/2, BUILDING_SIGHT[building.type] || 5);
     }

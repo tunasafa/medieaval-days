@@ -34,7 +34,6 @@ function gameLoop() {
     if (!uiPaused && tilemap && typeof tilemap.tickWaterAnimation === 'function') {
         tilemap.tickWaterAnimation(deltaTime);
     }
-    if (!uiPaused) updateUnitAnimations();
     if (!uiPaused) checkWinConditions();
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
@@ -55,9 +54,6 @@ function gameLoop() {
     }
 
     if (tilemap) {
-        if (!uiPaused && typeof tilemap.tickWaterAnimation === 'function') {
-            tilemap.tickWaterAnimation(deltaTime);
-        }
         tilemap.draw(ctx, gameState.camera);
     } else {
         const gradient = ctx.createLinearGradient(0, 0, GAME_CONFIG.canvas.width, GAME_CONFIG.canvas.height);

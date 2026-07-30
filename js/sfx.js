@@ -46,7 +46,34 @@ const SFX = (function () {
         src.start(ctx.currentTime); src.stop(ctx.currentTime + duration);
     }
 
-    return {
+    function play(name) {
+        switch (name) {
+            case 'arrow':
+                api.arrowHit();
+                break;
+            case 'impact':
+                api.siegeImpact();
+                break;
+            case 'build':
+                api.buildingPlace();
+                break;
+            case 'gather':
+                api.resourceDeposit();
+                break;
+            case 'sword':
+                api.swordHit();
+                break;
+            case 'catapult':
+                api.siegeFire();
+                break;
+            case 'death':
+                api.unitDeath();
+                break;
+        }
+    }
+
+    const api = {
+        play,
         swordHit: () => { if (canPlay('sword')) { playNoise(0.08, 0.12, 3000); playTone(800, 0.06, 'square', 0.08); } },
         arrowFire: () => { if (canPlay('arrowFire')) { playTone(800, 0.08, 'triangle', 0.08); } },
         arrowHit: () => { if (canPlay('arrowHit')) { playNoise(0.06, 0.08, 800); } },
@@ -59,6 +86,9 @@ const SFX = (function () {
         unitDeath: () => { if (canPlay('unitDeath')) { playTone(300, 0.2, 'square', 0.07); } },
         unitSelected: () => { if (canPlay('unitSel')) playTone(880, 0.04, 'square', 0.04); },
         unitCommanded: () => { if (canPlay('unitCmd')) { playTone(660, 0.03, 'square', 0.04); setTimeout(() => playTone(770, 0.04, 'square', 0.03), 40); } },
-        ensureContext, setEnabled: (v) => enabled = !!v
+        ensureContext,
+        setEnabled: (v) => enabled = !!v
     };
+
+    return api;
 })();

@@ -1,4 +1,69 @@
 // AI Functions
+function getCombatCenter(entity) {
+    return {
+        x: entity.x + (entity.width ? entity.width / 2 : 0),
+        y: entity.y + (entity.height ? entity.height / 2 : 0)
+    };
+}
+
+function getCombatDistance(a, b) {
+    const ac = getCombatCenter(a);
+    const bc = getCombatCenter(b);
+    return Math.hypot(ac.x - bc.x, ac.y - bc.y);
+}
+
+function findNearestHostileUnit(source, maxDistance = Infinity) {
+    let nearest = null;
+    let bestDistance = maxDistance;
+    const groups = [gameState.units, gameState.enemyUnits];
+    for (const group of groups) {
+        for (const unit of group) {
+            if (unit === source || unit.state === 'embarked' || !areHostile(source, unit)) continue;
+            const distance = getCombatDistance(source, unit);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                nearest = unit;
+            }
+        }
+    }
+    return nearest;
+}
+
+function findNearestHostileBuilding(source, maxDistance = Infinity, type = null) {
+    let nearest = null;
+    let bestDistance = maxDistance;
+    const groups = [gameState.buildings, gameState.enemyBuildings];
+    for (const group of groups) {
+        for (const building of group) {
+            if (!areHostile(source, building) || (type && building.type !== type)) continue;
+            const distance = getCombatDistance(source, building);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                nearest = building;
+            }
+        }
+    }
+    return nearest;
+}
+
+function assignAttackTarget(unit, target) {
+    unit.state = 'attacking';
+    unit.target = target;
+    unit.targetPoint = target && target.width && target.height
+        ? getCombatCenter(target)
+        : undefined;
+    unit.attackPath = null;
+    unit.attackPathTimer = -Math.random() * 700;
+    unit.attackPathFailed = false;
+    unit.attackPathFailCount = 0;
+    unit.attackPathRetryDelay = 0;
+}
+
+function selectWaveTarget(enemyTC) {
+    return findNearestHostileBuilding(enemyTC, Infinity, 'town-center') ||
+        findNearestHostileBuilding(enemyTC);
+}
+
 function createEnemyBase() {
     const enemyTCs = gameState.enemyBuildings.filter(b => b.type === 'town-center');
 
@@ -81,7 +146,10 @@ function createEnemyBase() {
             gameState.enemyUnits.push({
                 id: generateId(),
                 type: entry.type,
-                player: 'enemy',
+                player: enemyTC.player,
+                faction: enemyTC.player,
+                factionName: getFactionName(enemyTC),
+                factionColor: getFactionColor(enemyTC),
                 x: spawn.x,
                 y: spawn.y,
                 health: cfg.maxHealth,
@@ -100,25 +168,20 @@ function createEnemyBase() {
 });
 }
 
-function updateEnemyAI(unit) {
+function updateEnemyAI(unit, deltaTime = 16) {
+    unit.aiThinkElapsed = (unit.aiThinkElapsed || 0) + deltaTime;
+    const thinkInterval = unit.aiThinkInterval || (260 + Math.floor(Math.random() * 180));
+    if (unit.aiThinkElapsed < thinkInterval) return;
+    unit.aiThinkElapsed = 0;
+    unit.aiThinkInterval = thinkInterval;
+
     if (unit.state === 'idle' || unit.state === 'patrol') {
-        let nearbyTarget = gameState.units.find(playerUnit =>
-            getDistance(unit, playerUnit) < 200 && playerUnit.player === 'player'
-        );
+        let nearbyTarget = findNearestHostileUnit(unit, 240);
         if (!nearbyTarget) {
-            let closestBuilding = null;
-            let bestDist = Infinity;
-            gameState.buildings.forEach(b => {
-                const d = getDistance(unit, { x: b.x + b.width / 2, y: b.y + b.height / 2 });
-                if (d < bestDist) { bestDist = d; closestBuilding = b; }
-            });
-            if (closestBuilding && bestDist < 400) {
-                nearbyTarget = closestBuilding;
-            }
+            nearbyTarget = findNearestHostileBuilding(unit, 440);
         }
         if (nearbyTarget) {
-            unit.state = 'attacking';
-            unit.target = nearbyTarget;
+            assignAttackTarget(unit, nearbyTarget);
         } else if (unit.state === 'patrol') {
             if (!unit.targetX || getDistance(unit, unit.patrolCenter) > unit.patrolRadius) {
                 const angle = Math.random() * Math.PI * 2;
@@ -153,7 +216,7 @@ const AIManager = (function() {
         const centerX = enemyTC.x + enemyTC.width / 2;
         const centerY = enemyTC.y + enemyTC.height / 2;
         const baseRadius = Math.max(enemyTC.width, enemyTC.height) / 2 + 44;
-        const dummyUnit = { type: unitType, player: 'enemy' };
+        const dummyUnit = { type: unitType, player: enemyTC.player };
 
         for (let tries = 0; tries < 64; tries++) {
             const angle = ((index + tries / 64) / Math.max(1, total)) * Math.PI * 2 + (Math.random() - 0.5) * 0.75;
@@ -173,7 +236,7 @@ const AIManager = (function() {
     }
 
     function launchWave() {
-        const enemyTCs = gameState.enemyBuildings.filter(b => b.type === 'town-center' && b.player === 'enemy');
+        const enemyTCs = gameState.enemyBuildings.filter(b => b.type === 'town-center' && isEnemyFaction(b));
         if (enemyTCs.length === 0) return;
 
         // Scale wave based on waveCount
@@ -192,15 +255,10 @@ const AIManager = (function() {
             composition.push({ type: 'ballista', count: 1 });
         }
 
-        // Find player TC to target
-        let targetBuilding = gameState.buildings.find(b => b.player === 'player' && b.type === 'town-center');
-        if (!targetBuilding && gameState.buildings.length > 0) {
-            targetBuilding = gameState.buildings[0];
-        }
-
         let spawnedCount = 0;
         const totalUnits = composition.reduce((sum, group) => sum + group.count, 0);
         enemyTCs.forEach(enemyTC => {
+            const targetBuilding = selectWaveTarget(enemyTC);
             let baseSpawnedCount = 0;
             composition.forEach(group => {
                 for (let i = 0; i < group.count; i++) {
@@ -209,21 +267,24 @@ const AIManager = (function() {
                     const spawn = findWaveSpawn(enemyTC, group.type, baseSpawnedCount, totalUnits);
                     if (!spawn) continue;
 
-                    const targetPoint = targetBuilding ? {
-                        x: targetBuilding.x + targetBuilding.width / 2,
-                        y: targetBuilding.y + targetBuilding.height / 2
-                    } : undefined;
-
                     const newUnit = {
                         id: generateId(),
                         type: group.type,
-                        player: 'enemy',
+                        player: enemyTC.player,
+                        faction: enemyTC.player,
+                        factionName: getFactionName(enemyTC),
+                        factionColor: getFactionColor(enemyTC),
                         x: spawn.x,
                         y: spawn.y,
                         health: cfg.maxHealth,
                         state: targetBuilding ? 'attacking' : 'idle',
                         target: targetBuilding || null,
-                        targetPoint,
+                        targetPoint: targetBuilding ? getCombatCenter(targetBuilding) : undefined,
+                        attackPath: null,
+                        attackPathTimer: targetBuilding ? -Math.random() * 2500 : 0,
+                        attackPathFailed: false,
+                        attackPathFailCount: 0,
+                        attackPathRetryDelay: 0,
                         anim: { action: 'idle', direction: 'south', frame: 0, elapsed: 0 },
                         _faceDir: 'south',
                         _lastFaceNatural: 'south',
@@ -238,7 +299,7 @@ const AIManager = (function() {
             });
 
             if (baseSpawnedCount > 0 && typeof UI !== 'undefined' && UI.minimapPing) {
-                UI.minimapPing(enemyTC.x, enemyTC.y, '#ff0000');
+                UI.minimapPing(enemyTC.x, enemyTC.y, getFactionColor(enemyTC));
             }
         });
 

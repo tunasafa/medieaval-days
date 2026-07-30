@@ -46,6 +46,7 @@ function setResourceCounter(resource, value) {
     if (!el) return;
     const next = Math.floor(value);
     const prev = gameState.ui.resourceValues[resource];
+    if (prev === next) return;
     el.textContent = next;
     if (prev !== undefined && next > prev) {
         el.classList.remove('bounce-text');
@@ -55,14 +56,21 @@ function setResourceCounter(resource, value) {
     gameState.ui.resourceValues[resource] = next;
 }
 
+function setTextIfChanged(id, value) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const text = String(value);
+    if (el.textContent !== text) el.textContent = text;
+}
+
 function updateUI() {
     setResourceCounter('food', gameState.resources.food);
     setResourceCounter('wood', gameState.resources.wood);
     setResourceCounter('stone', gameState.resources.stone);
     setResourceCounter('gold', gameState.resources.gold);
-    document.getElementById('population').textContent = `${gameState.population.current}/${gameState.population.max}`;
-    document.getElementById('enemy-units').textContent = gameState.enemyUnits.length;
-    document.getElementById('enemy-buildings').textContent = gameState.enemyBuildings.length;
+    setTextIfChanged('population', `${gameState.population.current}/${gameState.population.max}`);
+    setTextIfChanged('enemy-units', gameState.enemyUnits.length);
+    setTextIfChanged('enemy-buildings', gameState.enemyBuildings.length);
 }
 
 function updateTrainingQueueUI() {
@@ -147,7 +155,7 @@ function updateSelectionInfo() {
         info.innerHTML = `
             <div class="selected-entity-title">
                 <strong>${displayName(building.type)}</strong>
-                <span class="faction-tag">${building.player}</span>
+                <span class="faction-tag">${getFactionName(building)}</span>
             </div>
             <div class="selection-stat-grid">
                 <div class="selection-stat">
@@ -171,7 +179,7 @@ function updateSelectionInfo() {
         info.innerHTML = `
             <div class="selected-entity-title">
                 <strong>${displayName(unit.type)}</strong>
-                <span class="faction-tag">${unit.state}</span>
+                <span class="faction-tag">${getFactionName(unit)}</span>
             </div>
             <div class="selection-stat-grid">
                 <div class="selection-stat">
@@ -403,7 +411,7 @@ function syncMainMenuButtons() {
             startBtn.textContent = 'Generating World...';
             startBtn.disabled = true;
         } else {
-            startBtn.textContent = gameState.ui.hasStarted ? 'Resume Battle' : 'Start Battle';
+            startBtn.textContent = gameState.ui.hasStarted ? 'Resume' : 'Play';
             startBtn.disabled = false;
         }
     }
@@ -418,12 +426,15 @@ function syncMainMenuButtons() {
 
 function getSelectedEnemyCount() {
     const selected = document.querySelector('input[name="enemy-count"]:checked');
-    const value = Number.parseInt(selected?.value || '2', 10);
+    const fallback = gameState.ui.selectedEnemyCount || GAME_CONFIG.world.enemyCount || 2;
+    const value = Number.parseInt(selected?.value || String(fallback), 10);
     return Math.max(1, Math.min(4, Number.isFinite(value) ? value : 2));
 }
 
 function updateEnemyCountLabel() {
     const count = getSelectedEnemyCount();
+    gameState.ui.selectedEnemyCount = count;
+    GAME_CONFIG.world.enemyCount = count;
     const label = document.getElementById('enemy-count-label');
     if (label) label.textContent = `${count} ${count === 1 ? 'Enemy' : 'Enemies'}`;
 }
@@ -436,9 +447,12 @@ async function beginGameFromMenu() {
     if (gameState.ui.gameLoading) return;
 
     gameState.ui.gameLoading = true;
+    const enemyCount = getSelectedEnemyCount();
+    gameState.ui.selectedEnemyCount = enemyCount;
+    GAME_CONFIG.world.enemyCount = enemyCount;
+    GAME_CONFIG.world.numPlayers = enemyCount + 1;
     updateEnemyCountLabel();
     syncMainMenuButtons();
-    GAME_CONFIG.world.numPlayers = getSelectedEnemyCount() + 1;
 
     try {
         const initResult = initGame();
@@ -470,7 +484,7 @@ function toggleMainMenu(forceOpen = null) {
         const firstLaunch = !gameState.ui.hasStarted;
         gameState.ui.hasStarted = true;
         if (firstLaunch) {
-            showNotification('Battle launched. Secure the circular frontier and destroy every enemy Town Center.');
+            showNotification('Battle launched. Secure the circular frontier and eliminate every rival command.');
         }
     }
     syncMainMenuButtons();
@@ -483,7 +497,8 @@ function updateGameTimerUI() {
     const totalSeconds = Math.floor((gameState.gameTime || 0) / 1000);
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = totalSeconds % 60;
-    timer.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    const text = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    if (timer.textContent !== text) timer.textContent = text;
 }
 
 function scanIdleVillagers() {
@@ -592,8 +607,6 @@ function setupUiControls() {
     document.querySelectorAll('input[name="enemy-count"]').forEach(input => {
         input.addEventListener('change', updateEnemyCountLabel);
     });
-    const menuTechBtn = document.getElementById('btn-menu-tech');
-    if (menuTechBtn) menuTechBtn.addEventListener('click', () => toggleTechTreeModal(true));
     const menuSettingsBtn = document.getElementById('btn-menu-settings');
     if (menuSettingsBtn) menuSettingsBtn.addEventListener('click', () => toggleSettingsModal(true));
     const techBtn = document.getElementById('btn-tech-tree');
@@ -678,7 +691,7 @@ function checkWinConditions() {
         b.type === 'town-center' && b.health > 0
     );
     if (enemyTownCenters.length === 0) {
-        endGame(true, 'Victory! You have destroyed the enemy!');
+        endGame(true, 'Victory! Every rival command has fallen.');
         return;
     }
     const playerTownCenters = gameState.buildings.filter(b =>

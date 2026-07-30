@@ -9,6 +9,7 @@ class PathfindingGrid {
         this.worldWidth = worldWidth;
         this.worldHeight = worldHeight;
         this._dirty = true; // grid needs rebuild on first use
+        this.version = 0;
         this.initializeGrid();
     }
 
@@ -230,6 +231,7 @@ class PathfindingGrid {
             }
         }
         this._dirty = false;
+        this.version++;
     }
 
     _computeClearance(propertyName, isBlocked) {
@@ -387,12 +389,19 @@ class AStarPathfinder {
 
         const startKey = `${start.x},${start.y}`;
         const endKey = `${end.x},${end.y}`;
+        const maxSearchCells = GAME_CONFIG.pathfinding?.maxSearchCells || 60000;
+        let expandedCells = 0;
 
         const startF = this.heuristic(start, end);
         gScore.set(startKey, 0);
         openHeap.push(start.x, start.y, startF);
 
         while (openHeap.size > 0) {
+            expandedCells++;
+            if (expandedCells > maxSearchCells) {
+                return null;
+            }
+
             const current = openHeap.pop();
             const currentKey = `${current.x},${current.y}`;
 
@@ -658,19 +667,6 @@ class AStarPathfinder {
             cost += edgePressure * 0.25;
         }
 
-        // Lightweight unit-density penalty at query time (avoids full-grid scan)
-        const worldPos = this.grid.gridToWorld(to.x, to.y);
-        const halfCell = this.grid.cellSize / 2;
-        let density = 0;
-        const allUnits = gameState.units.concat(gameState.enemyUnits);
-        for (let i = 0; i < allUnits.length; i++) {
-            const u = allUnits[i];
-            if (Math.abs(u.x - worldPos.x) < halfCell && Math.abs(u.y - worldPos.y) < halfCell) {
-                density++;
-                if (density > 1) { cost += density; break; }
-            }
-        }
-
         // Diagonal movement costs more
         if (from.x !== to.x && from.y !== to.y) {
             cost *= 1.414; // sqrt(2)
@@ -745,21 +741,54 @@ class AStarPathfinder {
 // Global pathfinding system
 let pathfindingGrid = null;
 let pathfinder = null;
+const __pathCache = new Map();
+
+function clonePath(path) {
+    return path ? path.map(point => ({ x: point.x, y: point.y })) : null;
+}
+
+function getPathCacheKey(startX, startY, endX, endY, unitType) {
+    const clusterCells = GAME_CONFIG.pathfinding?.cacheClusterCells || 4;
+    const clusterSize = (pathfindingGrid?.cellSize || 32) * clusterCells;
+    const pathClass = GAME_CONFIG.units[unitType]?.vessel ? 'vessel' : 'land';
+    return [
+        pathfindingGrid?.version || 0,
+        pathClass,
+        Math.floor(startX / clusterSize),
+        Math.floor(startY / clusterSize),
+        Math.floor(endX / clusterSize),
+        Math.floor(endY / clusterSize)
+    ].join('|');
+}
+
+function setCachedPath(key, path) {
+    const maxEntries = GAME_CONFIG.pathfinding?.cacheMaxEntries || 300;
+    if (__pathCache.size >= maxEntries) {
+        const oldestKey = __pathCache.keys().next().value;
+        __pathCache.delete(oldestKey);
+    }
+    __pathCache.set(key, clonePath(path));
+}
 
 function initializePathfinding() {
-    pathfindingGrid = new PathfindingGrid(GAME_CONFIG.world.width, GAME_CONFIG.world.height, 16);
+    const cellSize = GAME_CONFIG.pathfinding?.cellSize || 32;
+    pathfindingGrid = new PathfindingGrid(GAME_CONFIG.world.width, GAME_CONFIG.world.height, cellSize);
     pathfinder = new AStarPathfinder(pathfindingGrid);
+    __pathCache.clear();
+    pathfindingGrid.updateObstacles();
 }
 
 function updatePathfindingGrid() {
     if (pathfindingGrid) {
         pathfindingGrid.updateObstacles();
+        __pathCache.clear();
     }
 }
 
 function markPathfindingDirty() {
     if (pathfindingGrid) {
         pathfindingGrid.markDirty();
+        __pathCache.clear();
     }
 }
 
@@ -772,7 +801,14 @@ function findPath(startX, startY, endX, endY, unitType = 'villager') {
     if (pathfindingGrid._dirty) {
         updatePathfindingGrid();
     }
-    return pathfinder.findPath(startX, startY, endX, endY, unitType);
+    const cacheKey = getPathCacheKey(startX, startY, endX, endY, unitType);
+    if (__pathCache.has(cacheKey)) {
+        return clonePath(__pathCache.get(cacheKey));
+    }
+
+    const path = pathfinder.findPath(startX, startY, endX, endY, unitType);
+    setCachedPath(cacheKey, path);
+    return clonePath(path);
 }
 
 // Helper function to get the next waypoint for a unit

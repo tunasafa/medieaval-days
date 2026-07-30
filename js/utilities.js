@@ -15,6 +15,59 @@ function generateId() {
     return Date.now() + Math.random();
 }
 
+function getFactionId(entityOrFaction) {
+    if (!entityOrFaction) return 'neutral';
+    if (typeof entityOrFaction === 'string') return entityOrFaction;
+    return entityOrFaction.faction || entityOrFaction.player || 'neutral';
+}
+
+function getFactionConfig(entityOrFaction) {
+    const factionId = getFactionId(entityOrFaction);
+    if (factionId === 'player') {
+        return { id: 'player', name: 'Player One', color: '#4f8cff', assetFolder: '' };
+    }
+    const factions = GAME_CONFIG.enemyFactions || [];
+    return factions.find(faction => faction.id === factionId) ||
+        (factionId === 'enemy' ? factions[0] : null) ||
+        { id: factionId, name: factionId, color: '#e35f44', assetFolder: 'enemy' };
+}
+
+function getFactionName(entityOrFaction) {
+    return getFactionConfig(entityOrFaction).name;
+}
+
+function getFactionColor(entityOrFaction) {
+    return getFactionConfig(entityOrFaction).color;
+}
+
+function isEnemyFaction(entityOrFaction) {
+    const factionId = getFactionId(entityOrFaction);
+    return factionId !== 'player' && factionId !== 'neutral';
+}
+
+function areHostile(a, b) {
+    const factionA = getFactionId(a);
+    const factionB = getFactionId(b);
+    if (!factionA || !factionB || factionA === factionB) return false;
+    if (factionA === 'neutral' || factionB === 'neutral') return false;
+    return factionA === 'player' || factionB === 'player' ||
+        (isEnemyFaction(factionA) && isEnemyFaction(factionB));
+}
+
+function getHostileUnits(entity) {
+    return [...gameState.units, ...gameState.enemyUnits].filter(unit =>
+        unit !== entity &&
+        unit.state !== 'embarked' &&
+        areHostile(entity, unit)
+    );
+}
+
+function getHostileBuildings(entity) {
+    return [...gameState.buildings, ...gameState.enemyBuildings].filter(building =>
+        areHostile(entity, building)
+    );
+}
+
 /**
  * Calculates Euclidean distance between two game objects or points.
  * Handles objects with position properties (x,y) and optional dimensions (width,height).
@@ -101,6 +154,24 @@ function hasWaterTerrain() {
         gameState.worldObjects.some(o => o.type === 'water' || o.type === 'lake'));
 }
 
+const __bridgeWorldObjectsCache = {
+    source: null,
+    length: -1,
+    objects: []
+};
+
+function getBridgeWorldObjects() {
+    const worldObjects = gameState.worldObjects || [];
+    if (__bridgeWorldObjectsCache.source === worldObjects &&
+        __bridgeWorldObjectsCache.length === worldObjects.length) {
+        return __bridgeWorldObjectsCache.objects;
+    }
+    __bridgeWorldObjectsCache.source = worldObjects;
+    __bridgeWorldObjectsCache.length = worldObjects.length;
+    __bridgeWorldObjectsCache.objects = worldObjects.filter(o => o.type === 'bridge');
+    return __bridgeWorldObjectsCache.objects;
+}
+
 /**
  * Validates that an entire rectangular area is on land by sampling multiple points.
  * Checks corners, edge midpoints, and center to ensure no water intersects the rectangle.
@@ -127,7 +198,13 @@ function isRectOnLand(x, y, w, h) {
 }
 
 function isPointOnBridge(x, y) {
-    return gameState.worldObjects.some(o => o.type === 'bridge' && x >= o.x && x <= o.x + o.width && y >= o.y && y <= o.y + o.height);
+    for (const bridge of getBridgeWorldObjects()) {
+        if (x >= bridge.x && x <= bridge.x + bridge.width &&
+            y >= bridge.y && y <= bridge.y + bridge.height) {
+            return true;
+        }
+    }
+    return false;
 }
 
 // Shoreline border/inner-band helpers removed: only land vs water checks remain
@@ -466,9 +543,7 @@ function computeBridgeBlockAt(cx, cy) {
         (o.type === 'resource' || o.type === 'obstacle' || o.type === 'no-go' || o.type === 'noZone') &&
         rectsOverlap(bridge, o)
     );
-    const collidesBridge = gameState.worldObjects.some(o => o.type === 'bridge' &&
-        rectsOverlap(bridge, o)
-    );
+    const collidesBridge = getBridgeWorldObjects().some(o => rectsOverlap(bridge, o));
     const withinWorld = bridge.x >= 0 && bridge.y >= 0 &&
         bridge.x + bridge.width <= GAME_CONFIG.world.width &&
         bridge.y + bridge.height <= GAME_CONFIG.world.height;

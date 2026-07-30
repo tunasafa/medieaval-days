@@ -1,4 +1,9 @@
 // Resource-related Functions
+function setResourceRateText(id, value) {
+    const el = document.getElementById(id);
+    if (el && el.textContent !== value) el.textContent = value;
+}
+
 function updateResourceRates() {
     gameState.resourceRates = { food: 0, wood: 0, stone: 0, gold: 0 };
     gameState.units.forEach(unit => {
@@ -10,10 +15,10 @@ function updateResourceRates() {
             gameState.resourceRates.food += (config.gatherRate || 2.5);
         }
     });
-    document.getElementById('food-rate').textContent = gameState.resourceRates.food.toFixed(1);
-    document.getElementById('wood-rate').textContent = gameState.resourceRates.wood.toFixed(1);
-    document.getElementById('stone-rate').textContent = gameState.resourceRates.stone.toFixed(1);
-    document.getElementById('gold-rate').textContent = gameState.resourceRates.gold.toFixed(1);
+    setResourceRateText('food-rate', gameState.resourceRates.food.toFixed(1));
+    setResourceRateText('wood-rate', gameState.resourceRates.wood.toFixed(1));
+    setResourceRateText('stone-rate', gameState.resourceRates.stone.toFixed(1));
+    setResourceRateText('gold-rate', gameState.resourceRates.gold.toFixed(1));
 }
 
 function findNearestResource(unit, resourceType) {

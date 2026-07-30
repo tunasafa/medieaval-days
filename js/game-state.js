@@ -38,7 +38,8 @@ const gameState = {
         secondTick: 0,
         modalOpen: 'main-menu',
         hasStarted: false,
-        gameLoading: false
+        gameLoading: false,
+        selectedEnemyCount: 2
     },
     camera: { x: 0, y: 0 },
     zoomLevel: 1.0,

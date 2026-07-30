@@ -45,6 +45,7 @@ class Tilemap {
         this.waterFrame = 0;
         this.waterFrameCount = 1;
         this.waterPatternSize = 192;
+        this.version = 0;
         this._waterPatterns = [];  // per-depth static CanvasPattern arrays [depth][0]
         this._depthStencils = null; // per-depth alpha masks at mask resolution
     }
@@ -193,6 +194,7 @@ class Tilemap {
             this._refreshWaterState();
             this._buildDepthField();
             this._rebuildContours();
+            this.version++;
             return;
         }
 
@@ -249,6 +251,7 @@ class Tilemap {
         this._refreshWaterState();
         this._buildDepthField();
         this._rebuildContours();
+        this.version++;
     }
 
     /**
@@ -449,6 +452,7 @@ class Tilemap {
             this._refreshWaterState();
             this._buildDepthField();
             this._rebuildContours();
+            this.version++;
             return;
         }
         // Approximate legacy rectangles with lake primitives so behaviour degrades
@@ -475,6 +479,7 @@ class Tilemap {
         this._refreshWaterState();
         this._buildDepthField();
         this._rebuildContours();
+        this.version++;
     }
 
     _applyBridgeTerrainOverrides() {

@@ -1,16 +1,28 @@
 const GAME_CONFIG = {
     canvas: { width: 5000, height: 2500 },
     minimap: { width: 200, height: 200 },
-    world: { width: 8000, height: 8000, radius: 4000, numPlayers: 3 },
+    world: { width: 16000, height: 16000, radius: 8000, numPlayers: 3, enemyCount: 2 },
+    pathfinding: {
+        cellSize: 32,
+        maxSearchCells: 9000,
+        cacheClusterCells: 8,
+        cacheMaxEntries: 300
+    },
+    enemyFactions: [
+        { id: 'enemy-1', name: 'Iron Host', assetFolder: 'enemy', color: '#e35f44' },
+        { id: 'enemy-2', name: 'Sun Emirate', assetFolder: 'desert', color: '#f2b84b' },
+        { id: 'enemy-3', name: 'Night Court', assetFolder: 'gothic_vampiric', color: '#b45cff' },
+        { id: 'enemy-4', name: 'Warlike Clan', assetFolder: 'jagged_warlike', color: '#4cc7d9' }
+    ],
     // Terrain/water tuning. terrain.tileSize is the logical water-mask resolution
     // that all gameplay reads; bridgeBlockSize is kept independent so bridge
     // footprints stay the same size regardless of how fine the mask gets.
     terrain: {
-        tileSize: 32,          // logical water-mask resolution in world units
+        tileSize: 64,          // logical water-mask resolution in world units
         bridgeBlockSize: 128,  // bridge lane width, decoupled from tileSize
         bridgeBankApron: 64,   // land overlap on each bank so paths connect cleanly
         bridgeMaxSpan: 960,    // maximum river width one bridge placement can cross
-        contourStep: 24,       // marching-squares sampling step for the drawn coast
+        contourStep: 48,       // marching-squares sampling step for the drawn coast
         maxWaterDepth: 3       // number of depth bands for shading
     },
     units: {

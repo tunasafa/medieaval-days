@@ -1,6 +1,11 @@
 // Drawing Functions
 // Simple DOM overlay for animated GIF units so they animate like regular images
 let __unitOverlayDiv = null;
+const __minimapBaseCache = {
+    key: null,
+    canvas: null
+};
+
 function getUnitOverlay() {
     if (!__unitOverlayDiv) {
         __unitOverlayDiv = document.createElement('div');
@@ -15,6 +20,57 @@ function getUnitOverlay() {
         document.body.appendChild(__unitOverlayDiv);
     }
     return __unitOverlayDiv;
+}
+
+function getMinimapBaseLayer(minimapCanvas, scaleX, scaleY) {
+    const tileVersion = tilemap?.version || 0;
+    const key = [
+        minimapCanvas.width,
+        minimapCanvas.height,
+        GAME_CONFIG.world.width,
+        GAME_CONFIG.world.height,
+        tileVersion,
+        gameState.worldObjects.length
+    ].join('|');
+
+    if (__minimapBaseCache.key === key && __minimapBaseCache.canvas) {
+        return __minimapBaseCache.canvas;
+    }
+
+    const base = document.createElement('canvas');
+    base.width = minimapCanvas.width;
+    base.height = minimapCanvas.height;
+    const baseCtx = base.getContext('2d');
+
+    baseCtx.fillStyle = '#2a8f52';
+    baseCtx.fillRect(0, 0, base.width, base.height);
+
+    if (tilemap && tilemap.hasWater) {
+        const cellW = tilemap.tileSize * scaleX;
+        const cellH = tilemap.tileSize * scaleY;
+        for (let ty = 0; ty < tilemap.height; ty++) {
+            for (let tx = 0; tx < tilemap.width; tx++) {
+                if (tilemap.getTile(tx, ty) !== TILE_TYPES.WATER) continue;
+                const worldX = (tx + 0.5) * tilemap.tileSize;
+                const worldY = (ty + 0.5) * tilemap.tileSize;
+                const depth = typeof tilemap.depthAt === 'function' ? tilemap.depthAt(worldX, worldY) : 1;
+                const palette = WATER_PALETTE[Math.max(0, Math.min(WATER_PALETTE.length - 1, depth))] || WATER_PALETTE[1];
+                baseCtx.fillStyle = `rgb(${palette.primary[0]}, ${palette.primary[1]}, ${palette.primary[2]})`;
+                baseCtx.fillRect(tx * tilemap.tileSize * scaleX, ty * tilemap.tileSize * scaleY, Math.ceil(cellW) + 1, Math.ceil(cellH) + 1);
+            }
+        }
+    }
+
+    gameState.worldObjects.forEach(obj => {
+        if (obj.type === 'resource' || obj.type === 'decoration' || (tilemap?.hasWater && obj.type === 'water')) return;
+        baseCtx.fillStyle = obj.type === 'water' || obj.type === 'bridge' ? obj.color : '#696969';
+        baseCtx.fillRect(obj.x * scaleX, obj.y * scaleY,
+            Math.max(1, obj.width * scaleX), Math.max(1, obj.height * scaleY));
+    });
+
+    __minimapBaseCache.key = key;
+    __minimapBaseCache.canvas = base;
+    return base;
 }
 
 function syncOverlayToCanvas() {
@@ -78,6 +134,10 @@ function mapDirForAssets(dir) {
 
 const FACTION_ASSET_FOLDERS = {
     enemy: 'enemy',
+    'enemy-1': 'enemy',
+    'enemy-2': 'desert',
+    'enemy-3': 'gothic_vampiric',
+    'enemy-4': 'jagged_warlike',
     desert: 'desert',
     eastern: 'eastern',
     gothic: 'gothic_vampiric',
@@ -91,7 +151,8 @@ const FACTION_ASSET_FOLDERS = {
 };
 
 function getFactionAssetName(owner, name) {
-    const folder = FACTION_ASSET_FOLDERS[String(owner || '').toLowerCase()];
+    const faction = typeof getFactionConfig === 'function' ? getFactionConfig(owner) : null;
+    const folder = faction?.assetFolder || FACTION_ASSET_FOLDERS[String(owner || '').toLowerCase()];
     return folder ? `${folder}/${name}` : name;
 }
 
@@ -484,10 +545,8 @@ function drawUnit(ctx, unit) {
     ctx.translate(drawX, drawY);
     const unitSize = 24;
 
-    let baseImg = assetManager.getAsset('units', unit.type);
-    let hasGif = baseImg && (baseImg.src || '').toLowerCase().endsWith('.gif');
-
-    let img = baseImg;
+    let hasGif = false;
+    let img = null;
     if (unit.type === 'villager' || unit.type === 'militia' || unit.type === 'warrior' || unit.type === 'axeman' || unit.type === 'archer') {
         const prevX = unit.__drawPrevX ?? unit.x;
         const prevY = unit.__drawPrevY ?? unit.y;
@@ -593,8 +652,8 @@ function drawUnit(ctx, unit) {
                                      .replace('southeast','south-east')
                                      .replace('southwest','south-west');
                 fileCandidates = [
-                    `axeman/attack/axeman_attack_${hyphenDir}`,
-                    `axeman/attack/axeman_attack_${finalAttackDir}`
+                    `axeman/attack/axeman_attack_${finalAttackDir}`,
+                    `axeman/attack/axeman_attack_${hyphenDir}`
                 ];
             } else {
 
@@ -648,8 +707,8 @@ function drawUnit(ctx, unit) {
                 .replace('southeast','south-east')
                 .replace('southwest','south-west');
             fileCandidates = [
-                `axeman/idle/axeman_idle_${hyphenDir}`,
-                `axeman/idle/axeman_idle_${idleFaceRaw}`
+                `axeman/idle/axeman_idle_${idleFaceRaw}`,
+                `axeman/idle/axeman_idle_${hyphenDir}`
             ];
         } else if (unit.type === 'archer' && unit.state === 'idle') {
             // Archer idle: use last natural facing
@@ -660,8 +719,8 @@ function drawUnit(ctx, unit) {
                 .replace('southeast','south-east')
                 .replace('southwest','south-west');
             fileCandidates = [
-                `archer/idle/archer_idle_${hyphenDir}`,
-                `archer/idle/archer_idle_${idleFaceRaw}`
+                `archer/idle/archer_idle_${idleFaceRaw}`,
+                `archer/idle/archer_idle_${hyphenDir}`
             ];
         } else {
             // Walking animations
@@ -688,13 +747,13 @@ function drawUnit(ctx, unit) {
                                      .replace('southeast','south-east')
                                      .replace('southwest','south-west');
                 fileCandidates = [
-                    `axeman/walking/axeman_walking_${hyphenDir}`,
-                    `axeman/walking/axeman_walking_${mapDirForAssets(dir)}`
+                    `axeman/walking/axeman_walking_${mapDirForAssets(dir)}`,
+                    `axeman/walking/axeman_walking_${hyphenDir}`
                 ];
         } else {
                 const md = mapDirForAssets(dir);
                 fileBase = `${prefix}/walk/${prefix}_walk_${md}`;
-                altBase = (prefix === 'villager' && md === 'north') ? `${prefix}/walk/${prefix}_walk_noth` : fileBase;
+                altBase = fileBase;
             }
         }
         // Build a unified candidate list (supports warrior arrays + fileBase/altBase strings)
@@ -832,8 +891,8 @@ function drawUnit(ctx, unit) {
         let candidates = [];
         if (useAttack) {
             candidates = [
-                `ballista/attack/ballista_attack_${hyphenDir}`,
-                `ballista/attack/ballista_attack_${renderDir}`
+                `ballista/attack/ballista_attack_${renderDir}`,
+                `ballista/attack/ballista_attack_${hyphenDir}`
             ];
         } else if (unit.state === 'idle') {
             // Actual files are ballista/idle/ballista_{dir}.gif (no "idle" in filename)
@@ -1282,48 +1341,17 @@ function drawMinimap() {
     ctx.arc(mapCx, mapCy, mapRadius, 0, Math.PI * 2);
     ctx.clip();
 
-    ctx.fillStyle = '#2a8f52';
-    ctx.fillRect(0, 0, minimapCanvas.width, minimapCanvas.height);
-
-    if (tilemap && tilemap.hasWater) {
-        // The minimap uses the exact gameplay water mask. This keeps it honest:
-        // blue on the minimap means that same location is water in the game.
-        const cellW = tilemap.tileSize * scaleX;
-        const cellH = tilemap.tileSize * scaleY;
-        for (let ty = 0; ty < tilemap.height; ty++) {
-            for (let tx = 0; tx < tilemap.width; tx++) {
-                if (tilemap.getTile(tx, ty) !== TILE_TYPES.WATER) continue;
-                const worldX = (tx + 0.5) * tilemap.tileSize;
-                const worldY = (ty + 0.5) * tilemap.tileSize;
-                const depth = typeof tilemap.depthAt === 'function' ? tilemap.depthAt(worldX, worldY) : 1;
-                const palette = WATER_PALETTE[Math.max(0, Math.min(WATER_PALETTE.length - 1, depth))] || WATER_PALETTE[1];
-                ctx.fillStyle = `rgb(${palette.primary[0]}, ${palette.primary[1]}, ${palette.primary[2]})`;
-                ctx.fillRect(tx * tilemap.tileSize * scaleX, ty * tilemap.tileSize * scaleY, Math.ceil(cellW) + 1, Math.ceil(cellH) + 1);
-            }
-        }
-    }
-
-    gameState.worldObjects.forEach(obj => {
-        // Tilemap water is authoritative; avoid drawing older water rectangles over it.
-        if (obj.type === 'resource' || obj.type === 'decoration' || (tilemap?.hasWater && obj.type === 'water')) return;
-        if (obj.type === 'water' || obj.type === 'bridge') {
-            ctx.fillStyle = obj.color;
-        } else {
-            ctx.fillStyle = '#696969';
-        }
-        ctx.fillRect(obj.x * scaleX, obj.y * scaleY,
-            Math.max(1, obj.width * scaleX), Math.max(1, obj.height * scaleY));
-    });
+    ctx.drawImage(getMinimapBaseLayer(minimapCanvas, scaleX, scaleY), 0, 0);
     gameState.units.forEach(unit => {
-        ctx.fillStyle = '#00ff00';
+        ctx.fillStyle = getFactionColor(unit);
         ctx.fillRect(unit.x * scaleX - 1, unit.y * scaleY - 1, 2, 2);
     });
     gameState.enemyUnits.forEach(unit => {
-        ctx.fillStyle = '#ff0000';
+        ctx.fillStyle = getFactionColor(unit);
         ctx.fillRect(unit.x * scaleX - 1, unit.y * scaleY - 1, 2, 2);
     });
     [...gameState.buildings, ...gameState.enemyBuildings].forEach(building => {
-        ctx.fillStyle = building.player === 'player' ? '#0066ff' : '#ff6600';
+        ctx.fillStyle = getFactionColor(building);
         ctx.fillRect(building.x * scaleX, building.y * scaleY,
                    Math.max(2, building.width * scaleX), Math.max(2, building.height * scaleY));
     });

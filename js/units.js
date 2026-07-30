@@ -15,9 +15,40 @@ function spreadIdleUnits(unit) {
 
     const unitSize = 24;
     const minDistance = unitSize * 0.5;
-    const allUnits = [...gameState.units, ...gameState.enemyUnits];
 
-    for (const otherUnit of allUnits) {
+    for (const otherUnit of gameState.units) {
+        if (otherUnit === unit || otherUnit.state !== 'idle') continue;
+
+        const dx = unit.x - otherUnit.x;
+        const dy = unit.y - otherUnit.y;
+        const distance = Math.hypot(dx, dy);
+
+        if (distance < minDistance && distance > 0) {
+            const pushDistance = (minDistance - distance) / 2;
+            const pushAngle = Math.atan2(dy, dx);
+
+            const pushX = Math.cos(pushAngle) * pushDistance;
+            const pushY = Math.sin(pushAngle) * pushDistance;
+
+            const newX = unit.x + pushX;
+            const newY = unit.y + pushY;
+
+            if (validateTerrainMovement(unit, newX, newY) && !isPositionOccupied(newX, newY, unit, 8)) {
+                unit.x = newX;
+                unit.y = newY;
+            }
+
+            const otherNewX = otherUnit.x - pushX;
+            const otherNewY = otherUnit.y - pushY;
+
+            if (validateTerrainMovement(otherUnit, otherNewX, otherNewY) && !isPositionOccupied(otherNewX, otherNewY, otherUnit, 8)) {
+                otherUnit.x = otherNewX;
+                otherUnit.y = otherNewY;
+            }
+        }
+    }
+
+    for (const otherUnit of gameState.enemyUnits) {
         if (otherUnit === unit || otherUnit.state !== 'idle') continue;
 
         const dx = unit.x - otherUnit.x;
@@ -57,13 +88,13 @@ function spreadIdleUnits(unit) {
  * @param {Object} unit - The moving unit to apply separation forces to
  */
 function applyUnitSeparation(unit) {
-    const allUnits = [...gameState.units, ...gameState.enemyUnits];
     const isVessel = !!GAME_CONFIG.units[unit.type]?.vessel;
-    const isEnemyIdle = unit.player === 'enemy' && unit.state === 'idle';
+    const isEnemyIdle = typeof isEnemyFaction === 'function' && isEnemyFaction(unit) && unit.state === 'idle';
     const desired = isVessel ? 28 : (isEnemyIdle ? 24 : 18); // give ships more berth; enemy idle keep 1 body
     let pushX = 0;
     let pushY = 0;
-    for (const other of allUnits) {
+
+    for (const other of gameState.units) {
         if (other === unit) continue;
         const dx = unit.x - other.x;
         const dy = unit.y - other.y;
@@ -74,6 +105,19 @@ function applyUnitSeparation(unit) {
             pushY += (dy / dist) * overlap;
         }
     }
+
+    for (const other of gameState.enemyUnits) {
+        if (other === unit) continue;
+        const dx = unit.x - other.x;
+        const dy = unit.y - other.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist > 0 && dist < desired) {
+            const overlap = desired - dist;
+            pushX += (dx / dist) * overlap;
+            pushY += (dy / dist) * overlap;
+        }
+    }
+
     if (pushX !== 0 || pushY !== 0) {
         // Limit the correction per tick to avoid jitter
         const maxStep = 0.9;
@@ -99,7 +143,7 @@ function updateUnits(deltaTime) {
     });
     gameState.enemyUnits.forEach(unit => {
         updateUnit(unit, deltaTime);
-        updateEnemyAI(unit);
+        updateEnemyAI(unit, deltaTime);
         updateUnitAnimation(unit, deltaTime);
         applyUnitSeparation(unit);
     });
@@ -458,13 +502,31 @@ function updateUnit(unit, deltaTime) {
             unit.state = 'idle';
             unit.target = null;
             unit.targetPoint = undefined;
+            unit.attackPath = null;
+            unit.attackPathTimer = 0;
+            unit.attackPathFailed = false;
+            unit.attackPathFailCount = 0;
+            unit.attackPathRetryDelay = 0;
             spreadIdleUnits(unit);
         } else if (distance > config.attackRange) {
             // Use pathfinding for approaching targets when attacking
-            if (!unit.attackPath || unit.attackPathTimer > 3000) {
+            unit.attackPathTimer = (unit.attackPathTimer || 0) + deltaTime;
+            const needsAttackPath = !unit.attackPath || unit.attackPath.length === 0;
+            const attackRetryDelay = unit.attackPathFailed ? (unit.attackPathRetryDelay || 4500) : 0;
+            if ((needsAttackPath && unit.attackPathTimer >= attackRetryDelay) ||
+                (!needsAttackPath && unit.attackPathTimer > 3000)) {
                 // Generate path to target every 3 seconds or if no path exists
-                unit.attackPath = findPath(unit.x, unit.y, tx, ty, unit.type);
+                const nextPath = findPath(unit.x, unit.y, tx, ty, unit.type);
+                unit.attackPath = nextPath;
                 unit.attackPathTimer = 0;
+                unit.attackPathFailed = !(nextPath && nextPath.length > 0);
+                if (unit.attackPathFailed) {
+                    unit.attackPathFailCount = (unit.attackPathFailCount || 0) + 1;
+                    unit.attackPathRetryDelay = Math.min(15000, 3500 + unit.attackPathFailCount * 2200) + Math.random() * 1200;
+                } else {
+                    unit.attackPathFailCount = 0;
+                    unit.attackPathRetryDelay = 0;
+                }
             }
 
             if (unit.attackPath && unit.attackPath.length > 0) {
@@ -532,7 +594,10 @@ function updateUnit(unit, deltaTime) {
                         if (!moved) {
                             // Force recalculate path if completely stuck
                             unit.attackPath = null;
-                            unit.attackPathTimer = 3000;
+                            unit.attackPathTimer = 2600 + Math.random() * 350;
+                            unit.attackPathFailed = false;
+                            unit.attackPathFailCount = 0;
+                            unit.attackPathRetryDelay = 0;
                         }
                     }
                 }
@@ -548,8 +613,6 @@ function updateUnit(unit, deltaTime) {
                     unit.y = tentativeY;
                 }
             }
-
-            unit.attackPathTimer = (unit.attackPathTimer || 0) + deltaTime;
         } else {
             if (!unit.lastAttack || Date.now() - unit.lastAttack > 1000) {
                 unit.lastAttack = Date.now();
@@ -584,6 +647,11 @@ function updateUnit(unit, deltaTime) {
                         unit._dirX = 0; unit._dirY = 0;
                         unit.target = null;
                         unit.targetPoint = undefined;
+                        unit.attackPath = null;
+                        unit.attackPathTimer = 0;
+                        unit.attackPathFailed = false;
+                        unit.attackPathFailCount = 0;
+                        unit.attackPathRetryDelay = 0;
                         spreadIdleUnits(unit);
                     }
                 }
@@ -597,9 +665,22 @@ function updateUnit(unit, deltaTime) {
         const distance = Math.sqrt(dx * dx + dy * dy);
         if (distance > 20) {
             // Use pathfinding for approaching resources
-            if (!unit.gatherPath || unit.gatherPathTimer > 2000) {
-                unit.gatherPath = findPath(unit.x, unit.y, targetX, targetY, unit.type);
+            unit.gatherPathTimer = (unit.gatherPathTimer || 0) + deltaTime;
+            const needsGatherPath = !unit.gatherPath || unit.gatherPath.length === 0;
+            const gatherRetryDelay = unit.gatherPathFailed ? (unit.gatherPathRetryDelay || 1800) : 0;
+            if ((needsGatherPath && unit.gatherPathTimer >= gatherRetryDelay) ||
+                (!needsGatherPath && unit.gatherPathTimer > 2000)) {
+                const nextPath = findPath(unit.x, unit.y, targetX, targetY, unit.type);
+                unit.gatherPath = nextPath;
                 unit.gatherPathTimer = 0;
+                unit.gatherPathFailed = !(nextPath && nextPath.length > 0);
+                if (unit.gatherPathFailed) {
+                    unit.gatherPathFailCount = (unit.gatherPathFailCount || 0) + 1;
+                    unit.gatherPathRetryDelay = Math.min(7000, 1500 + unit.gatherPathFailCount * 900) + Math.random() * 500;
+                } else {
+                    unit.gatherPathFailCount = 0;
+                    unit.gatherPathRetryDelay = 0;
+                }
             }
 
             if (unit.gatherPath && unit.gatherPath.length > 0) {
@@ -677,6 +758,10 @@ function updateUnit(unit, deltaTime) {
                         }
                         if (!moved) {
                             unit.gatherPath = null; // Recalculate path
+                            unit.gatherPathTimer = 2000;
+                            unit.gatherPathFailed = false;
+                            unit.gatherPathFailCount = 0;
+                            unit.gatherPathRetryDelay = 0;
                         }
                     }
                 }
@@ -720,8 +805,6 @@ function updateUnit(unit, deltaTime) {
                     }
                 }
             }
-
-            unit.gatherPathTimer = (unit.gatherPathTimer || 0) + deltaTime;
         } else {
             if (!unit.gatherStartTime) unit.gatherStartTime = Date.now();
             const gatherTime = (Date.now() - unit.gatherStartTime) / 1000;
@@ -736,6 +819,16 @@ function updateUnit(unit, deltaTime) {
 
                 unit.state = 'returning';
                 unit.gatherStartTime = null;
+                unit.gatherPath = null;
+                unit.gatherPathTimer = 0;
+                unit.gatherPathFailed = false;
+                unit.gatherPathFailCount = 0;
+                unit.gatherPathRetryDelay = 0;
+                unit.returnPath = null;
+                unit.returnPathTimer = 0;
+                unit.returnPathFailed = false;
+                unit.returnPathFailCount = 0;
+                unit.returnPathRetryDelay = 0;
                 const tc = gameState.buildings.find(b => b.type === 'town-center' && b.player === 'player');
                 if (tc) {
                     // Remember which side is closest at the moment we start returning, to avoid oscillation
@@ -792,6 +885,12 @@ function updateUnit(unit, deltaTime) {
             unit.gatherType = null;
             unit.dropOffX = undefined;
             unit.dropOffY = undefined;
+            unit.dropSide = undefined;
+            unit.returnPath = null;
+            unit.returnPathTimer = 0;
+            unit.returnPathFailed = false;
+            unit.returnPathFailCount = 0;
+            unit.returnPathRetryDelay = 0;
             unit.state = 'idle';
             spreadIdleUnits(unit);
             const nearbyResource = findNearestResource(unit, lastGatherType || 'food');
@@ -799,6 +898,11 @@ function updateUnit(unit, deltaTime) {
                 unit.state = 'gathering';
                 unit.targetResource = nearbyResource;
                 unit.gatherType = lastGatherType || nearbyResource.resourceType;
+                unit.gatherPath = null;
+                unit.gatherPathTimer = 0;
+                unit.gatherPathFailed = false;
+                unit.gatherPathFailCount = 0;
+                unit.gatherPathRetryDelay = 0;
                 const angle = Math.random() * Math.PI * 2;
                 const r = 18 + Math.random() * 10;
                 unit.gatherOffset = { dx: Math.cos(angle) * r, dy: Math.sin(angle) * r };
@@ -815,9 +919,21 @@ function updateUnit(unit, deltaTime) {
         if (distance > depositRadius) {
             // Try to use a path when available (recompute periodically)
             unit.returnPathTimer = (unit.returnPathTimer || 0) + deltaTime;
-            if (!unit.returnPath || unit.returnPathTimer > 2000) {
-                unit.returnPath = findPath(unit.x, unit.y, targetX, targetY, unit.type);
+            const needsReturnPath = !unit.returnPath || unit.returnPath.length === 0;
+            const returnRetryDelay = unit.returnPathFailed ? (unit.returnPathRetryDelay || 1800) : 0;
+            if ((needsReturnPath && unit.returnPathTimer >= returnRetryDelay) ||
+                (!needsReturnPath && unit.returnPathTimer > 2000)) {
+                const nextPath = findPath(unit.x, unit.y, targetX, targetY, unit.type);
+                unit.returnPath = nextPath;
                 unit.returnPathTimer = 0;
+                unit.returnPathFailed = !(nextPath && nextPath.length > 0);
+                if (unit.returnPathFailed) {
+                    unit.returnPathFailCount = (unit.returnPathFailCount || 0) + 1;
+                    unit.returnPathRetryDelay = Math.min(7000, 1500 + unit.returnPathFailCount * 900) + Math.random() * 500;
+                } else {
+                    unit.returnPathFailCount = 0;
+                    unit.returnPathRetryDelay = 0;
+                }
             }
 
             if (unit.returnPath && unit.returnPath.length > 0) {
@@ -869,6 +985,9 @@ function updateUnit(unit, deltaTime) {
                         if (!moved) {
                             // If stuck, force path recompute next tick
                             unit.returnPathTimer = 3001;
+                            unit.returnPathFailed = false;
+                            unit.returnPathFailCount = 0;
+                            unit.returnPathRetryDelay = 0;
                         }
                     }
                 }
@@ -922,6 +1041,9 @@ function updateUnit(unit, deltaTime) {
             unit.dropSide = undefined;
             unit.returnPath = null;
             unit.returnPathTimer = 0;
+            unit.returnPathFailed = false;
+            unit.returnPathFailCount = 0;
+            unit.returnPathRetryDelay = 0;
             // Resume the SAME resource if it still has amount; else become idle
             const resumeRes = unit.returnResource;
             unit.returnResource = null;
@@ -934,6 +1056,9 @@ function updateUnit(unit, deltaTime) {
                 if (resumeOffset) unit.gatherOffset = resumeOffset;
                 unit.gatherPath = null;
                 unit.gatherPathTimer = 0;
+                unit.gatherPathFailed = false;
+                unit.gatherPathFailCount = 0;
+                unit.gatherPathRetryDelay = 0;
             } else {
                 unit.state = 'idle';
                 spreadIdleUnits(unit);
@@ -1522,36 +1647,84 @@ function isPointInRoundedRectangle(x, y, building, buffer) {
     return false;
 }
 
+const __blockingWorldObjectsCache = {
+    source: null,
+    length: -1,
+    objects: []
+};
+
+function getBlockingWorldObjects() {
+    const worldObjects = gameState.worldObjects || [];
+    if (__blockingWorldObjectsCache.source === worldObjects &&
+        __blockingWorldObjectsCache.length === worldObjects.length) {
+        return __blockingWorldObjectsCache.objects;
+    }
+    __blockingWorldObjectsCache.source = worldObjects;
+    __blockingWorldObjectsCache.length = worldObjects.length;
+    __blockingWorldObjectsCache.objects = worldObjects.filter(obj =>
+        obj.type === 'obstacle' || obj.type === 'no-go' || obj.type === 'noZone'
+    );
+    return __blockingWorldObjectsCache.objects;
+}
+
 function isPositionOccupied(x, y, excludeUnit = null, radius = 15, ignoreUnits = false) {
     // Check unit collisions only if not ignoring units
     if (!ignoreUnits) {
-        const allUnits = [...gameState.units, ...gameState.enemyUnits];
+        const radiusSq = radius * radius;
 
         if (excludeUnit && excludeUnit.type === 'villager') {
-            for (const unit of allUnits) {
+            for (const unit of gameState.units) {
                 if (unit === excludeUnit) continue;
 
                 if (unit.type === 'villager' && excludeUnit.state === 'moving') {
                     continue;
                 }
 
-                const distance = Math.sqrt(Math.pow(x - unit.x, 2) + Math.pow(y - unit.y, 2));
-                if (distance < radius) {
+                const dx = x - unit.x;
+                const dy = y - unit.y;
+                if (dx * dx + dy * dy < radiusSq) {
+                    return true;
+                }
+            }
+            for (const unit of gameState.enemyUnits) {
+                if (unit === excludeUnit) continue;
+
+                if (unit.type === 'villager' && excludeUnit.state === 'moving') {
+                    continue;
+                }
+
+                const dx = x - unit.x;
+                const dy = y - unit.y;
+                if (dx * dx + dy * dy < radiusSq) {
                     return true;
                 }
             }
         } else {
-            for (const unit of allUnits) {
+            for (const unit of gameState.units) {
                 if (unit === excludeUnit) continue;
-                const distance = Math.sqrt(Math.pow(x - unit.x, 2) + Math.pow(y - unit.y, 2));
-                if (distance < radius) {
+                const dx = x - unit.x;
+                const dy = y - unit.y;
+                if (dx * dx + dy * dy < radiusSq) {
+                    return true;
+                }
+            }
+            for (const unit of gameState.enemyUnits) {
+                if (unit === excludeUnit) continue;
+                const dx = x - unit.x;
+                const dy = y - unit.y;
+                if (dx * dx + dy * dy < radiusSq) {
                     return true;
                 }
             }
         }
     }
 
-    for (const building of [...gameState.buildings, ...gameState.enemyBuildings]) {
+    for (const building of gameState.buildings) {
+        if (isPointInRoundedRectangle(x, y, building, 17)) {
+            return true;
+        }
+    }
+    for (const building of gameState.enemyBuildings) {
         if (isPointInRoundedRectangle(x, y, building, 17)) {
             return true;
         }
@@ -1561,8 +1734,7 @@ function isPositionOccupied(x, y, excludeUnit = null, radius = 15, ignoreUnits =
     const inWater = typeof isPointInWater === 'function' ? isPointInWater(x, y) :
         gameState.worldObjects.some(obj => obj.type === 'water' &&
             x >= obj.x && x <= obj.x + obj.width && y >= obj.y && y <= obj.y + obj.height);
-    const onBridge = gameState.worldObjects.some(obj => obj.type === 'bridge' &&
-        x >= obj.x && x <= obj.x + obj.width && y >= obj.y && y <= obj.y + obj.height);
+    const onBridge = isPointOnBridge(x, y);
 
     // Determine unit type for terrain validation - works even when excludeUnit is null
     // by checking if the position is in water and not on a bridge (invalid for land units)
@@ -1585,27 +1757,46 @@ function isPositionOccupied(x, y, excludeUnit = null, radius = 15, ignoreUnits =
 }
 
 function getAvailablePosition(x, y, radius = 18) {
-    const allUnits = [...gameState.units, ...gameState.enemyUnits];
     let attempts = 0;
     const maxAttempts = 50;
     let currentX = x;
     let currentY = y;
+    const radiusSq = radius * radius;
 
     while (attempts < maxAttempts) {
         let foundCollision = false;
 
-        for (const unit of allUnits) {
-            const distance = Math.sqrt(Math.pow(currentX - unit.x, 2) + Math.pow(currentY - unit.y, 2));
-            if (distance < radius) {
+        for (const unit of gameState.units) {
+            const dx = currentX - unit.x;
+            const dy = currentY - unit.y;
+            if (dx * dx + dy * dy < radiusSq) {
                 foundCollision = true;
                 break;
             }
         }
+        if (!foundCollision) {
+            for (const unit of gameState.enemyUnits) {
+                const dx = currentX - unit.x;
+                const dy = currentY - unit.y;
+                if (dx * dx + dy * dy < radiusSq) {
+                    foundCollision = true;
+                    break;
+                }
+            }
+        }
 
-        for (const building of [...gameState.buildings, ...gameState.enemyBuildings]) {
+        for (const building of gameState.buildings) {
             if (isPointInRoundedRectangle(currentX, currentY, building, 18)) {
                 foundCollision = true;
                 break;
+            }
+        }
+        if (!foundCollision) {
+            for (const building of gameState.enemyBuildings) {
+                if (isPointInRoundedRectangle(currentX, currentY, building, 18)) {
+                    foundCollision = true;
+                    break;
+                }
             }
         }
 
@@ -1652,22 +1843,25 @@ function validateTerrainMovement(unit, newX, newY) {
     }
 
     // Building collision checks use the full unit footprint, not only the center.
-    for (const building of [...gameState.buildings, ...gameState.enemyBuildings]) {
+    for (const building of gameState.buildings) {
+        if (isPointInRoundedRectangle(newX, newY, building, clearanceRadius)) {
+            return false; // Prevent movement into building zones
+        }
+    }
+    for (const building of gameState.enemyBuildings) {
         if (isPointInRoundedRectangle(newX, newY, building, clearanceRadius)) {
             return false; // Prevent movement into building zones
         }
     }
 
     // Block generic no-go zones using an inflated rectangle so corners cannot clip.
-    for (const obj of gameState.worldObjects) {
-        if (obj.type === 'obstacle' || obj.type === 'no-go' || obj.type === 'noZone') {
-            const left = obj.x - clearanceRadius;
-            const right = obj.x + obj.width + clearanceRadius;
-            const top = obj.y - clearanceRadius;
-            const bottom = obj.y + obj.height + clearanceRadius;
-            if (newX >= left && newX <= right && newY >= top && newY <= bottom) {
-                return false;
-            }
+    for (const obj of getBlockingWorldObjects()) {
+        const left = obj.x - clearanceRadius;
+        const right = obj.x + obj.width + clearanceRadius;
+        const top = obj.y - clearanceRadius;
+        const bottom = obj.y + obj.height + clearanceRadius;
+        if (newX >= left && newX <= right && newY >= top && newY <= bottom) {
+            return false;
         }
     }
 

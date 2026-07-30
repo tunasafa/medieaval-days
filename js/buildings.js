@@ -1,13 +1,22 @@
 function createInitialBuildings() {
     const tcCfg = getBuildingConfig('town-center');
-    const numPlayers = GAME_CONFIG.world.numPlayers || 2;
+    const configuredEnemyCount = GAME_CONFIG.world.enemyCount ??
+        gameState.ui?.selectedEnemyCount ??
+        ((GAME_CONFIG.world.numPlayers || 3) - 1);
+    const parsedEnemyCount = Number(configuredEnemyCount);
+    const enemyCount = Math.max(1, Math.min(4, Number.isFinite(parsedEnemyCount) ? parsedEnemyCount : 2));
+    const numPlayers = enemyCount + 1;
+    GAME_CONFIG.world.enemyCount = enemyCount;
+    GAME_CONFIG.world.numPlayers = numPlayers;
     const cx = GAME_CONFIG.world.width / 2;
     const cy = GAME_CONFIG.world.height / 2;
     const spawnRadius = GAME_CONFIG.world.radius * 0.85; // Spawn near the edge
+    const enemyFactions = GAME_CONFIG.enemyFactions || [];
 
     for (let i = 0; i < numPlayers; i++) {
         const angle = (i * 2 * Math.PI) / numPlayers;
-        const playerType = i === 0 ? 'player' : 'enemy';
+        const enemyFaction = enemyFactions[(i - 1) % Math.max(1, enemyFactions.length)];
+        const playerType = i === 0 ? 'player' : (enemyFaction?.id || `enemy-${i}`);
         const spawnX = cx + Math.cos(angle) * spawnRadius - (tcCfg.width / 2);
         const spawnY = cy + Math.sin(angle) * spawnRadius - (tcCfg.height / 2);
 
@@ -19,6 +28,9 @@ function createInitialBuildings() {
             id: generateId(),
             type: 'town-center',
             player: playerType,
+            faction: playerType,
+            factionName: getFactionName(playerType),
+            factionColor: getFactionColor(playerType),
             x: spawnX,
             y: spawnY,
             health: tcMaxHealth,

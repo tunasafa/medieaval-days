@@ -73,7 +73,19 @@ const ProjectileSystem = (function () {
                     if (p.target.health <= 0) {
                         if (p.target.width) handleBuildingDestruction(p.target);
                         else handleUnitDeath(p.target);
-                        [...gameState.units, ...gameState.enemyUnits].forEach(u => { if (u.target === p.target) { u.state = 'idle'; u.target = null; u.targetPoint = undefined; }});
+                        const clearDeadTarget = (u) => {
+                            if (u.target !== p.target) return;
+                            u.state = 'idle';
+                            u.target = null;
+                            u.targetPoint = undefined;
+                            u.attackPath = null;
+                            u.attackPathTimer = 0;
+                            u.attackPathFailed = false;
+                            u.attackPathFailCount = 0;
+                            u.attackPathRetryDelay = 0;
+                        };
+                        gameState.units.forEach(clearDeadTarget);
+                        gameState.enemyUnits.forEach(clearDeadTarget);
                     }
                 }
                 if (typeof ParticleSystem !== 'undefined' && p.config.impactFn) ParticleSystem[p.config.impactFn](p.x, p.y);

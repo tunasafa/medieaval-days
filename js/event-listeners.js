@@ -484,6 +484,11 @@ function handleRightClick(x, y) {
         gameState.selectedUnits.forEach(unit => {
             unit.state = 'attacking';
             unit.target = enemyTarget;
+            unit.attackPath = null;
+            unit.attackPathTimer = -Math.random() * 450;
+            unit.attackPathFailed = false;
+            unit.attackPathFailCount = 0;
+            unit.attackPathRetryDelay = 0;
             if (enemyTarget.width && enemyTarget.height) {
                 unit.targetPoint = {
                     x: enemyTarget.x + enemyTarget.width / 2,
@@ -510,6 +515,11 @@ function handleRightClick(x, y) {
                 unit.gatherType = resource.resourceType;
                 unit.gatherStartTime = null;
                 unit.gatheredAmount = 0;
+                unit.gatherPath = null;
+                unit.gatherPathTimer = 0;
+                unit.gatherPathFailed = false;
+                unit.gatherPathFailCount = 0;
+                unit.gatherPathRetryDelay = 0;
                 const off = offsets[idx] || { dx: 0, dy: 0 };
                 unit.gatherOffset = { dx: off.dx, dy: off.dy };
             } else {

@@ -13,23 +13,12 @@
     <div class="main-menu open" id="main-menu" aria-hidden="false">
         <div class="menu-art" aria-hidden="true"></div>
         <div class="menu-shell">
-            <div class="menu-kicker">Real-Time Command</div>
+            <div class="menu-kicker">Circular War Campaign</div>
             <h1>MEDIEVAL DAYS</h1>
-            <div class="menu-mode">Circular World Campaign</div>
-            <div class="menu-radial-map" aria-hidden="true">
-                <span class="map-ring ring-outer"></span>
-                <span class="map-ring ring-mid"></span>
-                <span class="map-ring ring-core"></span>
-                <span class="map-route route-a"></span>
-                <span class="map-route route-b"></span>
-                <span class="map-node node-north"></span>
-                <span class="map-node node-east"></span>
-                <span class="map-node node-south"></span>
-                <span class="map-node node-west"></span>
-            </div>
-            <div class="menu-setup">
+            <div class="menu-mode">Medieval Real-Time Strategy</div>
+            <div class="menu-setup" aria-label="Battle setup">
                 <div class="menu-field-header">
-                    <span>Opponents</span>
+                    <span>Rival Kingdoms</span>
                     <strong id="enemy-count-label">2 Enemies</strong>
                 </div>
                 <div class="enemy-options" role="radiogroup" aria-label="Enemy count">
@@ -52,22 +41,13 @@
                 </div>
             </div>
             <div class="menu-actions">
-                <button id="btn-menu-start" class="menu-primary">Start Battle</button>
-                <button id="btn-menu-tech" class="menu-secondary">Tech Tree</button>
-                <button id="btn-menu-settings" class="menu-secondary">Settings</button>
+                <button id="btn-menu-start" class="menu-primary">Play</button>
+                <button id="btn-menu-settings" class="menu-secondary">Options</button>
             </div>
             <div class="menu-briefing">
                 <div>
-                    <span>Objective</span>
-                    <strong>Eliminate Enemy Command</strong>
-                </div>
-                <div>
                     <span>World Size</span>
                     <strong>Large Circular Map</strong>
-                </div>
-                <div>
-                    <span>Map Shape</span>
-                    <strong>Circular Frontier</strong>
                 </div>
             </div>
         </div>
@@ -144,7 +124,7 @@
                 <div class="notification" id="notification"></div>
                 <div class="game-over" id="gameOver">
                     <h2 id="gameOverText">Victory!</h2>
-                    <p id="gameOverSubtext">You have conquered the enemy!</p>
+                    <p id="gameOverSubtext">Every rival command has fallen.</p>
                     <button onclick="location.reload()">Play Again</button>
                 </div>
             </div>

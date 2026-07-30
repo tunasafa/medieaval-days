@@ -11,6 +11,15 @@ function gameLoop() {
     gameState.camera.x = Math.round(gameState.camera.x || 0);
     gameState.camera.y = Math.round(gameState.camera.y || 0);
     updateUnits(deltaTime);
+    if (typeof ProjectileSystem !== 'undefined') {
+        ProjectileSystem.update(deltaTime);
+    }
+    if (typeof ParticleSystem !== 'undefined') {
+        ParticleSystem.update(deltaTime);
+    }
+    if (typeof FogOfWar !== 'undefined') {
+        FogOfWar.update();
+    }
     updateUnitAnimations();
     checkWinConditions();
     const canvas = document.getElementById('gameCanvas');
@@ -32,6 +41,15 @@ function gameLoop() {
     drawWorldObjects(ctx);
     drawBuildings(ctx);
     drawUnits(ctx);
+    if (typeof ProjectileSystem !== 'undefined') {
+        ProjectileSystem.draw(ctx, gameState.camera);
+    }
+    if (typeof ParticleSystem !== 'undefined') {
+        ParticleSystem.draw(ctx, gameState.camera);
+    }
+    if (typeof FogOfWar !== 'undefined') {
+        FogOfWar.draw(ctx, gameState.camera);
+    }
     drawPlacingBuilding(ctx);
     drawMinimap();
     updateUI();

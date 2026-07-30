@@ -41,6 +41,9 @@ async function initGame() {
         enforceLandForWorldObjects();
     }
     initializePathfinding(); // Initialize the pathfinding system
+    if (typeof FogOfWar !== 'undefined') {
+        FogOfWar.init(GAME_CONFIG.world.width, GAME_CONFIG.world.height);
+    }
     setupEventListeners();
     const playerTC = gameState.buildings.find(b => b.type === 'town-center' && b.player === 'player');
     if (playerTC) {

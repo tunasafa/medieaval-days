@@ -165,6 +165,7 @@ function updateUnit(unit, deltaTime) {
                 unit.gatheredAmount = (unit.gatheredAmount || 0) + (config.gatherRate || 2.5) * (deltaTime / 1000);
                 if (unit.gatheredAmount >= 25) {
                     gameState.resources.food += unit.gatheredAmount;
+                    if (typeof SFX !== 'undefined') SFX.resourceDeposit();
                     showNotification(`+${Math.floor(unit.gatheredAmount)} food (fishing)`);
                     unit.gatheredAmount = 0;
                 }
@@ -535,19 +536,37 @@ function updateUnit(unit, deltaTime) {
             unit.attackPathTimer = (unit.attackPathTimer || 0) + deltaTime;
         } else {
             if (!unit.lastAttack || Date.now() - unit.lastAttack > 1000) {
-                unit.target.health -= config.attack;
                 unit.lastAttack = Date.now();
-                if (unit.target.health <= 0) {
-                    if (unit.target.width && unit.target.height) {
-                        handleBuildingDestruction(unit.target);
-                    } else {
-                        handleUnitDeath(unit.target);
+                const hasProjectile = typeof ProjectileSystem !== 'undefined' &&
+                    ProjectileSystem.getProjectileType(unit.type);
+
+                if (hasProjectile) {
+                    ProjectileSystem.spawn(unit, unit.target, unit.targetPoint);
+                    if (typeof SFX !== 'undefined') {
+                        if (unit.type === 'catapult' || unit.type === 'ballista') {
+                            SFX.siegeFire();
+                        } else {
+                            SFX.arrowFire();
+                        }
                     }
-                    unit.state = 'idle';
-                    unit._dirX = 0; unit._dirY = 0;
-                    unit.target = null;
-                    unit.targetPoint = undefined;
-                    spreadIdleUnits(unit);
+                } else {
+                    unit.target.health -= config.attack;
+                    if (typeof SFX !== 'undefined') SFX.swordHit();
+                    if (typeof ParticleSystem !== 'undefined' && !(unit.target.width && unit.target.height)) {
+                        ParticleSystem.emitBlood(unit.target.x, unit.target.y);
+                    }
+                    if (unit.target.health <= 0) {
+                        if (unit.target.width && unit.target.height) {
+                            handleBuildingDestruction(unit.target);
+                        } else {
+                            handleUnitDeath(unit.target);
+                        }
+                        unit.state = 'idle';
+                        unit._dirX = 0; unit._dirY = 0;
+                        unit.target = null;
+                        unit.targetPoint = undefined;
+                        spreadIdleUnits(unit);
+                    }
                 }
             }
         }
@@ -746,6 +765,7 @@ function updateUnit(unit, deltaTime) {
             // No valid target; fail-safe: finish delivery immediately
             if (unit.gatheredAmount > 0 && unit.gatherType) {
                 gameState.resources[unit.gatherType] += unit.gatheredAmount;
+                if (typeof SFX !== 'undefined') SFX.resourceDeposit();
                 showNotification(`+${Math.floor(unit.gatheredAmount)} ${unit.gatherType}`);
             }
             const lastGatherType = unit.gatherType;
@@ -870,6 +890,7 @@ function updateUnit(unit, deltaTime) {
             // Deposit resources
             if (unit.gatheredAmount > 0 && unit.gatherType) {
                 gameState.resources[unit.gatherType] += unit.gatheredAmount;
+                if (typeof SFX !== 'undefined') SFX.resourceDeposit();
                 showNotification(`+${Math.floor(unit.gatheredAmount)} ${unit.gatherType}`);
             }
 
@@ -1225,7 +1246,7 @@ function spawnUnit(type, spawnAnchor) {
         position = ok ? { x: free.x, y: free.y } : { x: centerX, y: centerY + ringRadius + extra };
     }
 
-    gameState.units.push({
+    const newUnit = {
         id: generateId(),
         type,
         player: 'player',
@@ -1244,8 +1265,13 @@ function spawnUnit(type, spawnAnchor) {
         } : undefined,
         prevX: position.x,
         prevY: position.y
-    });
+    };
+    gameState.units.push(newUnit);
     gameState.population.current++;
+    if (typeof ParticleSystem !== 'undefined') {
+        ParticleSystem.emitUnitTrainEffect(position.x, position.y);
+    }
+    if (typeof SFX !== 'undefined') SFX.unitTrained();
     showNotification(`${type} training complete!`);
 }
 
@@ -1415,6 +1441,10 @@ function disembarkCargoNearShore(transport) {
 }
 
 function handleUnitDeath(unit) {
+    if (typeof ParticleSystem !== 'undefined') {
+        ParticleSystem.emitBlood(unit.x, unit.y);
+    }
+    if (typeof SFX !== 'undefined') SFX.unitDeath();
     if (unit.player === 'player') {
         const index = gameState.units.indexOf(unit);
         if (index > -1) {

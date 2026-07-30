@@ -62,6 +62,7 @@ function placeBuilding(type, x, y) {
             color: '#C8A165'
         });
         if (typeof markPathfindingDirty === 'function') markPathfindingDirty();
+        if (typeof SFX !== 'undefined') SFX.buildingPlace();
         showNotification('Bridge block placed.');
         return;
     }
@@ -117,6 +118,7 @@ function placeBuilding(type, x, y) {
         gameState.population.max += buildingConfig.population;
     }
     if (typeof markPathfindingDirty === 'function') markPathfindingDirty();
+    if (typeof SFX !== 'undefined') SFX.buildingPlace();
     showNotification(`${type.charAt(0).toUpperCase() + type.slice(1)} constructed!`);
 }
 
@@ -345,6 +347,10 @@ function showBuildingActions(building) {
 }
 
 function handleBuildingDestruction(building) {
+    if (typeof ParticleSystem !== 'undefined') {
+        ParticleSystem.emitBuildingRubble(building.x, building.y, building.width, building.height);
+    }
+    if (typeof SFX !== 'undefined') SFX.buildingDestroyed();
     building.health = 0;
     if (building.player === 'player') {
         const idx = gameState.buildings.indexOf(building);

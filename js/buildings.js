@@ -61,9 +61,7 @@ function placeBuilding(type, x, y) {
             height: blk.height,
             color: '#C8A165'
         });
-        if (typeof updatePathfindingGrid === 'function') {
-            updatePathfindingGrid();
-        }
+        if (typeof markPathfindingDirty === 'function') markPathfindingDirty();
         showNotification('Bridge block placed.');
         return;
     }
@@ -118,6 +116,7 @@ function placeBuilding(type, x, y) {
     if (type === 'house') {
         gameState.population.max += buildingConfig.population;
     }
+    if (typeof markPathfindingDirty === 'function') markPathfindingDirty();
     showNotification(`${type.charAt(0).toUpperCase() + type.slice(1)} constructed!`);
 }
 
@@ -354,5 +353,6 @@ function handleBuildingDestruction(building) {
         const idx = gameState.enemyBuildings.indexOf(building);
         if (idx > -1) gameState.enemyBuildings.splice(idx, 1);
     }
+    if (typeof markPathfindingDirty === 'function') markPathfindingDirty();
     checkWinConditions();
 }

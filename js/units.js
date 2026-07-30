@@ -171,10 +171,11 @@ function updateUnit(unit, deltaTime) {
                 }
             } else {
                 // Fishing boat is on land - use pathfinding to return to water
-                const nearestWater = gameState.worldObjects.find(obj => obj.type === 'water');
+                const nearestWater = typeof findNearestWaterPoint === 'function' ? findNearestWaterPoint(unit.x, unit.y) :
+                    gameState.worldObjects.find(obj => obj.type === 'water');
                 if (nearestWater) {
-                    const tx = Math.max(nearestWater.x, Math.min(unit.x, nearestWater.x + nearestWater.width));
-                    const ty = Math.max(nearestWater.y, Math.min(unit.y, nearestWater.y + nearestWater.height));
+                    const tx = nearestWater.width ? Math.max(nearestWater.x, Math.min(unit.x, nearestWater.x + nearestWater.width)) : nearestWater.x;
+                    const ty = nearestWater.height ? Math.max(nearestWater.y, Math.min(unit.y, nearestWater.y + nearestWater.height)) : nearestWater.y;
                     // Use pathfinding instead of direct movement to respect terrain
                     setUnitDestination(unit, tx, ty);
                 }
@@ -981,7 +982,10 @@ function updateTrainingQueue(deltaTime) {
         const t = b.trainingQueue[0];
         t.timeRemaining -= deltaTime;
         if (t.timeRemaining <= 0) {
-            spawnUnit(t.type, b);
+            const newUnit = spawnUnit(t.type, b);
+            if (newUnit && b.rallyPoint) {
+                setUnitDestination(newUnit, b.rallyPoint.x, b.rallyPoint.y);
+            }
             b.trainingQueue.shift();
         }
     }
@@ -1273,6 +1277,7 @@ function spawnUnit(type, spawnAnchor) {
     }
     if (typeof SFX !== 'undefined') SFX.unitTrained();
     showNotification(`${type} training complete!`);
+    return newUnit;
 }
 
 function trainUnit(type, producingBuilding = null) {

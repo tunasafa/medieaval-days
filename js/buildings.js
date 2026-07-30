@@ -10,8 +10,10 @@ function createInitialBuildings() {
         x: spawnX,
         y: spawnY,
         health: tcCfg.maxHealth,
+        maxHealth: tcCfg.maxHealth,
         width: tcCfg.width,
-        height: tcCfg.height
+        height: tcCfg.height,
+        rallyPoint: null
     });
 }
 
@@ -109,9 +111,11 @@ function placeBuilding(type, x, y) {
         player: 'player',
         x: buildingX,
         y: buildingY,
-        health: buildingConfig.maxHealth,
         width: buildingConfig.width,
         height: buildingConfig.height,
+        health: buildingConfig.maxHealth,
+        maxHealth: buildingConfig.maxHealth,
+        rallyPoint: null,
         isSelected: false
     });
     if (type === 'house') {
@@ -126,9 +130,9 @@ function canPlaceBuilding(type, x, y) {
     const config = getBuildingConfig(type);
     const proposedX = x - config.width / 2;
     const proposedY = y - config.height / 2;
-    
-    if (proposedX < 0 || proposedY < 0 || 
-        proposedX + config.width > GAME_CONFIG.world.width || 
+
+    if (proposedX < 0 || proposedY < 0 ||
+        proposedX + config.width > GAME_CONFIG.world.width ||
         proposedY + config.height > GAME_CONFIG.world.height) {
         return false;
     }
@@ -136,7 +140,7 @@ function canPlaceBuilding(type, x, y) {
     for (const building of allBuildings) {
         if (!(proposedX + config.width <= building.x || proposedX >= building.x + building.width ||
               proposedY + config.height <= building.y || proposedY >= building.y + building.height)) {
-            return false; 
+            return false;
         }
     }
 
@@ -149,15 +153,15 @@ function canPlaceBuilding(type, x, y) {
             }
         }
     }
-    
+
 
     let intersectsWater = false;
     let nearWater = false;
-    
+
     if (tilemap && tilemap.isLoaded) {
         const buildingWidthInTiles = Math.ceil(config.width / tilemap.tileSize);
         const buildingHeightInTiles = Math.ceil(config.height / tilemap.tileSize);
-        
+
         for (let tileY = 0; tileY < buildingHeightInTiles; tileY++) {
             for (let tileX = 0; tileX < buildingWidthInTiles; tileX++) {
                 const worldX = proposedX + tileX * tilemap.tileSize;
@@ -181,30 +185,35 @@ function canPlaceBuilding(type, x, y) {
             if (nearWater) break;
         }
     } else {
+        intersectsWater = !isRectOnLand(proposedX, proposedY, config.width, config.height);
 
-        intersectsWater = gameState.worldObjects.some(o => o.type === 'water' &&
-            !(proposedX + config.width <= o.x || proposedX >= o.x + o.width || 
-              proposedY + config.height <= o.y || proposedY >= o.y + o.height));
-        
-        nearWater = gameState.worldObjects.some(o => o.type === 'water' &&
-            !(proposedX + config.width + 50 <= o.x || proposedX - 50 >= o.x + o.width || 
-              proposedY + config.height + 50 <= o.y || proposedY - 50 >= o.y + o.height));
+        const terrainStep = GAME_CONFIG.terrain?.tileSize || 32;
+        const checkRadius = 50;
+        for (let checkY = proposedY - checkRadius; checkY <= proposedY + config.height + checkRadius; checkY += terrainStep) {
+            for (let checkX = proposedX - checkRadius; checkX <= proposedX + config.width + checkRadius; checkX += terrainStep) {
+                if (isPointInWater(checkX, checkY)) {
+                    nearWater = true;
+                    break;
+                }
+            }
+            if (nearWater) break;
+        }
     }
-    
+
     if (type === 'navy') {
         return intersectsWater || nearWater;
     }
-    
+
     if (type === 'bridge') {
         const blk = computeBridgeBlockAt(x, y);
-        return blk.ok; 
+        return blk.ok;
     }
-    
- 
+
+
     if (intersectsWater) {
         return false;
     }
-    
+
 
     for (const obj of gameState.worldObjects) {
         if (obj.type === 'obstacle') {
@@ -214,18 +223,18 @@ function canPlaceBuilding(type, x, y) {
             }
         }
     }
-    
-    return true; 
+
+    return true;
 }
 
 function selectBuilding(building) {
     gameState.selectedUnits.forEach(unit => unit.isSelected = false);
     gameState.selectedUnits = [];
     gameState.buildings.forEach(b => b.isSelected = false);
-    
+
     building.isSelected = true;
     gameState.selectedBuilding = building;
-    
+
     showBuildingActions(building);
     updateSelectionInfo();
 }
@@ -235,14 +244,14 @@ function showBuildingActions(building) {
     const generalUnitsSection = document.getElementById('general-units');
     const buildingTitle = document.getElementById('building-title');
     const unitList = document.getElementById('building-unit-list');
-    
+
     actionsSection.style.display = 'block';
     generalUnitsSection.style.display = 'none';
-    
+
     buildingTitle.textContent = `${building.type.charAt(0).toUpperCase() + building.type.slice(1)} Actions`;
-    
+
     unitList.innerHTML = '';
-    
+
     const buildingUnits = {
         'town-center': ['villager'],
     'barracks': ['militia', 'warrior', 'axeman'],
@@ -250,13 +259,14 @@ function showBuildingActions(building) {
         'craftery': ['ballista', 'catapult'],
         'navy': ['fishingBoat', 'transportLarge', 'warship']
     };
-    
+
     let availableUnits = buildingUnits[building.type] || [];
-    const hasWater = gameState.worldObjects.some(o => o.type === 'water');
+    const hasWater = typeof hasWaterTerrain === 'function' ? hasWaterTerrain() :
+        gameState.worldObjects.some(o => o.type === 'water' || o.type === 'lake');
     if (building.type === 'craftery' && hasWater) {
         availableUnits = [...availableUnits, 'bridge'];
     }
-    
+
     availableUnits.forEach(unitType => {
         if (unitType === 'bridge') {
             const unitDiv = document.createElement('div');
@@ -277,25 +287,25 @@ function showBuildingActions(building) {
         }
         const unitConfig = GAME_CONFIG.units[unitType];
         if (!unitConfig) return;
-        
+
         const ageRestrictions = {
             'axeman': ['Feudal Age', 'Castle Age', 'Imperial Age'],
             'catapult': ['Castle Age', 'Imperial Age'],
             'ballista': ['Castle Age', 'Imperial Age'],
             'crossbowman': ['Feudal Age', 'Castle Age', 'Imperial Age']
         };
-        
+
         if (ageRestrictions[unitType] && !ageRestrictions[unitType].includes(gameState.currentAge)) {
             const unitDiv = document.createElement('div');
             unitDiv.className = 'unit disabled';
             unitDiv.dataset.type = unitType;
-            
+
             const costText = Object.entries(unitConfig.cost)
                 .map(([resource, amount]) => `${amount}${resource.charAt(0).toUpperCase()}`)
                 .join(', ');
-            
+
             const requiredAge = ageRestrictions[unitType][0];
-            
+
             unitDiv.innerHTML = `
                 <canvas class="unit-icon ${unitType}" width="40" height="40"></canvas>
                 <div style="font-weight: bold; font-size: 12px;">${unitType.charAt(0).toUpperCase() + unitType.slice(1)}</div>
@@ -303,23 +313,23 @@ function showBuildingActions(building) {
                 <div style="font-size: 9px; color: #ff6666;">Requires ${requiredAge}</div>
                 <div class="progress-bar"><div class="progress-fill" style="width: 0%;"></div></div>
             `;
-            
+
             unitList.appendChild(unitDiv);
-            
+
             const canvas = unitDiv.querySelector(`canvas.unit-icon.${unitType}`);
             const ctx = canvas.getContext('2d');
             drawUnitIcon(ctx, unitType, 6);
             return;
         }
-        
+
         const unitDiv = document.createElement('div');
         unitDiv.className = 'unit';
         unitDiv.dataset.type = unitType;
-        
+
         const costText = Object.entries(unitConfig.cost)
             .map(([resource, amount]) => `${amount}${resource.charAt(0).toUpperCase()}`)
             .join(', ');
-        
+
         // Determine queue info for this building and unit type
         const q = (building.trainingQueue || []).filter(t => t.type === unitType);
         const queuedCount = q.length;
@@ -336,10 +346,10 @@ function showBuildingActions(building) {
             <div style="font-size: 11px; color: #ccc;">${costText}</div>
             <div class="progress-bar" data-type="${unitType}"><div class="progress-fill" style="width: ${progressPct}%;"></div></div>
         `;
-        
+
         unitDiv.addEventListener('click', () => trainUnitFromBuilding(unitType, building));
         unitList.appendChild(unitDiv);
-        
+
         const canvas = unitDiv.querySelector(`canvas.unit-icon.${unitType}`);
         const ctx = canvas.getContext('2d');
         drawUnitIcon(ctx, unitType, 6);

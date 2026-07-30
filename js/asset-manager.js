@@ -7,7 +7,7 @@ class AssetManager {
 
     async loadAsset(category, name) {
         const assetKey = `${category}/${name}`;
-        
+
         if (this.assets.has(assetKey)) {
             return this.assets.get(assetKey);
         }
@@ -29,7 +29,7 @@ class AssetManager {
 
                 const ext = exts[0];
                 const img = new Image();
-                
+
         img.onload = () => {
                     if (category === 'units') {
                         const container = this._getOrCreateGifContainer();
@@ -41,16 +41,16 @@ class AssetManager {
                         container.appendChild(img);
             try { console.debug('Unit GIF attached to DOM for animation:', `${category}/${name}`); } catch {}
                     }
-                    
+
                     this.assets.set(assetKey, img);
                     this.loadPromises.delete(assetKey);
                     resolve(img);
                 };
-                
+
                 img.onerror = () => {
                     tryLoad(exts.slice(1));
                 };
-                
+
                 img.src = `${this.basePath}${category}/${name}.${ext}`;
             };
         const extsToTry = category === 'units' ? ['gif'] : ['png'];
@@ -83,24 +83,24 @@ class AssetManager {
         canvas.width = 32;
         canvas.height = 32;
         const ctx = canvas.getContext('2d');
-        
+
         ctx.fillStyle = '#FF00FF';
         ctx.fillRect(0, 0, 32, 32);
         ctx.strokeStyle = '#000000';
         ctx.lineWidth = 2;
         ctx.strokeRect(1, 1, 30, 30);
-        
+
         // Add "?" text
         ctx.fillStyle = '#000000';
         ctx.font = '20px Arial';
         ctx.textAlign = 'center';
         ctx.fillText('?', 16, 22);
-        
+
         return canvas;
     }
 
     async loadAssets(assetList) {
-        const promises = assetList.map(asset => 
+        const promises = assetList.map(asset =>
             this.loadAsset(asset.category, asset.name)
         );
         return Promise.all(promises);
@@ -433,11 +433,11 @@ async function ensureAssetLoaded(category, name) {
 
 function drawAsset(ctx, category, name, x = 0, y = 0, scale = 1) {
     const asset = assetManager.getAsset(category, name);
-    
+
     if (asset) {
         const width = asset.width * scale;
         const height = asset.height * scale;
-        
+
         ctx.imageSmoothingEnabled = true;
         ctx.drawImage(asset, x, y, width, height);
     } else {
@@ -447,7 +447,7 @@ function drawAsset(ctx, category, name, x = 0, y = 0, scale = 1) {
 
 function drawAssetFitted(ctx, category, name, x, y, targetWidth, targetHeight) {
     const asset = assetManager.getAsset(category, name);
-    
+
     if (asset) {
         ctx.imageSmoothingEnabled = false;
         ctx.drawImage(asset, x, y, targetWidth, targetHeight);
@@ -465,32 +465,32 @@ function drawAssetFitted(ctx, category, name, x, y, targetWidth, targetHeight) {
 
 function drawAssetCentered(ctx, category, name, centerX, centerY, scale = 1) {
     const asset = assetManager.getAsset(category, name);
-    
+
     if (asset) {
         const width = asset.width * scale;
         const height = asset.height * scale;
         const x = centerX - width / 2;
         const y = centerY - height / 2;
-        
+
         ctx.imageSmoothingEnabled = false;
         ctx.drawImage(asset, x, y, width, height);
     }
 }
 function drawAssetTinted(ctx, category, name, x, y, targetWidth, targetHeight, alpha = 0.7, tintColor = null) {
     const asset = assetManager.getAsset(category, name);
-    
+
     if (asset) {
         ctx.save();
         ctx.globalAlpha = alpha;
         ctx.imageSmoothingEnabled = false;
         ctx.drawImage(asset, x, y, targetWidth, targetHeight);
-        
+
         if (tintColor) {
             ctx.globalCompositeOperation = 'multiply';
             ctx.fillStyle = tintColor;
             ctx.fillRect(x, y, targetWidth, targetHeight);
         }
-        
+
         ctx.restore();
     } else {
         console.warn(`Asset not found: ${category}/${name} - drawing fallback`);

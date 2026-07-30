@@ -49,7 +49,9 @@ const FogOfWar = (function () {
 
     function draw(ctx, camera) {
         if (!grid || !enabled) return;
-        const viewW = GAME_CONFIG.canvas.width, viewH = GAME_CONFIG.canvas.height;
+        const zoom = gameState.zoomLevel || 1;
+        const viewW = Math.ceil(GAME_CONFIG.canvas.width / zoom);
+        const viewH = Math.ceil(GAME_CONFIG.canvas.height / zoom);
         ensureFogCanvas(viewW, viewH);
         fogCtx.clearRect(0, 0, viewW, viewH);
 
@@ -60,7 +62,7 @@ const FogOfWar = (function () {
             for (let c = startCol; c <= endCol; c++) {
                 const state = grid[r][c];
                 if (state === STATE_VISIBLE) continue;
-                fogCtx.fillStyle = state === STATE_UNEXPLORED ? 'rgba(0, 0, 0, 0.92)' : 'rgba(0, 0, 0, 0.55)';
+                fogCtx.fillStyle = state === STATE_UNEXPLORED ? 'rgba(0, 0, 0, 1.0)' : 'rgba(0, 0, 0, 0.7)';
                 fogCtx.fillRect(c * cellSize - camera.x - 1, r * cellSize - camera.y - 1, cellSize + 2, cellSize + 2);
             }
         }

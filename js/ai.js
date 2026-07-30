@@ -143,3 +143,117 @@ function updateEnemyAI(unit) {
         }
     }
 }
+
+// AI Wave Manager
+const AIManager = (function() {
+    let timeSinceLastWave = 0;
+    let waveCount = 0;
+    const waveInterval = 60000; // 60 seconds per wave
+
+    function tick(deltaTime) {
+        if (!gameState.enemyBuildings || gameState.enemyBuildings.length === 0) return; // Enemy defeated
+
+        timeSinceLastWave += deltaTime;
+        if (timeSinceLastWave >= waveInterval) {
+            timeSinceLastWave = 0;
+            waveCount++;
+            launchWave();
+        }
+    }
+
+    function findWaveSpawn(enemyTC, unitType, index, total) {
+        const centerX = enemyTC.x + enemyTC.width / 2;
+        const centerY = enemyTC.y + enemyTC.height / 2;
+        const baseRadius = Math.max(enemyTC.width, enemyTC.height) / 2 + 44;
+        const dummyUnit = { type: unitType, player: 'enemy' };
+
+        for (let tries = 0; tries < 64; tries++) {
+            const angle = ((index + tries / 64) / Math.max(1, total)) * Math.PI * 2 + (Math.random() - 0.5) * 0.75;
+            const radius = baseRadius + 35 + Math.random() * 170;
+            const px = centerX + Math.cos(angle) * radius;
+            const py = centerY + Math.sin(angle) * radius;
+
+            if (px < 8 || py < 8 || px > GAME_CONFIG.world.width - 8 || py > GAME_CONFIG.world.height - 8) continue;
+            if (isPointInRoundedRectangle(px, py, enemyTC, 18)) continue;
+            if (typeof validateTerrainMovement === 'function' && !validateTerrainMovement(dummyUnit, px, py)) continue;
+            if (typeof isPositionOccupied === 'function' && isPositionOccupied(px, py, dummyUnit, 18)) continue;
+
+            return { x: px, y: py };
+        }
+
+        return null;
+    }
+
+    function launchWave() {
+        const enemyTC = gameState.enemyBuildings.find(b => b.type === 'town-center' && b.player === 'enemy');
+        if (!enemyTC) return;
+
+        // Scale wave based on waveCount
+        const composition = [];
+        if (waveCount <= 2) {
+            composition.push({ type: 'militia', count: waveCount + 2 });
+            composition.push({ type: 'archer', count: waveCount });
+        } else if (waveCount <= 5) {
+            composition.push({ type: 'warrior', count: 4 });
+            composition.push({ type: 'archer', count: 4 });
+            composition.push({ type: 'axeman', count: 2 });
+        } else {
+            composition.push({ type: 'warrior', count: 6 });
+            composition.push({ type: 'crossbowman', count: 5 });
+            composition.push({ type: 'catapult', count: 1 });
+            composition.push({ type: 'ballista', count: 1 });
+        }
+
+        // Find player TC to target
+        let targetBuilding = gameState.buildings.find(b => b.player === 'player' && b.type === 'town-center');
+        if (!targetBuilding && gameState.buildings.length > 0) {
+            targetBuilding = gameState.buildings[0];
+        }
+
+        let spawnedCount = 0;
+        const totalUnits = composition.reduce((sum, group) => sum + group.count, 0);
+        composition.forEach(group => {
+            for (let i = 0; i < group.count; i++) {
+                const cfg = GAME_CONFIG.units[group.type];
+                if (!cfg) continue;
+                const spawn = findWaveSpawn(enemyTC, group.type, spawnedCount, totalUnits);
+                if (!spawn) continue;
+
+                const targetPoint = targetBuilding ? {
+                    x: targetBuilding.x + targetBuilding.width / 2,
+                    y: targetBuilding.y + targetBuilding.height / 2
+                } : undefined;
+
+                const newUnit = {
+                    id: generateId(),
+                    type: group.type,
+                    player: 'enemy',
+                    x: spawn.x,
+                    y: spawn.y,
+                    health: cfg.maxHealth,
+                    state: targetBuilding ? 'attacking' : 'idle',
+                    target: targetBuilding || null,
+                    targetPoint,
+                    anim: { action: 'idle', direction: 'south', frame: 0, elapsed: 0 },
+                    _faceDir: 'south',
+                    _lastFaceNatural: 'south',
+                    prevX: spawn.x,
+                    prevY: spawn.y
+                };
+
+                gameState.enemyUnits.push(newUnit);
+                spawnedCount++;
+            }
+        });
+
+        if (spawnedCount > 0) {
+            showNotification(`Warning! An enemy wave of ${spawnedCount} units approaches!`);
+            // Ping minimap for the enemy wave roughly near their TC
+            if (typeof UI !== 'undefined' && UI.minimapPing) {
+                UI.minimapPing(enemyTC.x, enemyTC.y, '#ff0000');
+            }
+        }
+    }
+
+    return { tick };
+})();

@@ -38,7 +38,7 @@ function updateTrainingQueueUI() {
 
 function updateSelectionInfo() {
     const info = document.getElementById('selection-info');
-    
+
     if (gameState.selectedBuilding) {
         const building = gameState.selectedBuilding;
         info.innerHTML = `
@@ -64,7 +64,7 @@ function updateSelectionInfo() {
             const btns = document.createElement('div');
             btns.style.marginTop = '6px';
             btns.innerHTML = `<div>Cargo: ${used}/${cap}</div>`;
-            
+
             if (used > 0) {
                 const disembarkBtn = document.createElement('button');
                 disembarkBtn.textContent = `Disembark ${used} unit(s)`;
@@ -72,7 +72,7 @@ function updateSelectionInfo() {
                 disembarkBtn.onclick = () => disembarkCargoNearShore(unit);
                 btns.appendChild(disembarkBtn);
             }
-            
+
             info.appendChild(btns);
         }
     } else {
@@ -90,7 +90,7 @@ function advanceAge() {
             document.getElementById('age-display').textContent = gameState.currentAge;
             showNotification('Advanced to Feudal Age! Axemen and Crossbowmen unlocked.');
             document.getElementById('btn-age-up').textContent = 'Advance to Castle Age (800 Food, 200 Gold)';
-            
+
             if (gameState.selectedBuilding) {
                 showBuildingActions(gameState.selectedBuilding);
             }
@@ -105,7 +105,7 @@ function advanceAge() {
             document.getElementById('age-display').textContent = gameState.currentAge;
             showNotification('Advanced to Castle Age! Siege weapons unlocked.');
             document.getElementById('btn-age-up').textContent = 'Advance to Imperial Age (1000 Food, 800 Gold)';
-            
+
             if (gameState.selectedBuilding) {
                 showBuildingActions(gameState.selectedBuilding);
             }
@@ -170,8 +170,10 @@ function showNotification(message) {
 function centerOnTownCenter() {
     const townCenter = gameState.buildings.find(b => b.type === 'town-center' && b.player === 'player');
     if (townCenter) {
-        gameState.camera.x = townCenter.x + townCenter.width / 2 - (GAME_CONFIG.camera.width / 2);
-        gameState.camera.y = townCenter.y + townCenter.height / 2 - (GAME_CONFIG.camera.height / 2);
+        const zoom = gameState.zoomLevel || 1;
+        gameState.camera.x = townCenter.x + townCenter.width / 2 - (GAME_CONFIG.canvas.width / zoom) / 2;
+        gameState.camera.y = townCenter.y + townCenter.height / 2 - (GAME_CONFIG.canvas.height / zoom) / 2;
+        if (typeof clampCameraToBounds === 'function') clampCameraToBounds();
     }
 }
 

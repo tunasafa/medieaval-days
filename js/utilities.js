@@ -72,8 +72,8 @@ function getBuildingConfig(type) {
  * @param {number} max - Maximum allowed value
  * @returns {number} Clamped value within [min, max] range
  */
-function clamp(val, min, max) { 
-    return Math.max(min, Math.min(max, val)); 
+function clamp(val, min, max) {
+    return Math.max(min, Math.min(max, val));
 }
 
 /**
@@ -88,8 +88,17 @@ function isPointInWater(x, y) {
     if (tilemap && tilemap.isLoaded) {
         return tilemap.isWater(x, y);
     }
+    if (gameState.waterField && typeof gameState.waterField.contains === 'function') {
+        return gameState.waterField.contains(x, y);
+    }
     return gameState.worldObjects.some(o => (o.type === 'water' || o.type === 'lake') &&
         x >= o.x && x <= o.x + o.width && y >= o.y && y <= o.y + o.height);
+}
+
+function hasWaterTerrain() {
+    return !!((tilemap && tilemap.hasWater) ||
+        (gameState.waterField && typeof gameState.waterField.contains === 'function') ||
+        gameState.worldObjects.some(o => o.type === 'water' || o.type === 'lake'));
 }
 
 /**
@@ -97,7 +106,7 @@ function isPointInWater(x, y) {
  * Checks corners, edge midpoints, and center to ensure no water intersects the rectangle.
  * Used for building placement validation to prevent structures spanning water boundaries.
  * @param {number} x - Left edge of rectangle
- * @param {number} y - Top edge of rectangle  
+ * @param {number} y - Top edge of rectangle
  * @param {number} w - Width of rectangle
  * @param {number} h - Height of rectangle
  * @returns {boolean} True if entire rectangle is on land, false if any part touches water
@@ -188,11 +197,11 @@ function clampTargetToAllowed(unit, tx, ty) {
             const d = dx*dx + dy*dy;
             if (d < bestDist) { bestDist = d; best = { x: cx, y: cy }; }
         }
-        return best || { x: tx, y: ty };
+        return best || findNearestWaterPoint(tx, ty) || { x: tx, y: ty };
     } else {
         if (!isPointInWater(tx, ty) || isPointOnBridge(tx, ty)) return { x: tx, y: ty };
         const w = gameState.worldObjects.find(o => o.type === 'water' && tx >= o.x && tx <= o.x + o.width && ty >= o.y && ty <= o.y + o.height);
-        if (!w) return { x: tx, y: ty };
+        if (!w) return findNearestLandPoint(unit, tx, ty);
         const leftDist = Math.abs(tx - w.x);
         const rightDist = Math.abs((w.x + w.width) - tx);
         const topDist = Math.abs(ty - w.y);
@@ -203,6 +212,39 @@ function clampTargetToAllowed(unit, tx, ty) {
         if (minDist === topDist) return { x: clamp(unit.x, w.x, w.x + w.width), y: w.y - 3 };
         return { x: clamp(unit.x, w.x, w.x + w.width), y: w.y + w.height + 3 };
     }
+}
+
+function findNearestWaterPoint(x, y, maxRadius = 640, step = 32) {
+    if (isPointInWater(x, y)) return { x, y };
+    const samples = 24;
+    for (let radius = step; radius <= maxRadius; radius += step) {
+        for (let i = 0; i < samples; i++) {
+            const theta = (i / samples) * Math.PI * 2;
+            const px = clamp(x + Math.cos(theta) * radius, 4, GAME_CONFIG.world.width - 4);
+            const py = clamp(y + Math.sin(theta) * radius, 4, GAME_CONFIG.world.height - 4);
+            if (isPointInWater(px, py)) return { x: px, y: py };
+        }
+    }
+    return null;
+}
+
+function findNearestLandPoint(unit, x, y, maxRadius = 640, step = 24) {
+    const isAllowedLand = (px, py) => (!isPointInWater(px, py) || isPointOnBridge(px, py)) &&
+        (typeof validateTerrainMovement !== 'function' || validateTerrainMovement(unit, px, py));
+
+    if (isAllowedLand(x, y)) return { x, y };
+
+    const samples = 32;
+    for (let radius = step; radius <= maxRadius; radius += step) {
+        for (let i = 0; i < samples; i++) {
+            const theta = (i / samples) * Math.PI * 2;
+            const px = clamp(x + Math.cos(theta) * radius, 4, GAME_CONFIG.world.width - 4);
+            const py = clamp(y + Math.sin(theta) * radius, 4, GAME_CONFIG.world.height - 4);
+            if (isAllowedLand(px, py)) return { x: px, y: py };
+        }
+    }
+
+    return { x: unit.x, y: unit.y };
 }
 
 function getDropOffPointOutside(unit, building, margin = EDGE_CLEARANCE) {
@@ -230,40 +272,38 @@ function computeFormationOffsets(count, spacing = 24) {
     return offsets;
 }
 
-function isTransport(unit) { 
-    return unit && (unit.type === 'transportLarge' || unit.type === 'transportSmall'); 
+function isTransport(unit) {
+    return unit && (unit.type === 'transportLarge' || unit.type === 'transportSmall');
 }
 
-function canEmbark(unit) { 
-    return !GAME_CONFIG.units[unit.type]?.vessel; 
+function canEmbark(unit) {
+    return !GAME_CONFIG.units[unit.type]?.vessel;
 }
 
 
 // Compute a single bridge block aligned to the tile grid
 // Returns { ok, isLake, x, y, width, height }
 function computeBridgeBlockAt(cx, cy) {
-    const tileSize = (tilemap && tilemap.tileSize) ? tilemap.tileSize : 32;
-    const tx = Math.floor(cx / tileSize);
-    const ty = Math.floor(cy / tileSize);
-    const x = tx * tileSize;
-    const y = ty * tileSize;
-    const centerX = x + tileSize / 2;
-    const centerY = y + tileSize / 2;
+    const blockSize = GAME_CONFIG.terrain?.bridgeBlockSize || 128;
+    const x = Math.floor(cx / blockSize) * blockSize;
+    const y = Math.floor(cy / blockSize) * blockSize;
+    const centerX = x + blockSize / 2;
+    const centerY = y + blockSize / 2;
     const onWater = isPointInWater(centerX, centerY);
     let isLake = false;
-    if (tilemap && tilemap.isLoaded && tilemap.waterKinds) {
-        const kind = tilemap.waterKinds?.[ty]?.[tx] || null;
+    if (tilemap && tilemap.isLoaded && typeof tilemap.waterKindAt === 'function') {
+        const kind = tilemap.waterKindAt(centerX, centerY);
         if (kind === 'lake') isLake = true;
     }
     // Cannot place on existing building footprints
     const collidesBuilding = [...gameState.buildings, ...gameState.enemyBuildings].some(b =>
-        !(x + tileSize <= b.x || x >= b.x + b.width || y + tileSize <= b.y || y >= b.y + b.height)
+        !(x + blockSize <= b.x || x >= b.x + b.width || y + blockSize <= b.y || y >= b.y + b.height)
     );
     // Avoid placing twice on same bridge tile
     const collidesBridge = gameState.worldObjects.some(o => o.type === 'bridge' &&
-        !(x + tileSize <= o.x || x >= o.x + o.width || y + tileSize <= o.y || y >= o.y + o.height)
+        !(x + blockSize <= o.x || x >= o.x + o.width || y + blockSize <= o.y || y >= o.y + o.height)
     );
-    const withinWorld = x >= 0 && y >= 0 && (x + tileSize) <= GAME_CONFIG.world.width && (y + tileSize) <= GAME_CONFIG.world.height;
+    const withinWorld = x >= 0 && y >= 0 && (x + blockSize) <= GAME_CONFIG.world.width && (y + blockSize) <= GAME_CONFIG.world.height;
     const ok = withinWorld && onWater && !isLake && !collidesBuilding && !collidesBridge;
-    return { ok, isLake, x, y, width: tileSize, height: tileSize };
+    return { ok, isLake, x, y, width: blockSize, height: blockSize };
 }

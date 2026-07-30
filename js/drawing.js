@@ -24,8 +24,13 @@ function syncOverlayToCanvas() {
     const overlay = getUnitOverlay();
     overlay.style.left = `${rect.left + window.scrollX}px`;
     overlay.style.top = `${rect.top + window.scrollY}px`;
-    overlay.style.width = `${rect.width}px`;
-    overlay.style.height = `${rect.height}px`;
+
+    // Match the canvas zoom level
+    const zoom = (typeof gameState !== 'undefined' && gameState.zoomLevel) || 1.0;
+    overlay.style.width = `${rect.width / zoom}px`;
+    overlay.style.height = `${rect.height / zoom}px`;
+    overlay.style.transform = `scale(${zoom})`;
+    overlay.style.transformOrigin = '0 0';
 }
 
 // Compute the aim point for attack direction/range checks.
@@ -71,14 +76,18 @@ function mapDirForAssets(dir) {
     }
 }
 function drawWorldObjects(ctx) {
+    const zoom = gameState.zoomLevel || 1.0;
+    const viewW = GAME_CONFIG.canvas.width / zoom;
+    const viewH = GAME_CONFIG.canvas.height / zoom;
+
     gameState.worldObjects.forEach(obj => {
         if (obj.type === 'resource' && (obj.amount === 0 || obj.amount <= 0)) {
             return;
         }
         const drawX = obj.x - gameState.camera.x;
         const drawY = obj.y - gameState.camera.y;
-        if (drawX + obj.width < 0 || drawX > GAME_CONFIG.canvas.width ||
-            drawY + obj.height < 0 || drawY > GAME_CONFIG.canvas.height) return;
+        if (drawX + obj.width < 0 || drawX > viewW ||
+            drawY + obj.height < 0 || drawY > viewH) return;
 
     if (obj.type === 'resource') {
             ctx.save();
@@ -185,8 +194,12 @@ function drawUnits(ctx) {
 function drawUnit(ctx, unit) {
     const drawX = unit.x - gameState.camera.x;
     const drawY = unit.y - gameState.camera.y;
-    const inView = !(drawX < -30 || drawX > GAME_CONFIG.canvas.width + 30 ||
-        drawY < -30 || drawY > GAME_CONFIG.canvas.height + 30);
+    const zoom = gameState.zoomLevel || 1.0;
+    const viewW = GAME_CONFIG.canvas.width / zoom;
+    const viewH = GAME_CONFIG.canvas.height / zoom;
+
+    const inView = !(drawX < -30 || drawX > viewW + 30 ||
+                    drawY < -30 || drawY > viewH + 30);
     if (!inView) {
         if (unit._domGif) unit._domGif.style.display = 'none';
         return;
@@ -198,7 +211,7 @@ function drawUnit(ctx, unit) {
     ctx.shadowOffsetY = 2;
 
     ctx.translate(drawX, drawY);
-    const unitSize = 24; 
+    const unitSize = 24;
 
     let baseImg = assetManager.getAsset('units', unit.type);
     let hasGif = baseImg && (baseImg.src || '').toLowerCase().endsWith('.gif');
@@ -244,7 +257,7 @@ function drawUnit(ctx, unit) {
         const prefix = unit.type;
     let fileBase;
     let altBase;
-    let fileCandidates = null; 
+    let fileCandidates = null;
     let useAttack = false;
     let attackDir = dir;
     if ((unit.type === 'archer' || unit.type === 'militia' || unit.type === 'warrior' || unit.type === 'axeman' || unit.type === 'crossbowman') && unit.state === 'attacking' && unit.target) {
@@ -255,15 +268,15 @@ function drawUnit(ctx, unit) {
         const ady = ty - unit.y;
         const dist = Math.hypot(adx, ady);
             if (dist <= range + 5) {
-               
+
                 const aAngle = Math.atan2(ady, adx);
                 const aIdx = (Math.round(((aAngle + Math.PI) / (Math.PI / 4))) % 8 + 8) % 8;
                 const rawAttackDir = dirs[aIdx];
-              
+
                 attackDir = rawAttackDir;
                 useAttack = true;
             }
-           
+
             const justAttacked = unit.lastAttack && (Date.now() - unit.lastAttack < 800);
             if (!useAttack && justAttacked) {
                 const aAngle = Math.atan2(ady, adx);
@@ -282,7 +295,7 @@ function drawUnit(ctx, unit) {
             fileBase = `villager/gather/villager_gathering_${hyphenDir}`;
             altBase = fileBase;
         } else if (useAttack) {
-       
+
             if (unit.type === 'militia') {
                 const finalAttackDir = mapDirForAssets(attackDir);
                 const hyphenDir = finalAttackDir.replace('northeast','north-east')
@@ -391,7 +404,7 @@ function drawUnit(ctx, unit) {
                                      .replace('northwest','north-west')
                                      .replace('southeast','south-east')
                                      .replace('southwest','south-west');
-               
+
                 fileCandidates = [
                     `warrior/walking/warrior_walking_${hyphenDir}`,
                     `warrior/walking/warrior_walking_${mapDirForAssets(dir)}`
@@ -832,12 +845,16 @@ function drawUnit(ctx, unit) {
 }
 
 function drawBuildings(ctx) {
+    const zoom = gameState.zoomLevel || 1.0;
+    const viewW = GAME_CONFIG.canvas.width / zoom;
+    const viewH = GAME_CONFIG.canvas.height / zoom;
+
     [...gameState.buildings, ...gameState.enemyBuildings].forEach(building => {
         if (building.health <= 0) return;
         const drawX = building.x - gameState.camera.x;
         const drawY = building.y - gameState.camera.y;
-        if (drawX + building.width < 0 || drawX > GAME_CONFIG.canvas.width ||
-            drawY + building.height < 0 || drawY > GAME_CONFIG.canvas.height) return;
+        if (drawX + building.width < 0 || drawX > viewW ||
+            drawY + building.height < 0 || drawY > viewH) return;
 
         ctx.save();
         ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
@@ -865,6 +882,38 @@ function drawBuildings(ctx) {
             // Draw rounded selection rectangle with much more rounded corners
             const cornerRadius = Math.min(32, Math.min(building.width, building.height) * 0.4);
             drawRoundedRect(ctx, 0, 0, building.width, building.height, cornerRadius, false, true);
+
+            // Draw Rally Point if set
+            if (building.rallyPoint) {
+                const rx = building.rallyPoint.x - drawX - gameState.camera.x;
+                const ry = building.rallyPoint.y - drawY - gameState.camera.y;
+                const cx = building.width / 2;
+                const cy = building.height / 2;
+
+                // Dotted line to rally point
+                ctx.beginPath();
+                ctx.setLineDash([5, 5]);
+                ctx.moveTo(cx, cy);
+                ctx.lineTo(rx, ry);
+                ctx.strokeStyle = 'rgba(255, 255, 0, 0.7)';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                ctx.setLineDash([]);
+
+                // Rally flag
+                ctx.beginPath();
+                ctx.moveTo(rx, ry);
+                ctx.lineTo(rx, ry - 20); // pole
+                ctx.strokeStyle = '#fff';
+                ctx.stroke();
+
+                ctx.fillStyle = 'red';
+                ctx.beginPath();
+                ctx.moveTo(rx, ry - 20);
+                ctx.lineTo(rx + 15, ry - 15);
+                ctx.lineTo(rx, ry - 10);
+                ctx.fill();
+            }
         }
 
         // Draw collision border for debugging (optional)
@@ -906,14 +955,14 @@ function drawPlacingBuilding(ctx) {
         let ghostH = config.height;
         let isValidPlacement = canPlaceBuilding(type, ghostX, ghostY);
         if (type === 'bridge') {
-            // Preview is exactly one tile; snap to tile center
-            const tileSize = (tilemap && tilemap.tileSize) ? tilemap.tileSize : 32;
-            const tx = Math.floor(ghostX / tileSize);
-            const ty = Math.floor(ghostY / tileSize);
-            ghostW = tileSize;
-            ghostH = tileSize;
-            ghostX = tx * tileSize + tileSize / 2;
-            ghostY = ty * tileSize + tileSize / 2;
+            // Preview is exactly one bridge block; snap to its center.
+            const blockSize = GAME_CONFIG.terrain?.bridgeBlockSize || 128;
+            const tx = Math.floor(ghostX / blockSize);
+            const ty = Math.floor(ghostY / blockSize);
+            ghostW = blockSize;
+            ghostH = blockSize;
+            ghostX = tx * blockSize + blockSize / 2;
+            ghostY = ty * blockSize + blockSize / 2;
             const blk = computeBridgeBlockAt(ghostX, ghostY);
             isValidPlacement = blk.ok;
         }
@@ -966,7 +1015,7 @@ function drawPlacingBuilding(ctx) {
             }
             ctx.restore();
         }
-        
+
         // Draw placement validity outline with rounded corners
         ctx.strokeStyle = isValidPlacement ? '#00ff00' : '#ff0000';
         ctx.lineWidth = 2;
@@ -985,6 +1034,18 @@ function drawMinimap() {
     const scaleY = minimapCanvas.height / GAME_CONFIG.world.height;
     ctx.fillStyle = '#2a8f52';
     ctx.fillRect(0, 0, minimapCanvas.width, minimapCanvas.height);
+
+    if (tilemap && tilemap.hasWater) {
+        ctx.fillStyle = '#47ABA9';
+        const cellW = Math.max(1, tilemap.tileSize * scaleX);
+        const cellH = Math.max(1, tilemap.tileSize * scaleY);
+        for (let ty = 0; ty < tilemap.height; ty++) {
+            for (let tx = 0; tx < tilemap.width; tx++) {
+                if (tilemap.getTile(tx, ty) !== TILE_TYPES.WATER) continue;
+                ctx.fillRect(tx * tilemap.tileSize * scaleX, ty * tilemap.tileSize * scaleY, cellW, cellH);
+            }
+        }
+    }
 
     gameState.worldObjects.forEach(obj => {
     // Do not mark resources or decorations on the minimap
@@ -1012,8 +1073,9 @@ function drawMinimap() {
     });
     ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 1;
+    const zoom = gameState.zoomLevel || 1;
     ctx.strokeRect(gameState.camera.x * scaleX, gameState.camera.y * scaleY,
-                  GAME_CONFIG.canvas.width * scaleX, GAME_CONFIG.canvas.height * scaleY);
+                  (GAME_CONFIG.canvas.width / zoom) * scaleX, (GAME_CONFIG.canvas.height / zoom) * scaleY);
 }
 
 function drawUnitIcon(ctx, unitType, scale) {
@@ -1157,7 +1219,7 @@ function drawRoundedRect(ctx, x, y, width, height, radius, fill = false, stroke 
     ctx.lineTo(x, y + radius);
     ctx.quadraticCurveTo(x, y, x + radius, y);
     ctx.closePath();
-    
+
     if (fill) {
         ctx.fill();
     }

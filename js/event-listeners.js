@@ -3,6 +3,20 @@ function setupEventListeners() {
     const canvas = document.getElementById('gameCanvas');
     let mouseDown = false;
     let dragStart = { x: 0, y: 0 };
+
+    const getCanvasPoint = (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const screenX = e.clientX - rect.left;
+        const screenY = e.clientY - rect.top;
+        const zoom = gameState.zoomLevel || 1;
+        return {
+            screenX,
+            screenY,
+            worldX: screenX / zoom + gameState.camera.x,
+            worldY: screenY / zoom + gameState.camera.y
+        };
+    };
+
     // Minimap click-to-navigate support
     const minimap = document.getElementById('minimapCanvas');
     if (minimap) {
@@ -14,8 +28,9 @@ function setupEventListeners() {
             const worldX = (mx / Math.max(1, minimap.width)) * GAME_CONFIG.world.width;
             const worldY = (my / Math.max(1, minimap.height)) * GAME_CONFIG.world.height;
             // Center camera on clicked world position
-            gameState.camera.x = worldX - GAME_CONFIG.canvas.width / 2;
-            gameState.camera.y = worldY - GAME_CONFIG.canvas.height / 2;
+            const zoom = gameState.zoomLevel || 1;
+            gameState.camera.x = worldX - (GAME_CONFIG.canvas.width / zoom) / 2;
+            gameState.camera.y = worldY - (GAME_CONFIG.canvas.height / zoom) / 2;
             if (typeof clampCameraToBounds === 'function') clampCameraToBounds();
         };
         minimap.addEventListener('mousedown', (e) => {
@@ -33,9 +48,7 @@ function setupEventListeners() {
     canvas.addEventListener('mousedown', (e) => {
         if (e.button === 0) {
             if (gameState.placingBuilding) {
-                const rect = canvas.getBoundingClientRect();
-                const worldX = e.clientX - rect.left + gameState.camera.x;
-                const worldY = e.clientY - rect.top + gameState.camera.y;
+                const { worldX, worldY } = getCanvasPoint(e);
                 if (canPlaceBuilding(gameState.placingBuilding, worldX, worldY)) {
                     placeBuilding(gameState.placingBuilding, worldX, worldY);
                 } else {
@@ -46,9 +59,7 @@ function setupEventListeners() {
                 return;
             }
 
-            const rect = canvas.getBoundingClientRect();
-            const worldX = e.clientX - rect.left + gameState.camera.x;
-            const worldY = e.clientY - rect.top + gameState.camera.y;
+            const { screenX, screenY, worldX, worldY } = getCanvasPoint(e);
 
             // Check for building clicks first
             const clickedBuilding = [...gameState.buildings].find(building =>
@@ -103,17 +114,15 @@ function setupEventListeners() {
             }
 
             mouseDown = true;
-            dragStart.x = e.clientX - rect.left;
-            dragStart.y = e.clientY - rect.top;
+            dragStart.x = screenX;
+            dragStart.y = screenY;
             gameState.isSelecting = true;
             gameState.selectionStart = { ...dragStart };
         }
     });
     canvas.addEventListener('mousemove', (e) => {
         if (gameState.placingBuilding) {
-            const rect = canvas.getBoundingClientRect();
-            const worldX = e.clientX - rect.left + gameState.camera.x;
-            const worldY = e.clientY - rect.top + gameState.camera.y;
+            const { worldX, worldY } = getCanvasPoint(e);
             gameState.placingBuildingPosition.x = worldX;
             gameState.placingBuildingPosition.y = worldY;
             if (canPlaceBuilding(gameState.placingBuilding, worldX, worldY)) {
@@ -124,9 +133,7 @@ function setupEventListeners() {
             return;
         }
         if (mouseDown && gameState.isSelecting) {
-            const rect = canvas.getBoundingClientRect();
-            const currentX = e.clientX - rect.left;
-            const currentY = e.clientY - rect.top;
+            const { screenX: currentX, screenY: currentY } = getCanvasPoint(e);
 
             // Only show selection box if drag distance is meaningful (> 3 pixels)
             const dragDistance = Math.hypot(currentX - dragStart.x, currentY - dragStart.y);
@@ -134,9 +141,7 @@ function setupEventListeners() {
                 updateSelectionBox(dragStart, { x: currentX, y: currentY });
             }
         }
-        const rect2 = canvas.getBoundingClientRect();
-        const worldX = e.clientX - rect2.left + gameState.camera.x;
-        const worldY = e.clientY - rect2.top + gameState.camera.y;
+        const { worldX, worldY } = getCanvasPoint(e);
         let cursor = 'default';
 
         // NEW CURSOR HINTS for embark/disembark
@@ -162,10 +167,8 @@ function setupEventListeners() {
         if (gameState.placingBuilding) return;
         if (e.button === 0 && mouseDown) {
             mouseDown = false;
-            const rect = canvas.getBoundingClientRect();
             if (gameState.isSelecting) {
-                const endX = e.clientX - rect.left;
-                const endY = e.clientY - rect.top;
+                const { screenX: endX, screenY: endY } = getCanvasPoint(e);
 
                 // Calculate the drag distance
                 const dragDistance = Math.hypot(endX - dragStart.x, endY - dragStart.y);
@@ -194,9 +197,7 @@ function setupEventListeners() {
     canvas.addEventListener('contextmenu', (e) => {
         e.preventDefault();
         if (gameState.placingBuilding) return;
-        const rect = canvas.getBoundingClientRect();
-        const x = e.clientX - rect.left + gameState.camera.x;
-        const y = e.clientY - rect.top + gameState.camera.y;
+        const { worldX: x, worldY: y } = getCanvasPoint(e);
         const transports = gameState.selectedUnits.filter(u => isTransport(u));
         if (transports.length === 1) {
             const t = transports[0];
@@ -207,8 +208,36 @@ function setupEventListeners() {
                 setTimeout(() => { if (canvasEl) canvasEl.style.cursor = 'default'; }, 150);
             }
         }
+        // Initialize SFX on first user interaction
+        if (typeof SFX !== 'undefined') SFX.ensureContext();
+        if (gameState.selectedUnits.length > 0 && typeof SFX !== 'undefined') SFX.unitCommanded();
         handleRightClick(x, y);
     });
+
+    canvas.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const zoomSensitivity = 0.001;
+        const previousZoom = gameState.zoomLevel;
+        gameState.zoomLevel -= e.deltaY * zoomSensitivity;
+        gameState.zoomLevel = Math.max(0.5, Math.min(2.0, gameState.zoomLevel)); // Clamp between 0.5x and 2.0x
+
+        // Adjust camera to zoom into mouse cursor
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+
+        const worldX = mouseX / previousZoom + gameState.camera.x;
+        const worldY = mouseY / previousZoom + gameState.camera.y;
+
+        gameState.camera.x = worldX - mouseX / gameState.zoomLevel;
+        gameState.camera.y = worldY - mouseY / gameState.zoomLevel;
+        if (typeof clampCameraToBounds === 'function') clampCameraToBounds();
+
+        // Re-sync GIF overlays
+        if (typeof syncOverlayToCanvas === 'function') {
+            syncOverlayToCanvas();
+        }
+    }, { passive: false });
     document.addEventListener('keydown', (e) => {
         if (gameState.placingBuilding && e.key === 'Escape') {
             gameState.placingBuilding = null;
@@ -216,8 +245,12 @@ function setupEventListeners() {
             showNotification("Building placement cancelled.");
             return;
         }
-        gameState.keys[e.key.toLowerCase()] = true;
-        if (e.key === ' ') {
+        if (typeof Hotkeys !== 'undefined' && Hotkeys.handleKeyDown(e)) {
+            return;
+        }
+        const key = e.key.toLowerCase();
+        gameState.keys[key] = true;
+        if (key === ' ') {
             e.preventDefault();
             centerOnTownCenter();
         }
@@ -245,10 +278,18 @@ function setupEventListeners() {
             resizeCanvas();
         });
     }
-    window.addEventListener('resize', resizeCanvas);
+    window.addEventListener('resize', () => {
+        resizeCanvas();
+        if (typeof clampCameraToBounds === 'function') clampCameraToBounds();
+        if (typeof syncOverlayToCanvas === 'function') syncOverlayToCanvas();
+    });
     const areaEl = canvas.parentElement;
     if (window.ResizeObserver && areaEl) {
-        const ro = new ResizeObserver(() => resizeCanvas());
+        const ro = new ResizeObserver(() => {
+            resizeCanvas();
+            if (typeof clampCameraToBounds === 'function') clampCameraToBounds();
+            if (typeof syncOverlayToCanvas === 'function') syncOverlayToCanvas();
+        });
         ro.observe(areaEl);
         window.addEventListener('beforeunload', () => ro.disconnect(), { once: true });
     }
@@ -305,10 +346,11 @@ function updateSelectionBox(start, end) {
 }
 
 function finishSelection(start, end, isMultiSelect = false) {
-    const left = Math.min(start.x, end.x) + gameState.camera.x;
-    const top = Math.min(start.y, end.y) + gameState.camera.y;
-    const right = Math.max(start.x, end.x) + gameState.camera.x;
-    const bottom = Math.max(start.y, end.y) + gameState.camera.y;
+    const zoom = gameState.zoomLevel || 1;
+    const left = Math.min(start.x, end.x) / zoom + gameState.camera.x;
+    const top = Math.min(start.y, end.y) / zoom + gameState.camera.y;
+    const right = Math.max(start.x, end.x) / zoom + gameState.camera.x;
+    const bottom = Math.max(start.y, end.y) / zoom + gameState.camera.y;
 
     if (!isMultiSelect) {
         // Clear previous selection only if not multi-selecting
@@ -362,6 +404,13 @@ function hideSelectionBox() {
 }
 
 function handleRightClick(x, y) {
+    if (gameState.selectedBuilding && gameState.selectedBuilding.player === 'player') {
+        gameState.selectedBuilding.rallyPoint = { x, y };
+        showNotification(`${gameState.selectedBuilding.type} rally point set.`);
+        if (typeof SFX !== 'undefined') SFX.unitCommanded(); // Use command sound
+        return;
+    }
+
     if (gameState.selectedUnits.length === 0) return;
     // NEW EMBARK SYSTEM: Right-click on friendly transport
     const clickedTransport = gameState.units.find(u => isTransport(u) && Math.hypot(u.x - x, u.y - y) < 40);

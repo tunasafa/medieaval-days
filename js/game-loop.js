@@ -20,6 +20,12 @@ function gameLoop() {
     if (typeof FogOfWar !== 'undefined') {
         FogOfWar.update();
     }
+    if (typeof AIManager !== 'undefined') {
+        AIManager.tick(deltaTime);
+    }
+    if (tilemap && typeof tilemap.tickWaterAnimation === 'function') {
+        tilemap.tickWaterAnimation(deltaTime);
+    }
     updateUnitAnimations();
     checkWinConditions();
     const canvas = document.getElementById('gameCanvas');
@@ -29,7 +35,12 @@ function gameLoop() {
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, GAME_CONFIG.canvas.width, GAME_CONFIG.canvas.height);
 
+    // Apply camera zoom
+    const zoom = gameState.zoomLevel || 1.0;
+    ctx.scale(zoom, zoom);
+
     if (tilemap) {
+        tilemap.tickWaterAnimation(deltaTime);
         tilemap.draw(ctx, gameState.camera);
     } else {
         const gradient = ctx.createLinearGradient(0, 0, GAME_CONFIG.canvas.width, GAME_CONFIG.canvas.height);
@@ -66,18 +77,22 @@ function gameLoop() {
  */
 function handleInput() {
     const cameraSpeed = 10;
+    const zoom = gameState.zoomLevel || 1;
+    const visibleWidth = GAME_CONFIG.canvas.width / zoom;
+    const visibleHeight = GAME_CONFIG.canvas.height / zoom;
+    const maxX = Math.max(0, GAME_CONFIG.world.width - visibleWidth);
+    const maxY = Math.max(0, GAME_CONFIG.world.height - visibleHeight);
+
     if (gameState.keys['w']) {
         gameState.camera.y = Math.max(0, gameState.camera.y - cameraSpeed);
     }
     if (gameState.keys['s']) {
-        gameState.camera.y = Math.min(GAME_CONFIG.world.height - GAME_CONFIG.canvas.height,
-                                     gameState.camera.y + cameraSpeed);
+        gameState.camera.y = Math.min(maxY, gameState.camera.y + cameraSpeed);
     }
     if (gameState.keys['a']) {
         gameState.camera.x = Math.max(0, gameState.camera.x - cameraSpeed);
     }
     if (gameState.keys['d']) {
-        gameState.camera.x = Math.min(GAME_CONFIG.world.width - GAME_CONFIG.canvas.width,
-                                     gameState.camera.x + cameraSpeed);
+        gameState.camera.x = Math.min(maxX, gameState.camera.x + cameraSpeed);
     }
 }

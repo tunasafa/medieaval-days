@@ -1,6 +1,15 @@
 const GAME_CONFIG = {
     canvas: { width: 5000, height: 2500 },
-    world: { width: 7500, height: 4000 }, 
+    world: { width: 7500, height: 4000 },
+    // Terrain/water tuning. terrain.tileSize is the logical water-mask resolution
+    // that all gameplay reads; bridgeBlockSize is kept independent so bridge
+    // footprints stay the same size regardless of how fine the mask gets.
+    terrain: {
+        tileSize: 32,          // logical water-mask resolution in world units
+        bridgeBlockSize: 128,  // bridge footprint, decoupled from tileSize
+        contourStep: 24,       // marching-squares sampling step for the drawn coast
+        maxWaterDepth: 3       // number of depth bands for shading
+    },
     units: {
         villager: {
             cost: { food: 50 },
@@ -167,7 +176,7 @@ const GAME_CONFIG = {
             cost: { wood: 15, stone: 5 },
             health: 200,
             maxHealth: 200,
-            width: 32, 
+            width: 32,
             height: 32
         }
     },
@@ -177,7 +186,24 @@ const GAME_CONFIG = {
         stoneMine: { type: 'resource', resourceType: 'stone', amount: 100, width: 50, height: 50, color: '#A9A9A9' },
         goldMine: { type: 'resource', resourceType: 'gold', amount: 100, width: 50, height: 50, color: '#FFD700' },
         rock: { type: 'obstacle', width: 30, height: 30, color: '#696969' },
-        water: { type: 'water', width: 1200, height: 100, color: '#1e90ff' },
-    lake: { type: 'water', width: 1000, height: 800, color: '#1c86ee' },
+        water: { type: 'water', width: 1200, height: 100, color: '#47ABA9' },
+        lake: { type: 'water', width: 1000, height: 800, color: '#3A9391' },
     }
+};
+
+// Water depth palette, derived from the original flat water texture colour
+// RGB(71,171,169). Index 0 is shallow (shore) through 3 (deep). Each band has a
+// primary/secondary pair for wave shading plus a specular tone for crests.
+const WATER_PALETTE = [
+    { primary: [104, 196, 192], secondary: [126, 212, 206], specular: [226, 246, 244] },
+    { primary: [71, 171, 169],  secondary: [88, 186, 182],  specular: [196, 230, 228] },
+    { primary: [48, 138, 140],  secondary: [40, 120, 124],  specular: [150, 198, 200] },
+    { primary: [30, 104, 110],  secondary: [22, 84, 92],    specular: [104, 152, 160] }
+];
+
+// Shore band colours: foam and sand tones used along the smoothed coastline.
+const SHORE_PALETTE = {
+    foam: [226, 245, 243],
+    wetSand: [150, 146, 104],
+    drySand: [176, 172, 118]
 };

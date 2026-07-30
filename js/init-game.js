@@ -4,18 +4,18 @@ async function initGame() {
     console.log('Loading game assets...');
     await assetManager.preloadGameAssets();
     console.log('All assets loaded successfully!');
-    
+
     await drawUIIcons();
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     resizeCanvas();
-    
+
     // Create player buildings first so water can avoid overlapping them
     createInitialBuildings();
-    
+
     // Now create world objects (water/resources) with knowledge of existing buildings
     createWorldObjects();
-    
+
     // Initialize tilemap system after world objects are created
     console.log('Initializing tilemap system...');
     await initTilemap();
@@ -28,7 +28,7 @@ async function initGame() {
     if (typeof enforceLandForWorldObjects === 'function') {
         enforceLandForWorldObjects();
     }
-    
+
     // Create enemy base after water, so it can adapt to river placement
     createEnemyBase();
     createInitialUnits();
@@ -47,8 +47,10 @@ async function initGame() {
     setupEventListeners();
     const playerTC = gameState.buildings.find(b => b.type === 'town-center' && b.player === 'player');
     if (playerTC) {
-        gameState.camera.x = playerTC.x + playerTC.width/2 - GAME_CONFIG.canvas.width/2;
-        gameState.camera.y = playerTC.y + playerTC.height/2 - GAME_CONFIG.canvas.height/2;
+        const zoom = gameState.zoomLevel || 1;
+        gameState.camera.x = playerTC.x + playerTC.width / 2 - (GAME_CONFIG.canvas.width / zoom) / 2;
+        gameState.camera.y = playerTC.y + playerTC.height / 2 - (GAME_CONFIG.canvas.height / zoom) / 2;
+        clampCameraToBounds();
     }
     gameLoop();
     showNotification('Welcome to MEDIEVAL DAYS! Gather resources, build an army, and destroy the enemy Town Center!');
@@ -94,7 +96,45 @@ async function drawUIIcons() {
     if (navyIcon) drawNavyIcon(navyIcon.getContext('2d'), iconSize, iconSize);
 }
 
+/**
+ * Build the world's terrain features.
+ *
+ * Water is defined as a signed distance field (see js/water-shape.js) rather than
+ * a set of rectangles. The field is stored on gameState so the tilemap can
+ * rasterize it into the gameplay mask and derive the drawn coastline from the
+ * same source -- that shared origin is what keeps the visible shore and the
+ * movement border identical.
+ */
 function createWorldObjects() {
+    const waterRoll = Math.random() < 0.5 ? 'river' : 'lake';
+    const seed = (Math.random() * 0x7FFFFFFF) | 0;
+
+    if (typeof buildWorldWaterField === 'function') {
+        gameState.waterField = buildWorldWaterField({
+            worldWidth: GAME_CONFIG.world.width,
+            worldHeight: GAME_CONFIG.world.height,
+            layout: waterRoll,
+            seed
+        });
+        gameState.waterLayout = waterRoll;
+    } else {
+        createWorldObjectsLegacyRects();
+        return;
+    }
+
+    // Scatter resources globally across valid land (avoids water/buildings/units)
+    scatterResourcesAcrossWorld();
+    // Scatter environmental decorations (bushes/trees) with similar rules
+    if (typeof scatterDecorationsAcrossWorld === 'function') {
+        scatterDecorationsAcrossWorld({ count: 90 });
+    }
+}
+
+/**
+ * Previous rectangle-stack water generation, retained for reference only.
+ * Superseded by the SDF-based generation in createWorldObjects().
+ */
+function createWorldObjectsLegacyRects() {
      const centerX = GAME_CONFIG.world.width / 4;
     const centerY = GAME_CONFIG.world.height / 2;
     const enemyCenterX = GAME_CONFIG.world.width * 3/4;
@@ -195,34 +235,34 @@ function createWorldObjects() {
 function createInitialUnits() {
     // Find the player's town center to spawn the initial villager around it
     const playerTC = gameState.buildings.find(b => b.type === 'town-center' && b.player === 'player');
-    
+
     if (playerTC) {
         // Use the same spawning logic as spawnUnit to place villager around the building
         const centerX = playerTC.x + playerTC.width / 2;
         const centerY = playerTC.y + playerTC.height / 2;
         const ringRadius = Math.max(playerTC.width, playerTC.height) / 2 + 25; // Slightly further out
-        
+
         // Try multiple positions around the town center
         let spawnPosition = null;
         const tries = 16;
-        
+
         for (let i = 0; i < tries; i++) {
             const theta = (i / tries) * Math.PI * 2;
             const tx = centerX + Math.cos(theta) * ringRadius;
             const ty = centerY + Math.sin(theta) * ringRadius;
-            
+
             // Check if this position is available
             if (!isPositionOccupied(tx, ty, null, 15)) {
                 spawnPosition = { x: tx, y: ty };
                 break;
             }
         }
-        
+
         // Fallback position if no good spot found
         if (!spawnPosition) {
             spawnPosition = { x: centerX, y: centerY + ringRadius };
         }
-        
+
         gameState.units.push({
             id: generateId(),
             type: 'villager',
@@ -262,6 +302,9 @@ function createInitialUnits() {
 }
 
 function clampCameraToBounds() {
-    gameState.camera.x = Math.max(0, Math.min(GAME_CONFIG.world.width - GAME_CONFIG.canvas.width, gameState.camera.x || 0));
-    gameState.camera.y = Math.max(0, Math.min(GAME_CONFIG.world.height - GAME_CONFIG.canvas.height, gameState.camera.y || 0));
+    const zoom = gameState.zoomLevel || 1;
+    const visibleWidth = GAME_CONFIG.canvas.width / zoom;
+    const visibleHeight = GAME_CONFIG.canvas.height / zoom;
+    gameState.camera.x = Math.max(0, Math.min(GAME_CONFIG.world.width - visibleWidth, gameState.camera.x || 0));
+    gameState.camera.y = Math.max(0, Math.min(GAME_CONFIG.world.height - visibleHeight, gameState.camera.y || 0));
 }

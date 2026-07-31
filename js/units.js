@@ -168,9 +168,12 @@ function getNavigationComfortClearance(unit) {
     const isVessel = !!GAME_CONFIG.units[unit.type]?.vessel;
     if (typeof pathfinder !== 'undefined' && pathfinder) {
         const clearanceCells = pathfinder.getClearanceCellsForUnit(unit.type);
+        const obstacleClearance = typeof pathfinder.getPreferredObstacleClearanceCells === 'function'
+            ? pathfinder.getPreferredObstacleClearanceCells(isVessel, clearanceCells)
+            : (GAME_CONFIG.pathfinding?.obstaclePreferredClearanceCells ?? clearanceCells);
         return Math.max(
             pathfinder.getPreferredShoreClearanceCells(isVessel),
-            pathfinder.getPreferredObstacleClearanceCells(isVessel, clearanceCells)
+            obstacleClearance
         );
     }
     return isVessel
@@ -1545,7 +1548,9 @@ function hasLOSForUnit(x0, y0, x1, y1, unit) {
         typeof pathfindingGrid !== 'undefined' && pathfindingGrid) {
         const isVessel = !!GAME_CONFIG.units[unit.type]?.vessel;
         const clearanceCells = pathfinder.getClearanceCellsForUnit(unit.type);
-        return pathfinder.hasComfortLineOfSight(x0, y0, x1, y1, isVessel, clearanceCells);
+        return typeof pathfinder.hasComfortLineOfSight === 'function'
+            ? pathfinder.hasComfortLineOfSight(x0, y0, x1, y1, isVessel, clearanceCells)
+            : pathfinder.hasLineOfSight(x0, y0, x1, y1, isVessel, clearanceCells);
     }
     const dx = x1 - x0, dy = y1 - y0;
     const dist = Math.hypot(dx, dy);

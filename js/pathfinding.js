@@ -364,7 +364,6 @@ class AStarPathfinder {
     constructor(grid) {
         this.grid = grid;
         this.lastPathUsedEscape = false;
-        this.lastPathEscapeOnly = false;
         this._allowUnsafeShoreline = false;
     }
 
@@ -387,99 +386,25 @@ class AStarPathfinder {
             : (GAME_CONFIG.pathfinding?.shorelinePreferredClearanceCells ?? 7);
     }
 
-    getPreferredObstacleClearanceCells(isShip, clearanceCells = 0) {
-        if (isShip) return Math.max(clearanceCells || 0, this.getPreferredShoreClearanceCells(true));
-        return Math.max(
-            clearanceCells || 0,
-            GAME_CONFIG.pathfinding?.obstaclePreferredClearanceCells ?? 6
-        );
-    }
-
-    getLaneClearance(cell, isShip = false) {
-        if (!cell) return 0;
-        if (isShip) return cell.waterClearance;
-        if (cell.isBridge) return cell.clearance;
-        return Math.min(cell.clearance, cell.shoreClearance ?? cell.clearance);
-    }
-
-    getLaneSafetyScore(cell, isShip = false, clearanceCells = 0) {
-        if (!cell) return -Infinity;
-        const laneClearance = this.getLaneClearance(cell, isShip);
-        if (!Number.isFinite(laneClearance)) return 999;
-        const preferred = Math.max(
-            this.getPreferredShoreClearanceCells(isShip),
-            this.getPreferredObstacleClearanceCells(isShip, clearanceCells)
-        );
-        return Math.min(laneClearance, preferred + 6);
-    }
-
-    getShorelineCost(cell, isShip = false, clearanceCells = 0) {
+    getShorelineCost(cell, isShip = false) {
         if (!cell || cell.isBridge) return 0;
         const clearance = isShip ? cell.waterClearance : cell.shoreClearance;
         if (!Number.isFinite(clearance)) return 0;
-        const preferred = Math.max(
-            this.getPreferredShoreClearanceCells(isShip),
-            this.getPreferredObstacleClearanceCells(isShip, clearanceCells)
-        );
+        const preferred = this.getPreferredShoreClearanceCells(isShip);
         if (clearance >= preferred) return 0;
-        const deficit = preferred - clearance;
-        const pressure = deficit / Math.max(1, preferred);
+        const pressure = (preferred - clearance) / Math.max(1, preferred);
         const weight = isShip
             ? (GAME_CONFIG.pathfinding?.shipShorelineCostWeight ?? 3)
             : (GAME_CONFIG.pathfinding?.shorelineCostWeight ?? 14);
-        return pressure * pressure * weight + deficit * deficit * (isShip ? 0.25 : 0.9);
-    }
-
-    getObstacleProximityCost(cell, isShip = false, clearanceCells = 0) {
-        if (!cell || isShip) return 0;
-        const clearance = cell.clearance;
-        if (!Number.isFinite(clearance)) return 0;
-        const preferred = this.getPreferredObstacleClearanceCells(false, clearanceCells);
-        if (clearance >= preferred) return 0;
-        const deficit = preferred - clearance;
-        const weight = GAME_CONFIG.pathfinding?.obstacleCostWeight ?? 8;
-        return deficit * deficit * weight * 0.18;
-    }
-
-    getCornerTrapCost(x, y, isShip = false, clearanceCells = 0) {
-        const cell = this.grid.grid[y]?.[x];
-        if (!cell || cell.isBridge) return 0;
-        const preferred = Math.max(
-            this.getPreferredShoreClearanceCells(isShip),
-            this.getPreferredObstacleClearanceCells(isShip, clearanceCells)
-        );
-        const laneClearance = this.getLaneClearance(cell, isShip);
-        if (!Number.isFinite(laneClearance) || laneClearance >= preferred) return 0;
-
-        let blockedCardinal = 0;
-        let blockedDiagonal = 0;
-        for (const [dx, dy] of ESCAPE_DIRS) {
-            const nx = x + dx;
-            const ny = y + dy;
-            const cardinal = dx === 0 || dy === 0;
-            if (!this.grid.isValidCell(nx, ny) || !this.isWalkable(nx, ny, isShip, clearanceCells)) {
-                if (cardinal) blockedCardinal++;
-                else blockedDiagonal++;
-            }
-        }
-        if (blockedCardinal + blockedDiagonal < 2) return 0;
-        const cornerPressure = blockedCardinal * 1.4 + blockedDiagonal * 0.45;
-        const deficit = preferred - laneClearance;
-        const weight = GAME_CONFIG.pathfinding?.cornerTrapCostWeight ?? 18;
-        return deficit * cornerPressure * weight * 0.35;
+        return pressure * pressure * weight;
     }
 
     isComfortableWalkable(x, y, isShip = false, clearanceCells = 0) {
         if (!this.isWalkable(x, y, isShip, clearanceCells)) return false;
         const cell = this.grid.grid[y][x];
         if (cell.isBridge) return true;
-        const laneClearance = this.getLaneClearance(cell, isShip);
-        if (!Number.isFinite(laneClearance)) return true;
-        const preferred = Math.max(
-            this.getPreferredShoreClearanceCells(isShip),
-            this.getPreferredObstacleClearanceCells(isShip, clearanceCells)
-        );
-        return laneClearance >= preferred;
+        const clearance = isShip ? cell.waterClearance : cell.shoreClearance;
+        return !Number.isFinite(clearance) || clearance >= this.getPreferredShoreClearanceCells(isShip);
     }
 
     // A unit standing where validateTerrainMovement() allows it but the grid does
@@ -579,7 +504,6 @@ class AStarPathfinder {
     findPath(startX, startY, endX, endY, unitType = 'villager', options = {}) {
         const previousShorelineMode = this._allowUnsafeShoreline;
         this.lastPathUsedEscape = false;
-        this.lastPathEscapeOnly = false;
         this._allowUnsafeShoreline = !!options.allowUnsafeShoreline;
         try {
             return this._findPathInternal(startX, startY, endX, endY, unitType);
@@ -657,20 +581,11 @@ class AStarPathfinder {
                     path.unshift(worldPos);
                     temp = cameFrom.get(`${temp.x},${temp.y}`);
                 }
-                // Post-process for smoother, safer paths. The first pass moves
-                // intermediate grid points toward lane centers before any LOS
-                // simplification can erase that safer route.
-                const relaxed = this.relaxPathAwayFromEdges(path, isShip, clearanceCells, unitType);
-                const simplified = this.simplifyPathLOS(relaxed, isShip, clearanceCells, true);
-                const rounded = this.pruneBacktrackingWaypoints(
-                    this.roundCorners(simplified, isShip, clearanceCells),
-                    isShip, clearanceCells, unitType
-                );
-                const curved = this.pruneBacktrackingWaypoints(
-                    this.splineSmooth(rounded, isShip, clearanceCells),
-                    isShip, clearanceCells, unitType
-                );
-                for (const candidate of [curved, rounded, simplified, relaxed, path]) {
+                // Post-process for smoother paths
+                const simplified = this.simplifyPathLOS(path, isShip, clearanceCells);
+                const rounded = this.roundCorners(simplified, isShip, clearanceCells);
+                const curved = this.splineSmooth(rounded, isShip, clearanceCells);
+                for (const candidate of [curved, rounded, simplified, path]) {
                     const safePath = this.validatePath(candidate, isShip, clearanceCells, unitType);
                     if (safePath && safePath.length > 1) {
                         // Escape prefix ends on the A* start cell, so drop that
@@ -680,7 +595,6 @@ class AStarPathfinder {
                 }
                 // The unit still gets to leave the pocket even if the onward leg
                 // is unusable — better than standing frozen next to its barracks.
-                if (escapePoints) this.lastPathEscapeOnly = true;
                 return escapePoints || null;
             }
 
@@ -704,7 +618,7 @@ class AStarPathfinder {
                     continue;
                 }
 
-                const moveCost = this.getMoveCost(current, neighbor, isShip, clearanceCells);
+                const moveCost = this.getMoveCost(current, neighbor, isShip);
                 const parent = cameFrom.get(currentKey) || null;
                 const turnCost = this.getTurnPenalty(parent, current, neighbor, isShip);
                 const tentativeGScore = gScore.get(currentKey) + moveCost + turnCost;
@@ -725,14 +639,11 @@ class AStarPathfinder {
 
         // Exhausted the open set. If we at least computed a way out of a pocket,
         // hand that back so the unit is not left permanently immobile.
-        if (escapePoints) this.lastPathEscapeOnly = true;
         return escapePoints || null;
     }
 
-    // Check line of sight between two world points using grid walkability.
-    // When requireComfort is true, interior samples must stay in open-lane
-    // cells; endpoints are allowed to sit closer to a clicked target/resource.
-    hasLineOfSight(x0, y0, x1, y1, isShip = false, clearanceCells = 0, requireComfort = false) {
+    // Check line of sight between two world points using grid walkability
+    hasLineOfSight(x0, y0, x1, y1, isShip = false, clearanceCells = 0) {
         const dx = x1 - x0;
         const dy = y1 - y0;
         const dist = Math.hypot(dx, dy);
@@ -746,20 +657,12 @@ class AStarPathfinder {
             const cell = this.grid.worldToGrid(sx, sy);
             if (!this.grid.isValidCell(cell.x, cell.y)) return false;
             if (!this.isWalkable(cell.x, cell.y, isShip, clearanceCells)) return false;
-            if (requireComfort && i > 0 && i < steps &&
-                !this.isComfortableWalkable(cell.x, cell.y, isShip, clearanceCells)) {
-                return false;
-            }
         }
         return true;
     }
 
-    hasComfortLineOfSight(x0, y0, x1, y1, isShip = false, clearanceCells = 0) {
-        return this.hasLineOfSight(x0, y0, x1, y1, isShip, clearanceCells, true);
-    }
-
     // Simplify path by removing unnecessary waypoints using LOS
-    simplifyPathLOS(path, isShip = false, clearanceCells = 0, requireComfort = false) {
+    simplifyPathLOS(path, isShip = false, clearanceCells = 0) {
         if (!path || path.length <= 2) return path || [];
         const result = [];
         let i = 0;
@@ -768,8 +671,7 @@ class AStarPathfinder {
             let j = path.length - 1;
             // Find farthest j visible from i
             for (; j > i + 1; j--) {
-                if (this.hasLineOfSight(path[i].x, path[i].y, path[j].x, path[j].y,
-                    isShip, clearanceCells, requireComfort)) {
+                if (this.hasLineOfSight(path[i].x, path[i].y, path[j].x, path[j].y, isShip, clearanceCells)) {
                     break;
                 }
             }
@@ -777,84 +679,6 @@ class AStarPathfinder {
             i = j;
         }
         return result;
-    }
-
-    relaxPathAwayFromEdges(path, isShip = false, clearanceCells = 0, unitType = 'villager') {
-        if (!path || path.length <= 2) return path || [];
-        const radius = Math.max(1, GAME_CONFIG.pathfinding?.pathRelaxRadiusCells ?? 5);
-        const out = [path[0]];
-
-        for (let i = 1; i < path.length - 1; i++) {
-            const point = path[i];
-            const prev = out[out.length - 1];
-            const next = path[i + 1];
-            const prevCell = this.grid.worldToGrid(path[i - 1].x, path[i - 1].y);
-            const cell = this.grid.worldToGrid(point.x, point.y);
-            const nextCell = this.grid.worldToGrid(next.x, next.y);
-            const isTurn = (cell.x - prevCell.x) !== (nextCell.x - cell.x) ||
-                (cell.y - prevCell.y) !== (nextCell.y - cell.y);
-            const isRisky = !this.grid.isValidCell(cell.x, cell.y) ||
-                !this.isComfortableWalkable(cell.x, cell.y, isShip, clearanceCells);
-            const safer = (isTurn || isRisky)
-                ? this.findSaferWaypoint(point, prev, next, isShip, clearanceCells, unitType, radius)
-                : null;
-            const chosen = safer || point;
-            const last = out[out.length - 1];
-            if (Math.hypot(chosen.x - last.x, chosen.y - last.y) > this.grid.cellSize * 0.35) {
-                out.push(chosen);
-            }
-        }
-
-        const finalPoint = path[path.length - 1];
-        const last = out[out.length - 1];
-        if (Math.hypot(finalPoint.x - last.x, finalPoint.y - last.y) > this.grid.cellSize * 0.35) {
-            out.push(finalPoint);
-        } else {
-            out[out.length - 1] = finalPoint;
-        }
-        return out;
-    }
-
-    findSaferWaypoint(point, prev, next, isShip, clearanceCells, unitType, radiusCells) {
-        const origin = this.grid.worldToGrid(point.x, point.y);
-        if (!this.grid.isValidCell(origin.x, origin.y)) return null;
-
-        let best = point;
-        let bestScore = -Infinity;
-        const originalCell = this.grid.grid[origin.y][origin.x];
-        const originalSafety = this.getLaneSafetyScore(originalCell, isShip, clearanceCells);
-        const unitProbe = { type: unitType };
-
-        for (let dy = -radiusCells; dy <= radiusCells; dy++) {
-            for (let dx = -radiusCells; dx <= radiusCells; dx++) {
-                const gx = origin.x + dx;
-                const gy = origin.y + dy;
-                if (!this.grid.isValidCell(gx, gy)) continue;
-                if (!this.isWalkable(gx, gy, isShip, clearanceCells)) continue;
-
-                const world = this.grid.gridToWorld(gx, gy);
-                if (typeof validateTerrainMovement === 'function' &&
-                    !validateTerrainMovement(unitProbe, world.x, world.y)) continue;
-                if (!this.hasLineOfSight(prev.x, prev.y, world.x, world.y, isShip, clearanceCells)) continue;
-                if (!this.hasLineOfSight(world.x, world.y, next.x, next.y, isShip, clearanceCells)) continue;
-
-                const cell = this.grid.grid[gy][gx];
-                const safety = this.getLaneSafetyScore(cell, isShip, clearanceCells);
-                if (safety < originalSafety + 0.75 && (dx !== 0 || dy !== 0)) continue;
-                const fromOriginal = Math.hypot(dx, dy);
-                const smoothness = this.getWorldTurnCost(prev, world, next);
-                const score = safety * 8 - fromOriginal * 1.7 - smoothness * 2.8;
-                if (score > bestScore) {
-                    bestScore = score;
-                    best = world;
-                }
-            }
-        }
-
-        if (best === point || bestScore === -Infinity) return null;
-        const bestCell = this.grid.worldToGrid(best.x, best.y);
-        const bestSafety = this.getLaneSafetyScore(this.grid.grid[bestCell.y][bestCell.x], isShip, clearanceCells);
-        return bestSafety >= originalSafety + 0.75 ? best : null;
     }
 
     // Round corners by inserting short in/out points at turns
@@ -942,13 +766,8 @@ class AStarPathfinder {
         // Ensure exact final point
         const last = pts[pts.length - 1];
         const prev = result[result.length - 1];
-        if (!prev) {
+        if (!prev || this.hasLineOfSight(prev.x, prev.y, last.x, last.y, isShip, clearanceCells)) {
             result.push(last);
-        } else if (Math.hypot(prev.x - last.x, prev.y - last.y) > this.grid.cellSize * 0.25 &&
-            this.hasLineOfSight(prev.x, prev.y, last.x, last.y, isShip, clearanceCells)) {
-            result.push(last);
-        } else {
-            result[result.length - 1] = last;
         }
         return result;
     }
@@ -968,39 +787,6 @@ class AStarPathfinder {
             if (!validateTerrainMovement(unit, sx, sy)) return false;
         }
         return true;
-    }
-
-    pruneBacktrackingWaypoints(path, isShip = false, clearanceCells = 0, unitType = 'villager') {
-        if (!path || path.length <= 2) return path || [];
-        const maxTurn = GAME_CONFIG.pathfinding?.maxPathTurnDegrees ?? 135;
-        const maxTurnRad = maxTurn * Math.PI / 180;
-        const result = path.slice();
-        let changed = true;
-
-        while (changed && result.length > 2) {
-            changed = false;
-            for (let i = 1; i < result.length - 1; i++) {
-                const a = result[i - 1];
-                const b = result[i];
-                const c = result[i + 1];
-                const ab = Math.hypot(b.x - a.x, b.y - a.y);
-                const bc = Math.hypot(c.x - b.x, c.y - b.y);
-                if (ab < this.grid.cellSize * 0.25 || bc < this.grid.cellSize * 0.25) {
-                    result.splice(i, 1);
-                    changed = true;
-                    break;
-                }
-                const turn = this.getWorldTurnCost(a, b, c) * Math.PI;
-                if (turn <= maxTurnRad) continue;
-                if (this.hasLineOfSight(a.x, a.y, c.x, c.y, isShip, clearanceCells) &&
-                    this.hasTerrainFootprintLineOfSight(a.x, a.y, c.x, c.y, unitType, false)) {
-                    result.splice(i, 1);
-                    changed = true;
-                    break;
-                }
-            }
-        }
-        return result;
     }
 
     // Final sweep: every waypoint and every segment must keep unit clearance.
@@ -1059,21 +845,15 @@ class AStarPathfinder {
         }
     }
 
-    getMoveCost(from, to, isShip = false, clearanceCells = 0) {
+    getMoveCost(from, to, isShip = false) {
         const cell = this.grid.grid[to.y][to.x];
         let cost = cell.cost;
-        const laneClearance = this.getLaneClearance(cell, isShip);
-        if (Number.isFinite(laneClearance)) {
-            const preferred = Math.max(
-                this.getPreferredShoreClearanceCells(isShip),
-                this.getPreferredObstacleClearanceCells(isShip, clearanceCells)
-            );
-            const deficit = Math.max(0, preferred - laneClearance);
-            cost += deficit * deficit * (isShip ? 0.35 : 1.15);
+        const clearance = isShip ? cell.waterClearance : cell.clearance;
+        if (Number.isFinite(clearance)) {
+            const edgePressure = Math.max(0, 4 - Math.min(4, clearance));
+            cost += edgePressure * 0.25;
         }
-        cost += this.getShorelineCost(cell, isShip, clearanceCells);
-        cost += this.getObstacleProximityCost(cell, isShip, clearanceCells);
-        cost += this.getCornerTrapCost(to.x, to.y, isShip, clearanceCells);
+        cost += this.getShorelineCost(cell, isShip);
 
         // Diagonal movement costs more
         if (from.x !== to.x && from.y !== to.y) {
@@ -1081,19 +861,6 @@ class AStarPathfinder {
         }
 
         return cost;
-    }
-
-    getWorldTurnCost(prev, current, next) {
-        const v1x = current.x - prev.x;
-        const v1y = current.y - prev.y;
-        const v2x = next.x - current.x;
-        const v2y = next.y - current.y;
-        const len1 = Math.hypot(v1x, v1y);
-        const len2 = Math.hypot(v2x, v2y);
-        if (len1 === 0 || len2 === 0) return 0;
-        const dot = (v1x * v2x + v1y * v2y) / (len1 * len2);
-        const clamped = Math.max(-1, Math.min(1, dot));
-        return Math.acos(clamped) / Math.PI;
     }
 
     // Penalize sharp turns to encourage smoother paths during search
@@ -1110,8 +877,8 @@ class AStarPathfinder {
         const clamped = Math.max(-1, Math.min(1, dot));
         const angle = Math.acos(clamped); // 0..pi
         // Favor gentle curves: scale by normalized angle squared
-        const baseWeight = isShip ? 0.8 : 1.35;
-        return baseWeight * (angle / Math.PI) ** 2 * 2.2;
+        const baseWeight = isShip ? 0.4 : 0.65;
+        return baseWeight * (angle / Math.PI) ** 2 * 1.4; // light preference for smooth paths
     }
 
     heuristic(a, b) {
@@ -1153,12 +920,12 @@ class AStarPathfinder {
                         const ny = y + dy;
                         if (this.isWalkable(nx, ny, isShip, clearanceCells)) {
                             const cell = this.grid.grid[ny][nx];
-                            const safety = this.getLaneSafetyScore(cell, isShip, clearanceCells);
-                            const shoreDeficit = cell.isBridge || !Number.isFinite(safety)
+                            const clearance = isShip ? cell.waterClearance : cell.shoreClearance;
+                            const shoreDeficit = cell.isBridge || !Number.isFinite(clearance)
                                 ? 0
-                                : Math.max(0, preferred - safety);
+                                : Math.max(0, preferred - clearance);
                             const distance = Math.hypot(dx, dy);
-                            const score = distance + shoreDeficit * shoreDeficit * 3.5 - safety * 0.35 - (cell.isBridge ? 4 : 0);
+                            const score = distance + shoreDeficit * shoreDeficit * 2.5 - (cell.isBridge ? 4 : 0);
                             if (score < bestScore) {
                                 bestScore = score;
                                 best = { x: nx, y: ny };
@@ -1238,8 +1005,6 @@ function findPath(startX, startY, endX, endY, unitType = 'villager') {
     if (pathfindingGrid._dirty) {
         updatePathfindingGrid();
     }
-    pathfinder.lastPathUsedEscape = false;
-    pathfinder.lastPathEscapeOnly = false;
     const cacheKey = getPathCacheKey(startX, startY, endX, endY, unitType);
     if (__pathCache.has(cacheKey)) {
         return clonePath(__pathCache.get(cacheKey));
@@ -1250,10 +1015,9 @@ function findPath(startX, startY, endX, endY, unitType = 'villager') {
         GAME_CONFIG.pathfinding?.allowShorelineFallback !== false) {
         path = pathfinder.findPath(startX, startY, endX, endY, unitType, { allowUnsafeShoreline: true });
     }
-    // Never cache a failure or an escape route. The cache key is scoped to the
-    // exact start/end grid cells because returning a path from a larger cluster
-    // can send a nearby order to the previous order's endpoint.
-    if (path && path.length > 1 && !pathfinder.lastPathUsedEscape && !pathfinder.lastPathEscapeOnly) {
+    // Never cache a failure or an escape route. Scope the cache to exact grid
+    // cells so a nearby order cannot inherit another unit's endpoint.
+    if (path && path.length > 1 && !pathfinder.lastPathUsedEscape) {
         setCachedPath(cacheKey, path);
     }
     return clonePath(path);
@@ -1298,9 +1062,8 @@ function setUnitDestination(unit, targetX, targetY) {
         }
     }
 
-    // A* returns grid-cell routes, so a click inside the unit's current cell
-    // can otherwise be treated as a failed path and replaced with a 32px
-    // nearest-reachable search. Keep short, terrain-legal orders exact.
+    // Keep short, terrain-legal orders exact instead of rerouting them to the
+    // center of the nearest reachable grid cell.
     if (!pathfinder) initializePathfinding();
     if (pathfindingGrid?._dirty) updatePathfindingGrid();
     const startCell = pathfindingGrid.worldToGrid(unit.x, unit.y);
@@ -1313,7 +1076,6 @@ function setUnitDestination(unit, targetX, targetY) {
         unit.requestedTargetY = targetY;
         unit.targetX = targetX;
         unit.targetY = targetY;
-        unit._repathAfterEscape = null;
         unit.pathfindingFailed = false;
         unit._stuckCount = 0;
         unit._moveProg = null;
@@ -1324,14 +1086,12 @@ function setUnitDestination(unit, targetX, targetY) {
 
     if (path && path.length > 1) {
         const safeEnd = path[path.length - 1];
-        const escapeOnly = !!(pathfinder && pathfinder.lastPathEscapeOnly);
         unit.path = path.slice(1); // Remove starting position
         unit.state = 'moving';
         unit.requestedTargetX = targetX;
         unit.requestedTargetY = targetY;
         unit.targetX = safeEnd.x;
         unit.targetY = safeEnd.y;
-        unit._repathAfterEscape = escapeOnly ? { x: targetX, y: targetY } : null;
         unit.pathfindingFailed = false;
         unit._stuckCount = 0;
         unit._moveProg = null;
@@ -1349,14 +1109,12 @@ function setUnitDestination(unit, targetX, targetY) {
         const retryPath = findPath(unit.x, unit.y, reachable.x, reachable.y, unit.type);
         if (retryPath && retryPath.length > 1) {
             const safeEnd = retryPath[retryPath.length - 1];
-            const escapeOnly = !!(pathfinder && pathfinder.lastPathEscapeOnly);
             unit.path = retryPath.slice(1);
             unit.state = 'moving';
             unit.requestedTargetX = targetX;
             unit.requestedTargetY = targetY;
             unit.targetX = safeEnd.x;
             unit.targetY = safeEnd.y;
-            unit._repathAfterEscape = escapeOnly ? { x: targetX, y: targetY } : null;
             unit.pathfindingFailed = false;
             unit._stuckCount = 0;
             unit._moveProg = null;
@@ -1370,7 +1128,6 @@ function setUnitDestination(unit, targetX, targetY) {
     unit.requestedTargetY = targetY;
     unit.targetX = targetX;
     unit.targetY = targetY;
-    unit._repathAfterEscape = null;
     unit.pathfindingFailed = true;
     unit._stuckCount = 0;
     unit._moveProg = null;

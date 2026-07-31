@@ -5,7 +5,7 @@
  */
 function gameLoop() {
     const now = Date.now();
-    const rawDeltaTime = now - gameState.lastUpdate;
+    const rawDeltaTime = Math.min(80, Math.max(0, now - gameState.lastUpdate));
     gameState.lastUpdate = now;
     const uiPaused = !!gameState.ui?.modalOpen;
     // Multiplayer client skips all simulation — state comes from host snapshots

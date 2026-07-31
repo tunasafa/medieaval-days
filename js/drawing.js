@@ -1,6 +1,10 @@
 // Drawing Functions
 // Simple DOM overlay for animated GIF units so they animate like regular images
 let __unitOverlayDiv = null;
+let __overlaySyncAt = 0;
+let __overlayRectKey = '';
+let __unitOverlayCleanupAt = 0;
+let __lastMinimapDrawAt = -Infinity;
 const __minimapBaseCache = {
     key: null,
     canvas: null
@@ -76,17 +80,27 @@ function getMinimapBaseLayer(minimapCanvas, scaleX, scaleY) {
 function syncOverlayToCanvas() {
     const canvas = document.getElementById('gameCanvas');
     if (!canvas) return;
+    const now = performance.now();
+    const zoom = (typeof gameState !== 'undefined' && gameState.zoomLevel) || 1.0;
+    const quickKey = `${canvas.clientWidth}|${canvas.clientHeight}|${zoom}`;
+    if (now - __overlaySyncAt < 250 && __overlayRectKey === quickKey) return;
+    __overlaySyncAt = now;
     const rect = canvas.getBoundingClientRect();
     const overlay = getUnitOverlay();
-    overlay.style.left = `${rect.left + window.scrollX}px`;
-    overlay.style.top = `${rect.top + window.scrollY}px`;
+    const left = `${rect.left + window.scrollX}px`;
+    const top = `${rect.top + window.scrollY}px`;
+    if (overlay.style.left !== left) overlay.style.left = left;
+    if (overlay.style.top !== top) overlay.style.top = top;
 
     // Match the canvas zoom level
-    const zoom = (typeof gameState !== 'undefined' && gameState.zoomLevel) || 1.0;
-    overlay.style.width = `${rect.width / zoom}px`;
-    overlay.style.height = `${rect.height / zoom}px`;
-    overlay.style.transform = `scale(${zoom})`;
-    overlay.style.transformOrigin = '0 0';
+    const width = `${rect.width / zoom}px`;
+    const height = `${rect.height / zoom}px`;
+    const transform = `scale(${zoom})`;
+    if (overlay.style.width !== width) overlay.style.width = width;
+    if (overlay.style.height !== height) overlay.style.height = height;
+    if (overlay.style.transform !== transform) overlay.style.transform = transform;
+    if (overlay.style.transformOrigin !== '0px 0px') overlay.style.transformOrigin = '0 0';
+    __overlayRectKey = quickKey;
 }
 
 // Compute the aim point for attack direction/range checks.
@@ -515,6 +529,9 @@ function drawUnits(ctx) {
     );
     visibleUnits.forEach(unit => drawUnit(ctx, unit));
 
+    const now = performance.now();
+    if (now - __unitOverlayCleanupAt < 500) return;
+    __unitOverlayCleanupAt = now;
     const overlay = getUnitOverlay();
     const validIds = new Set(visibleUnits.map(u => getUnitDomId(u)));
     overlay.querySelectorAll('img[data-unit-id]').forEach(img => {
@@ -1094,12 +1111,15 @@ function drawUnit(ctx, unit) {
         const el = unit._domGif;
         // Swap source when direction changes
         if (el.src !== img.src) el.src = img.src;
-        el.style.display = 'block';
-        el.style.width = `${dw}px`;
-        el.style.height = `${dh}px`;
+        if (el.style.display !== 'block') el.style.display = 'block';
+        const width = `${dw}px`;
+        const height = `${dh}px`;
+        if (el.style.width !== width) el.style.width = width;
+        if (el.style.height !== height) el.style.height = height;
         unit.__spriteDrawWidth = dw;
         unit.__spriteDrawHeight = dh;
-        el.style.transform = `translate(${Math.round(screenX - dw/2)}px, ${Math.round(screenY - dh/2)}px)`;
+        const transform = `translate(${Math.round(screenX - dw/2)}px, ${Math.round(screenY - dh/2)}px)`;
+        if (el.style.transform !== transform) el.style.transform = transform;
         // Skip canvas image draw; we still draw selection/health below
     } else {
         // No GIF: hide any existing overlay for this unit and draw fallback icons
@@ -1122,16 +1142,19 @@ function drawUnit(ctx, unit) {
             }
             const el = unit._domGif;
             if (el.src !== src) el.src = src;
-            el.style.display = 'block';
+            if (el.style.display !== 'block') el.style.display = 'block';
             const dw = 24 * 3; // default 3x size
             const dh = 24 * 3;
             const screenX = drawX;
             const screenY = drawY;
-            el.style.width = `${dw}px`;
-            el.style.height = `${dh}px`;
+            const width = `${dw}px`;
+            const height = `${dh}px`;
+            if (el.style.width !== width) el.style.width = width;
+            if (el.style.height !== height) el.style.height = height;
             unit.__spriteDrawWidth = dw;
             unit.__spriteDrawHeight = dh;
-            el.style.transform = `translate(${Math.round(screenX - dw/2)}px, ${Math.round(screenY - dh/2)}px)`;
+            const transform = `translate(${Math.round(screenX - dw/2)}px, ${Math.round(screenY - dh/2)}px)`;
+            if (el.style.transform !== transform) el.style.transform = transform;
             // Also queue the asset in manager for cache
             queueUnitAssetLoad(unit, fallbackName);
         } else {
@@ -1366,6 +1389,9 @@ function drawPlacingBuilding(ctx) {
 }
 
 function drawMinimap() {
+    const now = performance.now();
+    if (now - __lastMinimapDrawAt < 120) return;
+    __lastMinimapDrawAt = now;
     const minimapCanvas = document.getElementById('minimapCanvas');
     const ctx = minimapCanvas.getContext('2d');
     ctx.clearRect(0, 0, minimapCanvas.width, minimapCanvas.height);

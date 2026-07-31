@@ -4,6 +4,48 @@
  * AI decision making, collision detection, and terrain validation for all unit types.
  */
 
+const UNIT_SPATIAL_CELL_SIZE = 64;
+let __unitSpatialIndex = null;
+
+function buildUnitSpatialIndex() {
+    const buckets = new Map();
+    const units = typeof getAllUnits === 'function'
+        ? getAllUnits()
+        : [...gameState.units, ...gameState.enemyUnits];
+    for (const unit of units) {
+        if (!unit || unit.health <= 0 || unit.state === 'embarked') continue;
+        const cx = Math.floor(unit.x / UNIT_SPATIAL_CELL_SIZE);
+        const cy = Math.floor(unit.y / UNIT_SPATIAL_CELL_SIZE);
+        const key = `${cx},${cy}`;
+        let bucket = buckets.get(key);
+        if (!bucket) {
+            bucket = [];
+            buckets.set(key, bucket);
+        }
+        bucket.push(unit);
+    }
+    __unitSpatialIndex = buckets;
+}
+
+function getNearbyUnits(unit, radius) {
+    if (!__unitSpatialIndex) {
+        return typeof getAllUnits === 'function'
+            ? getAllUnits()
+            : [...gameState.units, ...gameState.enemyUnits];
+    }
+    const cx = Math.floor(unit.x / UNIT_SPATIAL_CELL_SIZE);
+    const cy = Math.floor(unit.y / UNIT_SPATIAL_CELL_SIZE);
+    const span = Math.max(1, Math.ceil(radius / UNIT_SPATIAL_CELL_SIZE));
+    const nearby = [];
+    for (let y = cy - span; y <= cy + span; y++) {
+        for (let x = cx - span; x <= cx + span; x++) {
+            const bucket = __unitSpatialIndex.get(`${x},${y}`);
+            if (bucket) nearby.push(...bucket);
+        }
+    }
+    return nearby;
+}
+
 /**
  * Prevents idle units from clustering by applying positional spread when units are too close.
  * Maintains unit spacing to improve visual clarity and prevent overlapping during idle states.
@@ -15,69 +57,31 @@ function spreadIdleUnits(unit) {
 
     const unitSize = 24;
     const minDistance = unitSize * 0.5;
+    const minDistanceSq = minDistance * minDistance;
+    let pushX = 0;
+    let pushY = 0;
 
-    for (const otherUnit of gameState.units) {
+    for (const otherUnit of getNearbyUnits(unit, minDistance)) {
         if (otherUnit === unit || otherUnit.state !== 'idle') continue;
-
         const dx = unit.x - otherUnit.x;
         const dy = unit.y - otherUnit.y;
-        const distance = Math.hypot(dx, dy);
-
-        if (distance < minDistance && distance > 0) {
-            const pushDistance = (minDistance - distance) / 2;
-            const pushAngle = Math.atan2(dy, dx);
-
-            const pushX = Math.cos(pushAngle) * pushDistance;
-            const pushY = Math.sin(pushAngle) * pushDistance;
-
-            const newX = unit.x + pushX;
-            const newY = unit.y + pushY;
-
-            if (canTakeSeparationStep(unit, newX, newY) && !isPositionOccupied(newX, newY, unit, 8)) {
-                unit.x = newX;
-                unit.y = newY;
-            }
-
-            const otherNewX = otherUnit.x - pushX;
-            const otherNewY = otherUnit.y - pushY;
-
-            if (canTakeSeparationStep(otherUnit, otherNewX, otherNewY) && !isPositionOccupied(otherNewX, otherNewY, otherUnit, 8)) {
-                otherUnit.x = otherNewX;
-                otherUnit.y = otherNewY;
-            }
+        const distSq = dx * dx + dy * dy;
+        if (distSq > 0 && distSq < minDistanceSq) {
+            const distance = Math.sqrt(distSq);
+            const overlap = (minDistance - distance) * 0.5;
+            pushX += (dx / distance) * overlap;
+            pushY += (dy / distance) * overlap;
         }
     }
 
-    for (const otherUnit of gameState.enemyUnits) {
-        if (otherUnit === unit || otherUnit.state !== 'idle') continue;
-
-        const dx = unit.x - otherUnit.x;
-        const dy = unit.y - otherUnit.y;
-        const distance = Math.hypot(dx, dy);
-
-        if (distance < minDistance && distance > 0) {
-            const pushDistance = (minDistance - distance) / 2;
-            const pushAngle = Math.atan2(dy, dx);
-
-            const pushX = Math.cos(pushAngle) * pushDistance;
-            const pushY = Math.sin(pushAngle) * pushDistance;
-
-            const newX = unit.x + pushX;
-            const newY = unit.y + pushY;
-
-            if (canTakeSeparationStep(unit, newX, newY) && !isPositionOccupied(newX, newY, unit, 8)) {
-                unit.x = newX;
-                unit.y = newY;
-            }
-
-            const otherNewX = otherUnit.x - pushX;
-            const otherNewY = otherUnit.y - pushY;
-
-            if (canTakeSeparationStep(otherUnit, otherNewX, otherNewY) && !isPositionOccupied(otherNewX, otherNewY, otherUnit, 8)) {
-                otherUnit.x = otherNewX;
-                otherUnit.y = otherNewY;
-            }
-        }
+    if (pushX === 0 && pushY === 0) return;
+    const mag = Math.hypot(pushX, pushY) || 1;
+    const step = Math.min(0.8, mag);
+    const newX = unit.x + (pushX / mag) * step;
+    const newY = unit.y + (pushY / mag) * step;
+    if (canTakeSeparationStep(unit, newX, newY) && !isPositionOccupied(newX, newY, unit, 8)) {
+        unit.x = newX;
+        unit.y = newY;
     }
 }
 
@@ -149,27 +153,17 @@ function applyUnitSeparation(unit) {
     const isVessel = !!GAME_CONFIG.units[unit.type]?.vessel;
     const isEnemyIdle = typeof isEnemyFaction === 'function' && isEnemyFaction(unit) && unit.state === 'idle';
     const desired = isVessel ? 28 : (isEnemyIdle ? 24 : 18); // give ships more berth; enemy idle keep 1 body
+    const desiredSq = desired * desired;
     let pushX = 0;
     let pushY = 0;
 
-    for (const other of gameState.units) {
+    for (const other of getNearbyUnits(unit, desired)) {
         if (other === unit) continue;
         const dx = unit.x - other.x;
         const dy = unit.y - other.y;
-        const dist = Math.hypot(dx, dy);
-        if (dist > 0 && dist < desired) {
-            const overlap = desired - dist;
-            pushX += (dx / dist) * overlap;
-            pushY += (dy / dist) * overlap;
-        }
-    }
-
-    for (const other of gameState.enemyUnits) {
-        if (other === unit) continue;
-        const dx = unit.x - other.x;
-        const dy = unit.y - other.y;
-        const dist = Math.hypot(dx, dy);
-        if (dist > 0 && dist < desired) {
+        const distSq = dx * dx + dy * dy;
+        if (distSq > 0 && distSq < desiredSq) {
+            const dist = Math.sqrt(distSq);
             const overlap = desired - dist;
             pushX += (dx / dist) * overlap;
             pushY += (dy / dist) * overlap;
@@ -288,6 +282,7 @@ function relocateUnitToPathableGround(unit) {
 
 function updateUnits(deltaTime) {
     updateResourceRates();
+    buildUnitSpatialIndex();
     gameState.units.forEach(unit => {
         updateUnit(unit, deltaTime);
         updateUnitAnimation(unit, deltaTime);

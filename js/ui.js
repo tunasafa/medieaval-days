@@ -13,6 +13,11 @@ const UNIT_PORTRAITS = {
     warship: 'assets/units/warship/warship_south.gif'
 };
 
+let __lastHudUpdateAt = -Infinity;
+let __lastQueueUiUpdateAt = -Infinity;
+const HUD_UPDATE_MS = 180;
+const QUEUE_UI_UPDATE_MS = 100;
+
 function displayName(type) {
     if (typeof formatEntityName === 'function') return formatEntityName(type);
     return String(type || '')
@@ -63,7 +68,10 @@ function setTextIfChanged(id, value) {
     if (el.textContent !== text) el.textContent = text;
 }
 
-function updateUI() {
+function updateUI(force = false) {
+    const now = performance.now();
+    if (!force && now - __lastHudUpdateAt < HUD_UPDATE_MS) return;
+    __lastHudUpdateAt = now;
     const owner = getLocalPlayerId();
     const resources = getResourcesForPlayer(owner);
     const population = getPopulationForPlayer(owner);
@@ -76,7 +84,10 @@ function updateUI() {
     setTextIfChanged('enemy-buildings', getAllBuildings().filter(building => areHostile(owner, building)).length);
 }
 
-function updateTrainingQueueUI() {
+function updateTrainingQueueUI(force = false) {
+    const now = performance.now();
+    if (!force && now - __lastQueueUiUpdateAt < QUEUE_UI_UPDATE_MS) return;
+    __lastQueueUiUpdateAt = now;
     const b = gameState.selectedBuilding;
     if (!b) return;
     const list = document.querySelector('#building-unit-list');

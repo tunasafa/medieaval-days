@@ -599,29 +599,49 @@ class Tilemap {
             this.drawFallbackBackground(ctx);
             return;
         }
-        this._drawLand(ctx, camera);
-        this._drawWater(ctx, camera);
+        const view = this._visibleWorldSize();
+        const viewW = Math.ceil(view.width);
+        const viewH = Math.ceil(view.height);
+        const cacheKey = `${camera.x}|${camera.y}|${viewW}|${viewH}|${this.version}|${this.waterFrame}`;
+        this._terrainCache = this._terrainCache || { key: null, canvas: null };
+        if (this._terrainCache.key === cacheKey && this._terrainCache.canvas) {
+            ctx.drawImage(this._terrainCache.canvas, 0, 0);
+            return;
+        }
+
+        if (!this._terrainCache.canvas || this._terrainCache.canvas.width !== viewW || this._terrainCache.canvas.height !== viewH) {
+            this._terrainCache.canvas = document.createElement('canvas');
+            this._terrainCache.canvas.width = viewW;
+            this._terrainCache.canvas.height = viewH;
+        }
+        const terrainCtx = this._terrainCache.canvas.getContext('2d');
+        terrainCtx.setTransform(1, 0, 0, 1, 0, 0);
+        terrainCtx.clearRect(0, 0, viewW, viewH);
+        this._drawLand(terrainCtx, camera);
+        this._drawWater(terrainCtx, camera);
 
         // Draw the out-of-bounds void mask
-        const view = this._visibleWorldSize();
         const cx = (GAME_CONFIG.world.width / 2) - camera.x;
         const cy = (GAME_CONFIG.world.height / 2) - camera.y;
         const r = GAME_CONFIG.world.radius;
 
-        ctx.save();
-        ctx.beginPath();
+        terrainCtx.save();
+        terrainCtx.beginPath();
         // Outer rect covering the screen
-        ctx.rect(0, 0, view.width, view.height);
+        terrainCtx.rect(0, 0, view.width, view.height);
         // Inner circle (drawn counter-clockwise to create a hole)
-        ctx.arc(cx, cy, r, 0, Math.PI * 2, true);
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(0, 0, 0, 0.95)';
-        ctx.lineWidth = 4;
-        ctx.beginPath();
-        ctx.arc(cx, cy, r, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.restore();
+        terrainCtx.arc(cx, cy, r, 0, Math.PI * 2, true);
+        terrainCtx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+        terrainCtx.fill();
+        terrainCtx.strokeStyle = 'rgba(0, 0, 0, 0.95)';
+        terrainCtx.lineWidth = 4;
+        terrainCtx.beginPath();
+        terrainCtx.arc(cx, cy, r, 0, Math.PI * 2);
+        terrainCtx.stroke();
+        terrainCtx.restore();
+
+        this._terrainCache.key = cacheKey;
+        ctx.drawImage(this._terrainCache.canvas, 0, 0);
     }
 
     /** Tile the land texture across the viewport. */

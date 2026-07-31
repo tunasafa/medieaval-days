@@ -256,22 +256,33 @@
             <div class="mp-options">
                 <div class="mp-section">
                     <label class="mp-label" for="mp-room-input">Room Code</label>
-                    <input type="text" id="mp-room-input" placeholder="MEDIEVAL" class="mp-input" autocomplete="off">
-                </div>
-                <div class="mp-section">
-                    <label class="mp-label" for="mp-signal-input">Signal Server</label>
-                    <input type="text" id="mp-signal-input" placeholder="ws://localhost:9000" class="mp-input"
-                        autocomplete="off">
+                    <div class="mp-room-row">
+                        <input type="text" id="mp-room-input" placeholder="MEDIEVAL" class="mp-input"
+                            autocomplete="off">
+                        <button id="btn-mp-copy-code" class="mp-copy-action" type="button">Copy</button>
+                    </div>
                 </div>
                 <div class="mp-section">
                     <button id="btn-mp-host" class="mp-action">Host Room</button>
                     <p id="mp-host-info" class="mp-host-info">
-                        Room <strong id="mp-room-code">MEDIEVAL</strong> is waiting for a peer.
+                        Share room <strong id="mp-room-code">MEDIEVAL</strong>
                     </p>
                 </div>
                 <div class="mp-section">
                     <button id="btn-mp-join" class="mp-action">Join Room</button>
                 </div>
+                <div class="mp-section mp-start-section">
+                    <button id="btn-mp-start-game" class="mp-action mp-start-action" disabled
+                        aria-describedby="mp-status">Start Game</button>
+                </div>
+                <details class="mp-advanced">
+                    <summary>Advanced</summary>
+                    <div class="mp-section">
+                        <label class="mp-label" for="mp-signal-input">Signal Server</label>
+                        <input type="text" id="mp-signal-input" placeholder="wss://1083ddbf56ffad.lhr.life"
+                            class="mp-input" autocomplete="off">
+                    </div>
+                </details>
                 <p id="mp-status" class="mp-status"></p>
             </div>
         </div>

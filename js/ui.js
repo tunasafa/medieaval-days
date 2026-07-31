@@ -425,23 +425,30 @@ function toggleMultiplayerModal(forceOpen = null) {
     const open = forceOpen === null ? !modal?.classList.contains('open') : forceOpen;
     setModalOpen('tech-tree-modal', false);
     setModalOpen('settings-modal', false);
-    return setModalOpen('mp-modal', open);
+    const didToggle = setModalOpen('mp-modal', open);
+    syncMultiplayerStartButton();
+    return didToggle;
 }
 
 function getDefaultMultiplayerSignalUrl() {
-    return 'ws://localhost:9000';
+    return GAME_CONFIG.multiplayer?.signalUrl || 'ws://localhost:9000';
 }
 
 function createMultiplayerRoomCode() {
     return `MD-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
 }
 
+function normalizeMultiplayerRoomCode(value) {
+    return String(value || '').trim().toUpperCase().replace(/[^A-Z0-9-]/g, '');
+}
+
 function getMultiplayerRoomCode(createIfMissing = false) {
     const input = document.getElementById('mp-room-input');
     if (!input) return '';
-    let roomCode = input.value.trim().toUpperCase().replace(/[^A-Z0-9-]/g, '');
+    let roomCode = normalizeMultiplayerRoomCode(input.value);
     if (!roomCode && createIfMissing) roomCode = createMultiplayerRoomCode();
     input.value = roomCode;
+    syncMultiplayerRoomCode(roomCode);
     return roomCode;
 }
 
@@ -453,16 +460,68 @@ function getMultiplayerSignalUrl() {
     return value;
 }
 
+function syncMultiplayerRoomCode(roomCode = null) {
+    const code = normalizeMultiplayerRoomCode(roomCode ?? document.getElementById('mp-room-input')?.value);
+    const roomCodeEl = document.getElementById('mp-room-code');
+    const copyBtn = document.getElementById('btn-mp-copy-code');
+    if (roomCodeEl) roomCodeEl.textContent = code || 'MEDIEVAL';
+    if (copyBtn) copyBtn.disabled = !code;
+}
+
+async function copyMultiplayerRoomCode() {
+    const roomCode = getMultiplayerRoomCode(true);
+    if (!roomCode) {
+        setMultiplayerStatus('Create a room code first.', 'error');
+        return;
+    }
+
+    const copyBtn = document.getElementById('btn-mp-copy-code');
+    try {
+        if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
+        await navigator.clipboard.writeText(roomCode);
+        if (copyBtn) copyBtn.textContent = 'Copied';
+        setMultiplayerStatus(`Room ${roomCode} copied.`, 'success');
+    } catch (error) {
+        const input = document.getElementById('mp-room-input');
+        if (input) {
+            input.focus();
+            input.select();
+        }
+        setMultiplayerStatus('Room code selected.', 'neutral');
+    } finally {
+        if (copyBtn) setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1200);
+    }
+}
+
 function setMultiplayerStatus(message, tone = 'neutral') {
     const statusEl = document.getElementById('mp-status');
-    if (!statusEl) return;
-    statusEl.textContent = message;
-    const colors = {
-        neutral: 'var(--muted)',
-        success: 'var(--green)',
-        error: 'var(--red)'
-    };
-    statusEl.style.color = colors[tone] || colors.neutral;
+    if (statusEl) {
+        statusEl.textContent = message;
+        const colors = {
+            neutral: 'var(--muted)',
+            success: 'var(--green)',
+            error: 'var(--red)'
+        };
+        statusEl.style.color = colors[tone] || colors.neutral;
+    }
+    syncMultiplayerStartButton();
+}
+
+function syncMultiplayerStartButton() {
+    const startBtn = document.getElementById('btn-mp-start-game');
+    if (!startBtn) return;
+
+    const multiplayerReady = typeof Multiplayer !== 'undefined' && Multiplayer.isHost && Multiplayer.connected;
+    const locked = !multiplayerReady || !!gameState.ui.gameLoading || !!gameState.ui.hasStarted;
+    startBtn.disabled = locked;
+
+    if (gameState.ui.gameLoading) {
+        startBtn.textContent = 'Starting...';
+    } else if (gameState.ui.hasStarted) {
+        startBtn.textContent = 'Game Started';
+    } else {
+        startBtn.textContent = 'Start Game';
+    }
 }
 
 function closeOpenModal() {
@@ -495,6 +554,7 @@ function syncMainMenuButtons() {
     document.querySelectorAll('input[name="enemy-count"]').forEach(input => {
         input.disabled = !!gameState.ui.hasStarted || !!gameState.ui.gameLoading;
     });
+    syncMultiplayerStartButton();
 }
 
 function getSelectedEnemyCount() {
@@ -515,9 +575,10 @@ function updateEnemyCountLabel() {
 async function beginGameFromMenu() {
     if (gameState.ui.hasStarted) {
         toggleMainMenu(false);
-        return;
+        toggleMultiplayerModal(false);
+        return true;
     }
-    if (gameState.ui.gameLoading) return;
+    if (gameState.ui.gameLoading) return false;
 
     gameState.ui.gameLoading = true;
     const enemyCount = getSelectedEnemyCount();
@@ -533,15 +594,18 @@ async function beginGameFromMenu() {
             await initResult;
         }
         toggleMainMenu(false);
+        toggleMultiplayerModal(false);
 
         // In multiplayer, host broadcasts initial state to all clients
         if (typeof Multiplayer !== 'undefined' && Multiplayer.isHost && Multiplayer.connected) {
             // Small delay to ensure all initial state is settled
             setTimeout(() => Multiplayer.broadcastGameStart(), 500);
         }
+        return true;
     } catch (error) {
         console.error(error);
         showNotification('World generation failed. Check the console for details.');
+        return false;
     } finally {
         gameState.ui.gameLoading = false;
         syncMainMenuButtons();
@@ -726,6 +790,7 @@ function setupUiControls() {
             const signalInput = document.getElementById('mp-signal-input');
             if (signalInput && !signalInput.value.trim()) signalInput.value = getDefaultMultiplayerSignalUrl();
             getMultiplayerRoomCode(true);
+            syncMultiplayerRoomCode();
             setMultiplayerStatus('');
             toggleMultiplayerModal(true);
         });
@@ -734,6 +799,18 @@ function setupUiControls() {
     const mpClose = document.getElementById('mp-close');
     if (mpClose) {
         mpClose.addEventListener('click', () => toggleMultiplayerModal(false));
+    }
+
+    const mpRoomInput = document.getElementById('mp-room-input');
+    if (mpRoomInput) {
+        mpRoomInput.addEventListener('input', () => syncMultiplayerRoomCode());
+        mpRoomInput.addEventListener('blur', () => getMultiplayerRoomCode(false));
+    }
+
+    const mpCopyBtn = document.getElementById('btn-mp-copy-code');
+    if (mpCopyBtn) {
+        mpCopyBtn.addEventListener('click', copyMultiplayerRoomCode);
+        syncMultiplayerRoomCode();
     }
 
     const mpHostBtn = document.getElementById('btn-mp-host');
@@ -745,16 +822,17 @@ function setupUiControls() {
             const roomCodeEl = document.getElementById('mp-room-code');
             if (roomCodeEl) roomCodeEl.textContent = roomCode;
             if (hostInfo) hostInfo.style.display = 'none';
-            setMultiplayerStatus('Opening WebRTC room...');
+            setMultiplayerStatus('Opening room...');
             mpHostBtn.disabled = true;
             try {
                 await Multiplayer.connect({ signalUrl, roomId: roomCode, mode: 'host' });
                 if (hostInfo) hostInfo.style.display = 'block';
-                setMultiplayerStatus('Room ready. Waiting for WebRTC peer...', 'success');
+                setMultiplayerStatus('Room ready. Waiting for friend...', 'success');
             } catch (e) {
                 setMultiplayerStatus(e?.message || 'Could not open the room.', 'error');
             } finally {
                 mpHostBtn.disabled = false;
+                syncMultiplayerStartButton();
             }
         });
     }
@@ -768,22 +846,35 @@ function setupUiControls() {
                 setMultiplayerStatus('Enter a room code.', 'error');
                 return;
             }
-            setMultiplayerStatus('Joining WebRTC room...');
+            setMultiplayerStatus('Joining room...');
             mpJoinBtn.disabled = true;
             try {
                 await Multiplayer.connect({ signalUrl, roomId: roomCode, mode: 'client' });
-                setMultiplayerStatus('WebRTC connected. Waiting for host to press Play...', 'success');
+                setMultiplayerStatus('Connected. Waiting for host to start the game...', 'success');
             } catch (e) {
-                setMultiplayerStatus(e?.message || 'WebRTC connection failed.', 'error');
+                setMultiplayerStatus(e?.message || 'Connection failed.', 'error');
             } finally {
                 mpJoinBtn.disabled = false;
+                syncMultiplayerStartButton();
             }
+        });
+    }
+
+    const mpStartBtn = document.getElementById('btn-mp-start-game');
+    if (mpStartBtn) {
+        mpStartBtn.addEventListener('click', async () => {
+            syncMultiplayerStartButton();
+            if (mpStartBtn.disabled) return;
+            setMultiplayerStatus('Starting multiplayer match...');
+            const started = await beginGameFromMenu();
+            if (!started) setMultiplayerStatus('Could not start the match.', 'error');
         });
     }
 
     window.addEventListener('multiplayer-status', event => {
         const { message, tone } = event.detail || {};
         if (message) setMultiplayerStatus(message, tone);
+        syncMultiplayerStartButton();
     });
 }
 

@@ -2,6 +2,9 @@ const GAME_CONFIG = {
     canvas: { width: 5000, height: 2500 },
     minimap: { width: 200, height: 200 },
     world: { width: 16000, height: 16000, radius: 8000, numPlayers: 3, enemyCount: 2 },
+    multiplayer: {
+        signalUrl: 'wss://1083ddbf56ffad.lhr.life'
+    },
     pathfinding: {
         cellSize: 32,
         maxSearchCells: 30000,

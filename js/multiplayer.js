@@ -35,7 +35,8 @@ const Multiplayer = (() => {
     ];
 
     function normalizeSignalUrl(value) {
-        const fallback = 'ws://localhost:9000';
+        const fallback = (typeof GAME_CONFIG !== 'undefined' && GAME_CONFIG.multiplayer?.signalUrl)
+            || 'ws://localhost:9000';
         const raw = String(value || fallback).trim();
         if (/^wss?:\/\//i.test(raw)) return raw;
         if (/^https?:\/\//i.test(raw)) return raw.replace(/^http/i, 'ws');
@@ -151,10 +152,10 @@ const Multiplayer = (() => {
 
     function connect(optionsOrHost, roomOrPort, mode) {
         if (typeof WebSocket === 'undefined') {
-            return Promise.reject(new Error('This browser does not support WebSocket signaling.'));
+            return Promise.reject(new Error('This browser does not support multiplayer rooms.'));
         }
         if (typeof RTCPeerConnection === 'undefined') {
-            return Promise.reject(new Error('This browser does not support WebRTC.'));
+            return Promise.reject(new Error('This browser does not support browser multiplayer.'));
         }
 
         const options = normalizeConnectOptions(optionsOrHost, roomOrPort, mode);
@@ -169,7 +170,7 @@ const Multiplayer = (() => {
             connectResolve = resolve;
             connectReject = reject;
             connectTimer = setTimeout(() => {
-                rejectConnection(new Error('WebRTC negotiation timed out. Check the room code and signaling server.'));
+                rejectConnection(new Error('Connection timed out. Check the room code and try again.'));
             }, CONNECT_TIMEOUT_MS);
 
             let signalSocket;
@@ -204,7 +205,7 @@ const Multiplayer = (() => {
 
             signalSocket.onerror = () => {
                 if (ws !== signalSocket) return;
-                rejectConnection(new Error('Could not reach the signaling server.'));
+                rejectConnection(new Error('Could not reach the multiplayer server.'));
             };
 
             signalSocket.onclose = () => {
@@ -217,9 +218,9 @@ const Multiplayer = (() => {
                 _playerId = null;
                 _roomId = '';
                 if (!wasManual) {
-                    rejectConnection(new Error('Signaling server disconnected.'));
-                    showMultiplayerNotice('Multiplayer signaling disconnected.');
-                    emitStatus('Signaling server disconnected.', 'error');
+                    rejectConnection(new Error('Multiplayer server disconnected.'));
+                    showMultiplayerNotice('Multiplayer server disconnected.');
+                    emitStatus('Multiplayer server disconnected.', 'error');
                 }
                 manualDisconnect = false;
             };
@@ -266,15 +267,15 @@ const Multiplayer = (() => {
             case 'player-joined':
                 if (_role === 'host') {
                     startOffer(message.playerId);
-                    emitStatus('Peer found. Opening WebRTC channel...', 'neutral');
-                    showMultiplayerNotice('Peer found. Opening WebRTC channel...');
+                    emitStatus('Friend found. Connecting...', 'neutral');
+                    showMultiplayerNotice('Friend found. Connecting...');
                 }
                 break;
 
             case 'player-left':
                 closePeer(message.playerId);
-                emitStatus('Peer left the room.', 'neutral');
-                showMultiplayerNotice('Peer left the multiplayer room.');
+                emitStatus('Friend left the room.', 'neutral');
+                showMultiplayerNotice('Friend left the multiplayer room.');
                 break;
 
             case 'host-disconnected':
@@ -288,8 +289,8 @@ const Multiplayer = (() => {
                 break;
 
             case 'error':
-                rejectConnection(new Error(message.message || 'Signaling server error.'));
-                emitStatus(message.message || 'Signaling server error.', 'error');
+                rejectConnection(new Error(message.message || 'Multiplayer server error.'));
+                emitStatus(message.message || 'Multiplayer server error.', 'error');
                 break;
 
             default:
@@ -308,7 +309,7 @@ const Multiplayer = (() => {
 
         peer.onconnectionstatechange = () => {
             if (peer.connectionState === 'failed') {
-                emitStatus('WebRTC connection failed.', 'error');
+                emitStatus('Connection failed.', 'error');
                 closePeer(remoteId);
             } else if (peer.connectionState === 'disconnected' || peer.connectionState === 'closed') {
                 closePeer(remoteId);
@@ -334,7 +335,7 @@ const Multiplayer = (() => {
             sendPeerSignal(remoteId, { description: peer.localDescription });
         } catch (err) {
             console.error('[MP] Failed to create WebRTC offer:', err);
-            emitStatus('Could not start WebRTC negotiation.', 'error');
+            emitStatus('Could not start connection.', 'error');
         }
     }
 
@@ -368,7 +369,7 @@ const Multiplayer = (() => {
             }
         } catch (err) {
             console.error('[MP] Failed to apply WebRTC signal:', err);
-            emitStatus('WebRTC negotiation failed.', 'error');
+            emitStatus('Connection setup failed.', 'error');
             rejectConnection(err);
         }
     }
@@ -388,11 +389,11 @@ const Multiplayer = (() => {
             }
             emitStatus(
                 _role === 'host'
-                    ? 'WebRTC peer connected. Press Play when ready.'
-                    : 'WebRTC connected. Waiting for host to press Play...',
+                    ? 'Friend connected. Start Game is ready.'
+                    : 'Connected. Waiting for host to start the game...',
                 'success'
             );
-            showMultiplayerNotice('WebRTC peer connection ready.');
+            showMultiplayerNotice('Friend connected.');
         };
 
         channel.onmessage = event => {
@@ -409,11 +410,11 @@ const Multiplayer = (() => {
         channel.onclose = () => {
             dataChannels.delete(remoteId);
             updateConnectedFlag();
-            if (_role === 'host') emitStatus('Waiting for WebRTC peer...', 'neutral');
+            if (_role === 'host') emitStatus('Waiting for friend...', 'neutral');
         };
 
         channel.onerror = () => {
-            emitStatus('WebRTC data channel error.', 'error');
+            emitStatus('Connection error.', 'error');
         };
     }
 

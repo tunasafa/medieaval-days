@@ -26,6 +26,8 @@ version 0:
 
 latest changes:
 
+- prepared online multiplayer for GitHub Pages by adding a Render free-tier signaling server Blueprint and wiring the game to `wss://medieaval-days-signal.onrender.com`
+- simplified the multiplayer menu so normal players use only Host Room, Join Room, Copy room code, and Start Game, with the server URL hidden under Advanced
 - changed building construction so standard buildings are now placed as ghost foundations and must be built by 1-4 selected villagers
 - added multi-villager construction speed scaling, with each assigned villager taking a separate border/corner work spot and using the gathering animation while building
 - added construction progress bars on foundations and delayed house population until the house is fully built
@@ -42,6 +44,14 @@ latest changes:
 - expanded the background music playlist with local medieval tracks and credits in `assets/music/README.md`
 - improved RTS quality-of-life UI, including idle villager tracking, tech tree view, research progress, settings, tooltips, and cleaner command panels
 - changed multiplayer networking to WebRTC rooms, using the Node server only for signaling instead of direct-IP gameplay traffic
+
+online multiplayer hosting:
+
+- GitHub Pages hosts the static game at https://tunasafa.github.io/medieaval-days/
+- Render hosts the small signaling server from `server.js`; it does not run game logic
+- create the Render service from `render.yaml` as a free web service named `medieaval-days-signal`
+- after Render deploys, the game should connect to `wss://medieaval-days-signal.onrender.com`
+- if Render gives the service a different URL, update `GAME_CONFIG.multiplayer.signalUrl` in `js/config.js`
 
 previous updates:
 

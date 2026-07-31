@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: medieaval-days-signal
+    runtime: node
+    region: frankfurt
+    plan: free
+    buildCommand: npm ci
+    startCommand: npm run server
+    healthCheckPath: /healthz
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_ENV
+        value: production

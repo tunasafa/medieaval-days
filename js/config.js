@@ -3,7 +3,7 @@ const GAME_CONFIG = {
     minimap: { width: 200, height: 200 },
     world: { width: 16000, height: 16000, radius: 8000, numPlayers: 3, enemyCount: 2 },
     multiplayer: {
-        signalUrl: 'wss://1083ddbf56ffad.lhr.life'
+        signalUrl: 'wss://medieaval-days-signal.onrender.com'
     },
     pathfinding: {
         cellSize: 32,

@@ -9,14 +9,49 @@
  * It only places players in rooms and forwards WebRTC offer/answer/ICE messages.
  */
 
+const http = require('http');
 const { WebSocketServer, WebSocket } = require('ws');
 
-const PORT = process.env.PORT || 9000;
-const wss = new WebSocketServer({ port: PORT });
+const HOST = process.env.HOST || '0.0.0.0';
+const PORT = Number(process.env.PORT || 9000);
 
 const clients = new Map(); // ws -> { id, roomId, role }
 const rooms = new Map();   // roomId -> { host, clients: Map<number, WebSocket> }
 let nextPlayerId = 1;
+
+const server = http.createServer((req, res) => {
+    const path = String(req.url || '/').split('?')[0];
+
+    if (path === '/healthz') {
+        res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({
+            ok: true,
+            service: 'medieval-days-signaling',
+            rooms: rooms.size,
+            clients: clients.size
+        }));
+        return;
+    }
+
+    if (path === '/') {
+        res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
+        res.end('Medieval Days multiplayer server is online.\n');
+        return;
+    }
+
+    res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+    res.end('Not found\n');
+});
+
+const wss = new WebSocketServer({ server });
+
+function logServerError(err) {
+    if (err.code === 'EADDRINUSE') {
+        console.error(`Port ${PORT} is already in use. Stop the other server or run with PORT=XXXX npm run server`);
+    } else {
+        console.error('Signaling server error:', err.message);
+    }
+}
 
 function sanitizeRoomId(value) {
     return String(value || 'DEFAULT').trim().toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 24) || 'DEFAULT';
@@ -130,12 +165,6 @@ function relaySignal(ws, message) {
     });
 }
 
-console.log('');
-console.log('Medieval Days WebRTC signaling server');
-console.log(`Listening on port ${PORT}`);
-console.log('Waiting for rooms...');
-console.log('');
-
 wss.on('connection', ws => {
     const playerId = nextPlayerId++;
     clients.set(ws, { id: playerId, roomId: null, role: null });
@@ -177,10 +206,16 @@ wss.on('connection', ws => {
     });
 });
 
+server.listen(PORT, HOST, () => {
+    console.log('');
+    console.log('Medieval Days WebRTC signaling server');
+    console.log(`Listening on ${HOST}:${PORT}`);
+    console.log('Waiting for rooms...');
+    console.log('');
+});
+
+server.on('error', logServerError);
 wss.on('error', err => {
-    if (err.code === 'EADDRINUSE') {
-        console.error(`Port ${PORT} is already in use. Stop the other server or run with PORT=XXXX npm run server`);
-    } else {
-        console.error('Signaling server error:', err.message);
-    }
+    if (err.code === 'EADDRINUSE' || err.code === 'EACCES' || err.code === 'EPERM') return;
+    logServerError(err);
 });

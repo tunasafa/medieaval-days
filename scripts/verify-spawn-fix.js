@@ -135,7 +135,7 @@ console.log('\n[5] Failed/escape paths no longer poison the shared path cache');
     const ctx = makeCtx();
     addBuilding(ctx, 'craftery', 2000, 2000);
     R(ctx, '__pathCache.clear()');
-    // Force a hopeless request, then confirm a healthy start in the same cluster works.
+    // Force a hopeless request, then confirm a nearby healthy start still works.
     R(ctx, `findPath(1848.5, 1824.5, 2900, 2900, "catapult")`);
     const poisonedEntries = R(ctx, `
         (function(){ var n=0; for (var v of __pathCache.values()) if (!v || v.length<2) n++; return n; })()
@@ -143,9 +143,13 @@ console.log('\n[5] Failed/escape paths no longer poison the shared path cache');
     ok(poisonedEntries === 0, 'no null/degenerate entries stored in the cache',
        `found ${poisonedEntries}`);
 
-    const after = R(ctx, `findPath(1900, 1800, 2900, 2900, "catapult")`);
+    const healthyStart = R(ctx, `({
+        x: Math.floor(gameState.buildings[0].x / 16) * 16 - 48,
+        y: Math.floor(gameState.buildings[0].y / 16) * 16 - 48
+    })`);
+    const after = R(ctx, `findPath(${healthyStart.x}, ${healthyStart.y}, 2900, 2900, "catapult")`);
     ok(!!(after && after.length > 1),
-       'a healthy unit in the same 256px cache cluster still gets a path',
+       'a healthy unit outside the enlarged building still gets a path',
        after ? '' : 'got NULL');
 }
 

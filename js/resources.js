@@ -46,22 +46,80 @@ function findNearestResource(unit, resourceType) {
      return closest;
 }
 
+// These dimensions define the draw area, while placementWidth/placementHeight
+// provide a compact interaction footprint for transparent 256px art. Using
+// one fixed 30-50px box made the newer resources look incorrectly small.
+const RESOURCE_VARIANTS = {
+    food: [
+        { spriteName: 'food1', variant: 'berry-bush', width: 84, height: 84, amountRange: [900, 1700] },
+        { spriteName: 'food2', variant: 'crop-field', width: 126, height: 108, amountRange: [1300, 2400] },
+        { spriteName: 'food3', variant: 'fruit-tree', width: 120, height: 126, amountRange: [1200, 2200] },
+        { spriteName: 'food4', variant: 'grain-field', width: 138, height: 114, amountRange: [1500, 2700] },
+        { spriteName: 'food5', variant: 'mushroom-patch', width: 108, height: 96, amountRange: [800, 1600] }
+    ],
+    wood: [
+        { spriteName: 'wood1', variant: 'broadleaf-tree', width: 126, height: 126, amountRange: [1400, 2500] },
+        { spriteName: 'wood2', variant: 'pine-tree', width: 96, height: 150, amountRange: [1300, 2300] },
+        { spriteName: 'wood3', variant: 'autumn-tree', width: 126, height: 126, amountRange: [1400, 2500] },
+        { spriteName: 'wood4', variant: 'broadleaf-tree', width: 126, height: 126, amountRange: [1400, 2500] }
+    ],
+    stone: [
+        { spriteName: 'stone1', variant: 'large-stone-outcrop', width: 132, height: 126, amountRange: [1300, 2400] },
+        { spriteName: 'stone2', variant: 'stone-quarry', width: 150, height: 132, amountRange: [1500, 2800] }
+    ],
+    gold: [
+        { spriteName: 'gold1', variant: 'metal-vein', width: 120, height: 102, amountRange: [1300, 2400] },
+        { spriteName: 'gold2', variant: 'large-metal-crystal', width: 138, height: 126, amountRange: [1600, 3000] }
+    ]
+};
+
+function chooseResourceVariant(resourceType) {
+    const variants = RESOURCE_VARIANTS[resourceType] || [];
+    return variants[Math.floor(Math.random() * variants.length)] || {
+        spriteName: null,
+        variant: resourceType,
+        width: 50,
+        height: 50,
+        amountRange: [800, 1600]
+    };
+}
+
+function getWorldObjectPlacementRect(obj) {
+    const scale = obj.type === 'decoration' ? 0.42 : 0.58;
+    const width = Math.max(32, Math.round(obj.placementWidth || obj.width * scale));
+    const height = Math.max(32, Math.round(obj.placementHeight || obj.height * scale));
+    return {
+        x: obj.x + (obj.width - width) / 2,
+        y: obj.y + (obj.height - height) / 2,
+        width,
+        height
+    };
+}
+
+function placementRectsOverlap(a, b) {
+    return a.x + a.width > b.x && a.x < b.x + b.width &&
+        a.y + a.height > b.y && a.y < b.y + b.height;
+}
+
 // Randomly scatter resources across the map with sprite variety per category
 function scatterResourcesAcrossWorld(options = {}) {
     const {
-    foodCount = 128,
-    woodCount = 216,
-    stoneCount = 64,
-    goldCount = 64,
+        foodCount = 192,
+        woodCount = 324,
+        stoneCount = 96,
+        goldCount = 96,
         minSpacing = 24
     } = options;
 
     const placed = [];
-    const tryPlace = (resourceType, width, height, amountRange, spriteNames, count) => {
+    const tryPlace = (resourceType, count) => {
         let attempts = 0;
-        const maxAttempts = count * 50;
+        const maxAttempts = count * 75;
         while (count > 0 && attempts < maxAttempts) {
             attempts++;
+            const variant = chooseResourceVariant(resourceType);
+            const { width, height } = variant;
+            const placementRect = getWorldObjectPlacementRect({ type: 'resource', width, height, x: 0, y: 0 });
             const x = Math.floor(Math.random() * (GAME_CONFIG.world.width - width));
             const y = Math.floor(Math.random() * (GAME_CONFIG.world.height - height));
             // Reject if outside circular map radius
@@ -81,24 +139,30 @@ function scatterResourcesAcrossWorld(options = {}) {
             ));
             if (overlapsUnit) continue;
             // Reject if too close to another resource
-            const overlapsResource = placed.some(r => (
-                x + width > r.x && x < r.x + r.width && y + height > r.y && y < r.y + r.height
+            placementRect.x += x;
+            placementRect.y += y;
+            const overlapsResource = placed.some(r => placementRectsOverlap(
+                placementRect,
+                getWorldObjectPlacementRect(r)
             ));
             if (overlapsResource) continue;
 
-            const amount = Math.floor(amountRange[0] + Math.random() * (amountRange[1] - amountRange[0] + 1));
-            const sprite = spriteNames[Math.floor(Math.random() * spriteNames.length)];
+            const amount = Math.floor(variant.amountRange[0] +
+                Math.random() * (variant.amountRange[1] - variant.amountRange[0] + 1));
             const obj = {
                 id: generateId(),
                 type: 'resource',
                 resourceType,
+                resourceVariant: variant.variant,
                 amount,
                 width,
                 height,
+                placementWidth: placementRect.width,
+                placementHeight: placementRect.height,
                 x,
                 y,
                 color: '#696969',
-                spriteName: sprite // custom field: resources/<sprite>.png
+                spriteName: variant.spriteName // custom field: resources/<sprite>.png
             };
             gameState.worldObjects.push(obj);
             placed.push(obj);
@@ -106,21 +170,21 @@ function scatterResourcesAcrossWorld(options = {}) {
         }
     };
 
-    // Define sprite pools and sizes; capacities increased 10x
-    tryPlace('food', 30, 30, [800, 1600], ['food1','food2','food3','food4','food5'], foodCount);
-    tryPlace('wood', 40, 40, [1200, 2200], ['wood1','wood2','wood3','wood4'], woodCount);
-    tryPlace('stone', 50, 50, [1000, 1800], ['stone1','stone2'], stoneCount);
-    tryPlace('gold', 50, 50, [1000, 1800], ['gold1','gold2'], goldCount);
+    tryPlace('food', foodCount);
+    tryPlace('wood', woodCount);
+    tryPlace('stone', stoneCount);
+    tryPlace('gold', goldCount);
 }
 
 // Randomly scatter environmental decorations (bushes/trees) across land
 function scatterDecorationsAcrossWorld(options = {}) {
     const {
-        count = 280,
+        count = 360,
         minSpacing = 18
     } = options;
 
-    const spriteNames = ['bush1','bush2','bush3','bush4','tree1','tree2','tree3'];
+    const bushSprites = ['bush1','bush2','bush3','bush4'];
+    const treeSprites = ['tree1','tree2','tree3'];
     const placed = [];
 
     const DECOR_SCALE = 3;
@@ -140,11 +204,13 @@ function scatterDecorationsAcrossWorld(options = {}) {
         };
     };
 
-    let attempts = 0;
-    const maxAttempts = count * 50;
-    while (placed.length < count && attempts < maxAttempts) {
-        attempts++;
-        const sprite = spriteNames[Math.floor(Math.random() * spriteNames.length)];
+    const placeDecorations = (spriteNames, targetCount) => {
+        let placedForGroup = 0;
+        let attempts = 0;
+        const maxAttempts = Math.max(1, targetCount * 100);
+        while (placedForGroup < targetCount && attempts < maxAttempts) {
+            attempts++;
+            const sprite = spriteNames[Math.floor(Math.random() * spriteNames.length)];
         const { w, h, scale } = sizeFor(sprite);
         const x = Math.floor(Math.random() * Math.max(1, (GAME_CONFIG.world.width - w)));
         const y = Math.floor(Math.random() * Math.max(1, (GAME_CONFIG.world.height - h)));
@@ -167,9 +233,10 @@ function scatterDecorationsAcrossWorld(options = {}) {
         ));
         if (overlapsUnit) continue;
         // Avoid tight overlap with other decorations/resources
+        const placementRect = getWorldObjectPlacementRect({ type: 'decoration', width: w, height: h, x, y });
         const overlapsOther = gameState.worldObjects.some(o => (
             (o.type === 'resource' || o.type === 'decoration') &&
-            x + w > o.x && x < o.x + o.width && y + h > o.y && y < o.y + o.height
+            placementRectsOverlap(placementRect, getWorldObjectPlacementRect(o))
         ));
         if (overlapsOther) continue;
 
@@ -178,15 +245,26 @@ function scatterDecorationsAcrossWorld(options = {}) {
             type: 'decoration',
             width: w,
             height: h,
+            placementWidth: placementRect.width,
+            placementHeight: placementRect.height,
             x,
             y,
             sizeScale: +scale.toFixed(3),
             color: '#3b6b2a',
             spriteName: sprite // resources/<sprite>.png or decorations/<sprite>.png
-        };
-        gameState.worldObjects.push(obj);
-        placed.push(obj);
-    }
+            };
+            gameState.worldObjects.push(obj);
+            placed.push(obj);
+            placedForGroup++;
+        }
+    };
+
+    // Trees have larger footprints and otherwise lose the random placement
+    // race as the map fills. Reserve 40% for trees so both resource families
+    // remain visible at the increased density.
+    const treeCount = Math.round(count * 0.4);
+    placeDecorations(treeSprites, treeCount);
+    placeDecorations(bushSprites, count - treeCount);
 }
 
 // Ensure resources and decorations never end up in water; relocate if possible, remove otherwise

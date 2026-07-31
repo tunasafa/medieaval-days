@@ -463,32 +463,25 @@ function drawWorldObjects(ctx) {
     if (obj.type === 'resource') {
             ctx.save();
             ctx.translate(drawX, drawY);
-            const isGold = obj.resourceType === 'gold';
-            const isBigFoodVariant = obj.resourceType === 'food' && (obj.spriteName === 'food4' || obj.spriteName === 'food5');
-            let scaleW = obj.width;
-            let scaleH = obj.height;
-            if (isGold) {
-                scaleW *= 0.5;
-                scaleH *= 0.5;
-            }
-            if (isBigFoodVariant) {
-                scaleW *= 2;
-                scaleH *= 2;
-            }
-            const offsetX = (obj.width - scaleW) / 2;
-            const offsetY = (obj.height - scaleH) / 2;
+            // The object footprint is now the source of truth for rendering.
+            // Do not apply category-specific multipliers here: they made the
+            // new large tree, stone, and metal artwork visually inconsistent
+            // with the space reserved for it during placement.
+            const scaleW = obj.width;
+            const scaleH = obj.height;
+            const offsetX = 0;
+            const offsetY = 0;
             if (obj.spriteName) {
                 drawAssetFitted(ctx, 'resources', obj.spriteName, offsetX, offsetY, scaleW, scaleH);
             } else {
                 if (obj.resourceType === 'food') {
-                    const scale = isBigFoodVariant ? (obj.width / 8) * 2 : (obj.width / 8);
-                    drawFoodIcon(ctx, scale);
+                    drawFoodIcon(ctx, obj.width / 8);
                 } else if (obj.resourceType === 'wood') {
                     drawWoodIcon(ctx, obj.width / 8);
                 } else if (obj.resourceType === 'stone') {
                     drawStoneIcon(ctx, obj.width / 8);
                 } else if (obj.resourceType === 'gold') {
-                    drawGoldIcon(ctx, (obj.width / 8) * 0.5);
+                    drawGoldIcon(ctx, obj.width / 8);
                 }
             }
             ctx.restore();

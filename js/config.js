@@ -162,8 +162,9 @@ const GAME_CONFIG = {
             health: 2400,
             maxHealth: 2400,
             buildTime: 120,
-            width: 600,
-            height: 600
+            // Town centers have a larger strategic footprint than ordinary buildings.
+            width: 1200,
+            height: 1200
         },
         house: {
             cost: { wood: 25 },
@@ -171,56 +172,56 @@ const GAME_CONFIG = {
             maxHealth: 550,
             buildTime: 18,
             population: 5,
-            width: 180,
-            height: 180
+            width: 270,
+            height: 270
         },
         barracks: {
             cost: { wood: 175 },
             health: 1200,
             maxHealth: 1200,
             buildTime: 45,
-            width: 270,
-            height: 270
+            width: 405,
+            height: 405
         },
         archeryRange: {
             cost: { wood: 150 },
             health: 1000,
             maxHealth: 1000,
             buildTime: 40,
-            width: 270,
-            height: 270
+            width: 405,
+            height: 405
         },
         craftery: {
             cost: { wood: 200, stone: 100 },
             health: 1500,
             maxHealth: 1500,
             buildTime: 50,
-            width: 315,
-            height: 315
+            width: 473,
+            height: 473
         },
         blacksmith: {
             cost: { wood: 150, gold: 100 },
             health: 1200,
             maxHealth: 1200,
             buildTime: 45,
-            width: 270,
-            height: 270
+            width: 405,
+            height: 405
         },
         university: {
             cost: { wood: 200, stone: 150 },
             health: 1400,
             maxHealth: 1400,
             buildTime: 55,
-            width: 315,
-            height: 315
+            width: 473,
+            height: 473
         },
         navy: {
             cost: { wood: 200, stone: 50 },
             health: 1000,
             maxHealth: 1000,
             buildTime: 45,
-            width: 252,
-            height: 216
+            width: 378,
+            height: 324
         },
         bridge: {
             cost: { wood: 15, stone: 5 },
@@ -231,10 +232,10 @@ const GAME_CONFIG = {
         }
     },
     worldObjects: {
-        berryBush: { type: 'resource', resourceType: 'food', amount: 100, width: 30, height: 30, color: '#8B0000' },
-        tree: { type: 'resource', resourceType: 'wood', amount: 150, width: 40, height: 40, color: '#228B22' },
-        stoneMine: { type: 'resource', resourceType: 'stone', amount: 100, width: 50, height: 50, color: '#A9A9A9' },
-        goldMine: { type: 'resource', resourceType: 'gold', amount: 100, width: 50, height: 50, color: '#FFD700' },
+        berryBush: { type: 'resource', resourceType: 'food', amount: 100, width: 84, height: 84, color: '#8B0000' },
+        tree: { type: 'resource', resourceType: 'wood', amount: 150, width: 126, height: 126, color: '#228B22' },
+        stoneMine: { type: 'resource', resourceType: 'stone', amount: 100, width: 132, height: 126, color: '#A9A9A9' },
+        goldMine: { type: 'resource', resourceType: 'gold', amount: 100, width: 120, height: 102, color: '#FFD700' },
         rock: { type: 'obstacle', width: 30, height: 30, color: '#696969' },
         water: { type: 'water', width: 1200, height: 100, color: '#47ABA9' },
         lake: { type: 'water', width: 1000, height: 800, color: '#3A9391' },

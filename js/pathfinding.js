@@ -24,8 +24,10 @@ class PathfindingGrid {
                     walkable: true,
                     cost: 1,
                     isWater: false,
+                    isBridge: false,
                     blocksUnits: false,
                     clearance: Infinity,
+                    shoreClearance: Infinity,
                     waterClearance: Infinity
                 };
             }
@@ -100,8 +102,10 @@ class PathfindingGrid {
                 this.grid[y][x].walkable = true;
                 this.grid[y][x].cost = 1;
                 this.grid[y][x].isWater = false; // Reset water flag
+                this.grid[y][x].isBridge = false;
                 this.grid[y][x].blocksUnits = false;
                 this.grid[y][x].clearance = Infinity; // distance in cells to nearest obstacle
+                this.grid[y][x].shoreClearance = Infinity; // distance in cells to nearest water
                 this.grid[y][x].waterClearance = Infinity; // distance in cells to nearest land/blocked cell
             }
         }
@@ -176,6 +180,7 @@ class PathfindingGrid {
                         if (this.isValidCell(x, y)) {
                             this.grid[y][x].walkable = true;
                             this.grid[y][x].isWater = false; // treat as land for grid logic
+                            this.grid[y][x].isBridge = true;
                             this.grid[y][x].blocksUnits = false;
                             this.grid[y][x].cost = Math.max(1, this.grid[y][x].cost); // ensure reasonable cost
                         }
@@ -215,11 +220,12 @@ class PathfindingGrid {
         });
 
         this._computeClearance('clearance', cell => !cell.walkable);
+        this._computeClearance('shoreClearance', cell => cell.isWater);
         this._computeClearance('waterClearance', cell => !cell.isWater || cell.blocksUnits);
 
-        // Increase cost near obstacles to prefer the middle of corridors
-        const influenceRadius = 3; // cells
-        const proximityWeight = 1.15; // keep some preference for open lanes without rejecting good shortcuts
+        // Increase cost near obstacles to prefer the middle of corridors.
+        const influenceRadius = 4; // cells
+        const proximityWeight = 1.4; // keep some preference for open lanes without rejecting good shortcuts
         for (let y = 0; y < this.height; y++) {
             for (let x = 0; x < this.width; x++) {
                 const cell = this.grid[y][x];
@@ -358,6 +364,7 @@ class AStarPathfinder {
     constructor(grid) {
         this.grid = grid;
         this.lastPathUsedEscape = false;
+        this._allowUnsafeShoreline = false;
     }
 
     getClearanceCellsForUnit(unitType) {
@@ -365,6 +372,39 @@ class AStarPathfinder {
             ? getTerrainClearanceRadius(unitType)
             : 16;
         return Math.max(1, Math.ceil((radius + this.grid.cellSize * 0.5) / this.grid.cellSize));
+    }
+
+    getHardShoreClearanceCells(isShip, clearanceCells) {
+        if (isShip) return Math.max(0, clearanceCells || 0);
+        const configured = GAME_CONFIG.pathfinding?.shorelineHardClearanceCells ?? 3;
+        return Math.max(clearanceCells || 0, configured);
+    }
+
+    getPreferredShoreClearanceCells(isShip) {
+        return isShip
+            ? (GAME_CONFIG.pathfinding?.shipShorelinePreferredClearanceCells ?? 4)
+            : (GAME_CONFIG.pathfinding?.shorelinePreferredClearanceCells ?? 7);
+    }
+
+    getShorelineCost(cell, isShip = false) {
+        if (!cell || cell.isBridge) return 0;
+        const clearance = isShip ? cell.waterClearance : cell.shoreClearance;
+        if (!Number.isFinite(clearance)) return 0;
+        const preferred = this.getPreferredShoreClearanceCells(isShip);
+        if (clearance >= preferred) return 0;
+        const pressure = (preferred - clearance) / Math.max(1, preferred);
+        const weight = isShip
+            ? (GAME_CONFIG.pathfinding?.shipShorelineCostWeight ?? 3)
+            : (GAME_CONFIG.pathfinding?.shorelineCostWeight ?? 14);
+        return pressure * pressure * weight;
+    }
+
+    isComfortableWalkable(x, y, isShip = false, clearanceCells = 0) {
+        if (!this.isWalkable(x, y, isShip, clearanceCells)) return false;
+        const cell = this.grid.grid[y][x];
+        if (cell.isBridge) return true;
+        const clearance = isShip ? cell.waterClearance : cell.shoreClearance;
+        return !Number.isFinite(clearance) || clearance >= this.getPreferredShoreClearanceCells(isShip);
     }
 
     // A unit standing where validateTerrainMovement() allows it but the grid does
@@ -390,13 +430,17 @@ class AStarPathfinder {
         const queue = [startCell];
         let head = 0;
         let goal = null;
+        let firstWalkableGoal = null;
 
         while (head < queue.length && head < maxCells) {
             const cur = queue[head++];
             const isStart = cur.x === startCell.x && cur.y === startCell.y;
             if (!isStart && this.isWalkable(cur.x, cur.y, isShip, clearanceCells)) {
-                goal = cur;
-                break;
+                if (!firstWalkableGoal) firstWalkableGoal = cur;
+                if (this.isComfortableWalkable(cur.x, cur.y, isShip, clearanceCells)) {
+                    goal = cur;
+                    break;
+                }
             }
             for (const [dx, dy] of ESCAPE_DIRS) {
                 const nx = cur.x + dx;
@@ -411,6 +455,7 @@ class AStarPathfinder {
                 queue.push({ x: nx, y: ny });
             }
         }
+        if (!goal) goal = firstWalkableGoal;
         if (!goal) return null;
 
         const cells = [];
@@ -456,8 +501,18 @@ class AStarPathfinder {
         return true;
     }
 
-    findPath(startX, startY, endX, endY, unitType = 'villager') {
+    findPath(startX, startY, endX, endY, unitType = 'villager', options = {}) {
+        const previousShorelineMode = this._allowUnsafeShoreline;
         this.lastPathUsedEscape = false;
+        this._allowUnsafeShoreline = !!options.allowUnsafeShoreline;
+        try {
+            return this._findPathInternal(startX, startY, endX, endY, unitType);
+        } finally {
+            this._allowUnsafeShoreline = previousShorelineMode;
+        }
+    }
+
+    _findPathInternal(startX, startY, endX, endY, unitType = 'villager') {
         const start = this.grid.worldToGrid(startX, startY);
         const end = this.grid.worldToGrid(endX, endY);
 
@@ -652,6 +707,11 @@ class AStarPathfinder {
                     const nearWall = Math.max(0, (4 - Math.min(4, cell.clearance)));
                     localRadius += nearWall * (this.grid.cellSize * 0.5);
                 }
+                if (!isShip && Number.isFinite(cell.shoreClearance)) {
+                    const preferredShore = this.getPreferredShoreClearanceCells(false);
+                    const nearShore = Math.max(0, preferredShore - Math.min(preferredShore, cell.shoreClearance));
+                    localRadius += nearShore * (this.grid.cellSize * 0.35);
+                }
             }
             // If the corner lies on a bridge footprint, prefer an even larger arc for smooth transition
             const onBridge = (typeof isPointOnBridge === 'function') && isPointOnBridge(p1.x, p1.y);
@@ -774,7 +834,14 @@ class AStarPathfinder {
         } else {
             // Land units can only use cells with enough clearance from water/no-go/buildings.
             if (cell.isWater || !cell.walkable) return false;
-            return (cell.clearance || 0) >= requiredClearance;
+            if ((cell.clearance || 0) < requiredClearance) return false;
+            if (!cell.isBridge && !this._allowUnsafeShoreline) {
+                const shoreClearance = cell.shoreClearance ?? cell.clearance;
+                if ((shoreClearance || 0) < this.getHardShoreClearanceCells(isShip, requiredClearance)) {
+                    return false;
+                }
+            }
+            return true;
         }
     }
 
@@ -786,6 +853,7 @@ class AStarPathfinder {
             const edgePressure = Math.max(0, 4 - Math.min(4, clearance));
             cost += edgePressure * 0.25;
         }
+        cost += this.getShorelineCost(cell, isShip);
 
         // Diagonal movement costs more
         if (from.x !== to.x && from.y !== to.y) {
@@ -841,6 +909,9 @@ class AStarPathfinder {
     }
 
     findNearestWalkableCell(x, y, isShip = false, clearanceCells = 0, maxRadius = 16) {
+        let best = null;
+        let bestScore = Infinity;
+        const preferred = this.getPreferredShoreClearanceCells(isShip);
         for (let radius = 1; radius <= maxRadius; radius++) {
             for (let dx = -radius; dx <= radius; dx++) {
                 for (let dy = -radius; dy <= radius; dy++) {
@@ -848,13 +919,23 @@ class AStarPathfinder {
                         const nx = x + dx;
                         const ny = y + dy;
                         if (this.isWalkable(nx, ny, isShip, clearanceCells)) {
-                            return { x: nx, y: ny };
+                            const cell = this.grid.grid[ny][nx];
+                            const clearance = isShip ? cell.waterClearance : cell.shoreClearance;
+                            const shoreDeficit = cell.isBridge || !Number.isFinite(clearance)
+                                ? 0
+                                : Math.max(0, preferred - clearance);
+                            const distance = Math.hypot(dx, dy);
+                            const score = distance + shoreDeficit * shoreDeficit * 2.5 - (cell.isBridge ? 4 : 0);
+                            if (score < bestScore) {
+                                bestScore = score;
+                                best = { x: nx, y: ny };
+                            }
                         }
                     }
                 }
             }
         }
-        return null;
+        return best;
     }
 }
 
@@ -926,7 +1007,11 @@ function findPath(startX, startY, endX, endY, unitType = 'villager') {
         return clonePath(__pathCache.get(cacheKey));
     }
 
-    const path = pathfinder.findPath(startX, startY, endX, endY, unitType);
+    let path = pathfinder.findPath(startX, startY, endX, endY, unitType, { allowUnsafeShoreline: false });
+    if (!path && !GAME_CONFIG.units[unitType]?.vessel &&
+        GAME_CONFIG.pathfinding?.allowShorelineFallback !== false) {
+        path = pathfinder.findPath(startX, startY, endX, endY, unitType, { allowUnsafeShoreline: true });
+    }
     // Never cache a failure or an escape route. Cache keys are quantised to
     // ~256px clusters, so one unit wedged against a wall would otherwise hand
     // its null (or its own personal way out) to every other unit nearby.

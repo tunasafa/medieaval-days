@@ -4,9 +4,14 @@ const GAME_CONFIG = {
     world: { width: 16000, height: 16000, radius: 8000, numPlayers: 3, enemyCount: 2 },
     pathfinding: {
         cellSize: 32,
-        maxSearchCells: 9000,
+        maxSearchCells: 30000,
         cacheClusterCells: 8,
-        cacheMaxEntries: 300
+        cacheMaxEntries: 300,
+        shorelineHardClearanceCells: 3,
+        shorelinePreferredClearanceCells: 7,
+        shorelineCostWeight: 14,
+        shipShorelinePreferredClearanceCells: 4,
+        shipShorelineCostWeight: 3
     },
     construction: {
         minWorkers: 1,
@@ -23,11 +28,11 @@ const GAME_CONFIG = {
     // that all gameplay reads; bridgeBlockSize is kept independent so bridge
     // footprints stay the same size regardless of how fine the mask gets.
     terrain: {
-        tileSize: 64,          // logical water-mask resolution in world units
+        tileSize: 32,          // logical water-mask resolution in world units
         bridgeBlockSize: 128,  // bridge lane width, decoupled from tileSize
         bridgeBankApron: 64,   // land overlap on each bank so paths connect cleanly
         bridgeMaxSpan: 960,    // maximum river width one bridge placement can cross
-        contourStep: 48,       // marching-squares sampling step for the drawn coast
+        contourStep: 32,       // marching-squares sampling step for the drawn coast
         maxWaterDepth: 3       // number of depth bands for shading
     },
     units: {

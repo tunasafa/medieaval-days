@@ -82,9 +82,60 @@ function spreadIdleUnits(unit) {
 }
 
 function canTakeSeparationStep(unit, x, y) {
+    return canTakeNavigationStep(unit, x, y);
+}
+
+function getNavigationSafetyScore(unit, x, y) {
+    if (typeof pathfindingGrid === 'undefined' || !pathfindingGrid) return 1;
+    const cellPos = pathfindingGrid.worldToGrid(x, y);
+    if (!pathfindingGrid.isValidCell(cellPos.x, cellPos.y)) return -Infinity;
+    const cell = pathfindingGrid.grid[cellPos.y][cellPos.x];
+    const isVessel = !!GAME_CONFIG.units[unit.type]?.vessel;
+
+    if (isVessel) {
+        if (!cell.isWater || cell.blocksUnits) return -Infinity;
+        return Math.min(12, cell.waterClearance || 0);
+    }
+    if (cell.isWater || !cell.walkable) return -Infinity;
+    const obstacleSafety = Math.min(12, cell.clearance || 0);
+    const shoreSafety = Math.min(12, cell.shoreClearance ?? cell.clearance ?? 0);
+    return obstacleSafety + shoreSafety * 1.5 + (cell.isBridge ? 8 : 0);
+}
+
+function canTakeNavigationStep(unit, x, y) {
     if (!validateTerrainMovement(unit, x, y)) return false;
     if (typeof isSpawnPathable !== 'function') return true;
-    return isSpawnPathable(x, y, unit.type) || !isSpawnPathable(unit.x, unit.y, unit.type);
+    if (isSpawnPathable(x, y, unit.type)) return true;
+    if (isSpawnPathable(unit.x, unit.y, unit.type)) return false;
+    return getNavigationSafetyScore(unit, x, y) > getNavigationSafetyScore(unit, unit.x, unit.y);
+}
+
+function findSaferNavigationDirection(unit, maxCells = 6) {
+    if (typeof pathfindingGrid === 'undefined' || !pathfindingGrid) return null;
+    const origin = pathfindingGrid.worldToGrid(unit.x, unit.y);
+    if (!pathfindingGrid.isValidCell(origin.x, origin.y)) return null;
+
+    const currentScore = getNavigationSafetyScore(unit, unit.x, unit.y);
+    let best = null;
+    let bestScore = currentScore;
+    for (let dy = -maxCells; dy <= maxCells; dy++) {
+        for (let dx = -maxCells; dx <= maxCells; dx++) {
+            if (dx === 0 && dy === 0) continue;
+            const gx = origin.x + dx;
+            const gy = origin.y + dy;
+            if (!pathfindingGrid.isValidCell(gx, gy)) continue;
+            const world = pathfindingGrid.gridToWorld(gx, gy);
+            if (!validateTerrainMovement(unit, world.x, world.y)) continue;
+            const dist = Math.hypot(dx, dy) || 1;
+            const score = getNavigationSafetyScore(unit, world.x, world.y) - dist * 0.08;
+            if (score > bestScore) {
+                bestScore = score;
+                best = world;
+            }
+        }
+    }
+    if (!best) return null;
+    return { x: best.x - unit.x, y: best.y - unit.y };
 }
 
 /**
@@ -156,19 +207,25 @@ function nudgeUnitTowardOpenGround(unit) {
     const isVessel = !!GAME_CONFIG.units[unit.type]?.vessel;
     const speed = Math.max(0.6, (GAME_CONFIG.units[unit.type]?.speed || 1) * 0.75);
 
-    // Aim away from whatever is crowding us: the nearest building for land units,
-    // the nearest land for vessels.
+    // Aim toward the nearest safer navigation cell first; shoreline pockets need
+    // an inland gradient, not just a push away from buildings.
     let awayX = 0;
     let awayY = 0;
-    let best = Infinity;
-    for (const b of [...gameState.buildings, ...gameState.enemyBuildings]) {
-        const cx = clamp(unit.x, b.x, b.x + b.width);
-        const cy = clamp(unit.y, b.y, b.y + b.height);
-        const d = Math.hypot(unit.x - cx, unit.y - cy);
-        if (d < best) {
-            best = d;
-            awayX = unit.x - (b.x + b.width / 2);
-            awayY = unit.y - (b.y + b.height / 2);
+    const saferDirection = findSaferNavigationDirection(unit);
+    if (saferDirection) {
+        awayX = saferDirection.x;
+        awayY = saferDirection.y;
+    } else {
+        let best = Infinity;
+        for (const b of [...gameState.buildings, ...gameState.enemyBuildings]) {
+            const cx = clamp(unit.x, b.x, b.x + b.width);
+            const cy = clamp(unit.y, b.y, b.y + b.height);
+            const d = Math.hypot(unit.x - cx, unit.y - cy);
+            if (d < best) {
+                best = d;
+                awayX = unit.x - (b.x + b.width / 2);
+                awayY = unit.y - (b.y + b.height / 2);
+            }
         }
     }
     const mag = Math.hypot(awayX, awayY);
@@ -180,15 +237,11 @@ function nudgeUnitTowardOpenGround(unit) {
             const a = baseAngle + spread;
             const nx = unit.x + Math.cos(a) * dist;
             const ny = unit.y + Math.sin(a) * dist;
-            if (!validateTerrainMovement(unit, nx, ny)) continue;
+            if (!canTakeNavigationStep(unit, nx, ny)) continue;
             if (isVessel && !isPointInWater(nx, ny)) continue;
-            // Only accept a step that strictly improves pathability, or that keeps
-            // us legal while heading outward.
-            if (isSpawnPathable(nx, ny, unit.type) || !isSpawnPathable(unit.x, unit.y, unit.type)) {
-                unit.x = nx;
-                unit.y = ny;
-                return true;
-            }
+            unit.x = nx;
+            unit.y = ny;
+            return true;
         }
     }
     return relocateUnitToPathableGround(unit);
@@ -376,7 +429,7 @@ function updateUnit(unit, deltaTime) {
                         const newY = unit.y + dirY * moveSpeed;
 
                         // STRICT TERRAIN VALIDATION - prevent any illegal movement
-                        const isValidMove = validateTerrainMovement(unit, newX, newY);
+                        const isValidMove = canTakeNavigationStep(unit, newX, newY);
 
                         // Allow passing through units: ignore unit collisions here, only block on terrain/buildings/water
                         if (isValidMove && !isPositionOccupied(newX, newY, unit, 8, true)) {
@@ -394,7 +447,7 @@ function updateUnit(unit, deltaTime) {
                                 const altY = unit.y + Math.sin(adjustedAngle) * moveSpeed;
 
                                 // Always validate terrain first; ignore unit collisions to allow passing
-                                if (validateTerrainMovement(unit, altX, altY) && !isPositionOccupied(altX, altY, unit, 8, true)) {
+                                if (canTakeNavigationStep(unit, altX, altY) && !isPositionOccupied(altX, altY, unit, 8, true)) {
                                     unit.x = altX;
                                     unit.y = altY;
                                     moved = true;
@@ -407,12 +460,12 @@ function updateUnit(unit, deltaTime) {
                             if (!moved) {
                                 const sx = unit.x + dirX * moveSpeed;
                                 const sy = unit.y;
-                                if (validateTerrainMovement(unit, sx, sy) && !isPositionOccupied(sx, sy, unit, 8, true)) {
+                                if (canTakeNavigationStep(unit, sx, sy) && !isPositionOccupied(sx, sy, unit, 8, true)) {
                                     unit.x = sx; moved = true; applyUnitSeparation(unit);
                                 } else {
                                     const sy2 = unit.y + dirY * moveSpeed;
                                     const sx2 = unit.x;
-                                    if (validateTerrainMovement(unit, sx2, sy2) && !isPositionOccupied(sx2, sy2, unit, 8, true)) {
+                                    if (canTakeNavigationStep(unit, sx2, sy2) && !isPositionOccupied(sx2, sy2, unit, 8, true)) {
                                         unit.y = sy2; moved = true; applyUnitSeparation(unit);
                                     }
                                 }
@@ -428,7 +481,7 @@ function updateUnit(unit, deltaTime) {
                                 // Avoid micro-sliding into buildings: only nudge if terrain allows
                                 const sx = unit.x + (dx / distance) * (moveSpeed * 0.1);
                                 const sy = unit.y + (dy / distance) * (moveSpeed * 0.1);
-                                if (validateTerrainMovement(unit, sx, sy)) {
+                                if (canTakeNavigationStep(unit, sx, sy)) {
                                     unit.x = sx;
                                     unit.y = sy;
                                     applyUnitSeparation(unit);
@@ -519,7 +572,7 @@ function updateUnit(unit, deltaTime) {
                     const newY = unit.y + (dy / distance) * moveSpeed;
 
                     // STRICT TERRAIN VALIDATION - prevent illegal movement through water/no-go zones
-                    if (validateTerrainMovement(unit, newX, newY) && !isPositionOccupied(newX, newY, unit, 8, true)) {
+                    if (canTakeNavigationStep(unit, newX, newY) && !isPositionOccupied(newX, newY, unit, 8, true)) {
                         unit.x = newX;
                         unit.y = newY;
                         applyUnitSeparation(unit);
@@ -533,7 +586,7 @@ function updateUnit(unit, deltaTime) {
                             const altX = unit.x + Math.cos(adjustedAngle) * moveSpeed;
                             const altY = unit.y + Math.sin(adjustedAngle) * moveSpeed;
 
-                            if (validateTerrainMovement(unit, altX, altY) && !isPositionOccupied(altX, altY, unit, 8, true)) {
+                            if (canTakeNavigationStep(unit, altX, altY) && !isPositionOccupied(altX, altY, unit, 8, true)) {
                                 unit.x = altX;
                                 unit.y = altY;
                                 moved = true;
@@ -550,7 +603,7 @@ function updateUnit(unit, deltaTime) {
                                 // Ultimate fallback - minimal movement (respect terrain)
                                 const fx = unit.x + (dx / distance) * (moveSpeed * 0.2);
                                 const fy = unit.y + (dy / distance) * (moveSpeed * 0.2);
-                                if (validateTerrainMovement(unit, fx, fy)) {
+                                if (canTakeNavigationStep(unit, fx, fy)) {
                                     unit.x = fx;
                                     unit.y = fy;
                                     applyUnitSeparation(unit);
@@ -683,7 +736,7 @@ function updateUnit(unit, deltaTime) {
                     const tentativeY = unit.y + dirY * config.speed;
 
                     // Add terrain validation for attacking units
-                    const isValidMove = validateTerrainMovement(unit, tentativeX, tentativeY);
+                    const isValidMove = canTakeNavigationStep(unit, tentativeX, tentativeY);
 
                     if (isValidMove && !isPositionOccupied(tentativeX, tentativeY, unit, 12, true)) {
                         unit.x = tentativeX;
@@ -698,7 +751,7 @@ function updateUnit(unit, deltaTime) {
                             const altX = unit.x + Math.cos(adjustedAngle) * config.speed;
                             const altY = unit.y + Math.sin(adjustedAngle) * config.speed;
 
-                            const isValidAltMove = validateTerrainMovement(unit, altX, altY);
+                            const isValidAltMove = canTakeNavigationStep(unit, altX, altY);
 
                             if (isValidAltMove && !isPositionOccupied(altX, altY, unit, 12, true)) {
                                 unit.x = altX;
@@ -711,11 +764,11 @@ function updateUnit(unit, deltaTime) {
                         if (!moved) {
                             // Axis slide
                             const sx = unit.x + dirX * config.speed;
-                            if (validateTerrainMovement(unit, sx, unit.y) && !isPositionOccupied(sx, unit.y, unit, 12, true)) {
+                            if (canTakeNavigationStep(unit, sx, unit.y) && !isPositionOccupied(sx, unit.y, unit, 12, true)) {
                                 unit.x = sx; moved = true;
                             } else {
                                 const sy = unit.y + dirY * config.speed;
-                                if (validateTerrainMovement(unit, unit.x, sy) && !isPositionOccupied(unit.x, sy, unit, 12, true)) {
+                                if (canTakeNavigationStep(unit, unit.x, sy) && !isPositionOccupied(unit.x, sy, unit, 12, true)) {
                                     unit.y = sy; moved = true;
                                 }
                             }
@@ -735,7 +788,7 @@ function updateUnit(unit, deltaTime) {
                 const tentativeX = unit.x + (dx / distance) * config.speed;
                 const tentativeY = unit.y + (dy / distance) * config.speed;
 
-                const isValidMove = validateTerrainMovement(unit, tentativeX, tentativeY);
+                const isValidMove = canTakeNavigationStep(unit, tentativeX, tentativeY);
 
                 if (isValidMove && !isPositionOccupied(tentativeX, tentativeY, unit, 12, true)) {
                     unit.x = tentativeX;
@@ -849,7 +902,7 @@ function updateUnit(unit, deltaTime) {
                     const newX = unit.x + dirX * config.speed;
                     const newY = unit.y + dirY * config.speed;
 
-                    const isValidMove = validateTerrainMovement(unit, newX, newY);
+                    const isValidMove = canTakeNavigationStep(unit, newX, newY);
 
                     if (isValidMove && !isPositionOccupied(newX, newY, unit, 8, true)) {
                         unit.x = newX;
@@ -863,7 +916,7 @@ function updateUnit(unit, deltaTime) {
                             const altX = unit.x + Math.cos(adjustedAngle) * config.speed;
                             const altY = unit.y + Math.sin(adjustedAngle) * config.speed;
 
-                            const isValidAltMove = validateTerrainMovement(unit, altX, altY);
+                            const isValidAltMove = canTakeNavigationStep(unit, altX, altY);
 
                             if (isValidAltMove && !isPositionOccupied(altX, altY, unit, 8, true)) {
                                 unit.x = altX;
@@ -876,11 +929,11 @@ function updateUnit(unit, deltaTime) {
                         if (!moved) {
                             // Axis slide to get around corners
                             const sx = unit.x + dirX * config.speed;
-                            if (validateTerrainMovement(unit, sx, unit.y) && !isPositionOccupied(sx, unit.y, unit, 8, true)) {
+                            if (canTakeNavigationStep(unit, sx, unit.y) && !isPositionOccupied(sx, unit.y, unit, 8, true)) {
                                 unit.x = sx; moved = true;
                             } else {
                                 const sy = unit.y + dirY * config.speed;
-                                if (validateTerrainMovement(unit, unit.x, sy) && !isPositionOccupied(unit.x, sy, unit, 8, true)) {
+                                if (canTakeNavigationStep(unit, unit.x, sy) && !isPositionOccupied(unit.x, sy, unit, 8, true)) {
                                     unit.y = sy; moved = true;
                                 }
                             }
@@ -899,7 +952,7 @@ function updateUnit(unit, deltaTime) {
                 const newX = unit.x + (dx / distance) * config.speed;
                 const newY = unit.y + (dy / distance) * config.speed;
 
-                const isValidMove = validateTerrainMovement(unit, newX, newY);
+                const isValidMove = canTakeNavigationStep(unit, newX, newY);
 
                 if (isValidMove && !isPositionOccupied(newX, newY, unit, 8, true)) {
                     unit.x = newX;
@@ -913,7 +966,7 @@ function updateUnit(unit, deltaTime) {
                         const altX = unit.x + Math.cos(adjustedAngle) * config.speed;
                         const altY = unit.y + Math.sin(adjustedAngle) * config.speed;
 
-                        const isValidAltMove = validateTerrainMovement(unit, altX, altY);
+                        const isValidAltMove = canTakeNavigationStep(unit, altX, altY);
 
                         if (isValidAltMove && !isPositionOccupied(altX, altY, unit, 8, true)) {
                             unit.x = altX;
@@ -927,7 +980,7 @@ function updateUnit(unit, deltaTime) {
                         // Respect terrain when nudging to avoid stalling
                         const gx = unit.x + (dx / distance) * (config.speed * 0.3);
                         const gy = unit.y + (dy / distance) * (config.speed * 0.3);
-                        if (validateTerrainMovement(unit, gx, gy)) {
+                        if (canTakeNavigationStep(unit, gx, gy)) {
                             unit.x = gx;
                             unit.y = gy;
                         }
@@ -1084,7 +1137,7 @@ function updateUnit(unit, deltaTime) {
                     const dirX = wx / wd, dirY = wy / wd;
                     const nx = unit.x + dirX * config.speed;
                     const ny = unit.y + dirY * config.speed;
-                    const ok = validateTerrainMovement(unit, nx, ny);
+                    const ok = canTakeNavigationStep(unit, nx, ny);
                     if (ok && !isPositionOccupied(nx, ny, unit, 8, true)) {
                         unit.x = nx; unit.y = ny;
                     } else {
@@ -1095,18 +1148,18 @@ function updateUnit(unit, deltaTime) {
                             const ang = Math.atan2(wy, wx) + off;
                             const ax = unit.x + Math.cos(ang) * config.speed;
                             const ay = unit.y + Math.sin(ang) * config.speed;
-                            if (validateTerrainMovement(unit, ax, ay) && !isPositionOccupied(ax, ay, unit, 8, true)) {
+                            if (canTakeNavigationStep(unit, ax, ay) && !isPositionOccupied(ax, ay, unit, 8, true)) {
                                 unit.x = ax; unit.y = ay; moved = true; break;
                             }
                         }
                         if (!moved) {
                             // axis slide
                             const sx = unit.x + dirX * config.speed;
-                            if (validateTerrainMovement(unit, sx, unit.y) && !isPositionOccupied(sx, unit.y, unit, 8, true)) {
+                            if (canTakeNavigationStep(unit, sx, unit.y) && !isPositionOccupied(sx, unit.y, unit, 8, true)) {
                                 unit.x = sx; moved = true;
                             } else {
                                 const sy = unit.y + dirY * config.speed;
-                                if (validateTerrainMovement(unit, unit.x, sy) && !isPositionOccupied(unit.x, sy, unit, 8, true)) {
+                                if (canTakeNavigationStep(unit, unit.x, sy) && !isPositionOccupied(unit.x, sy, unit, 8, true)) {
                                     unit.y = sy; moved = true;
                                 }
                             }
@@ -1124,7 +1177,7 @@ function updateUnit(unit, deltaTime) {
                 // Fallback direct step towards nearest edge
                 const newX = unit.x + (dx / distance) * config.speed;
                 const newY = unit.y + (dy / distance) * config.speed;
-                const isValidMove = validateTerrainMovement(unit, newX, newY);
+                const isValidMove = canTakeNavigationStep(unit, newX, newY);
                 if (isValidMove && !isPositionOccupied(newX, newY, unit, 8, true)) {
                     unit.x = newX;
                     unit.y = newY;
@@ -1135,7 +1188,7 @@ function updateUnit(unit, deltaTime) {
                         const adjustedAngle = Math.atan2(dy, dx) + angleOffset;
                         const altX = unit.x + Math.cos(adjustedAngle) * config.speed;
                         const altY = unit.y + Math.sin(adjustedAngle) * config.speed;
-                        const isValidAltMove = validateTerrainMovement(unit, altX, altY);
+                        const isValidAltMove = canTakeNavigationStep(unit, altX, altY);
                         if (isValidAltMove && !isPositionOccupied(altX, altY, unit, 8, true)) {
                             unit.x = altX;
                             unit.y = altY;
@@ -1146,7 +1199,7 @@ function updateUnit(unit, deltaTime) {
                     if (!moved) {
                         const rx = unit.x + (dx / distance) * (config.speed * 0.3);
                         const ry = unit.y + (dy / distance) * (config.speed * 0.3);
-                        if (validateTerrainMovement(unit, rx, ry)) {
+                        if (canTakeNavigationStep(unit, rx, ry)) {
                             unit.x = rx;
                             unit.y = ry;
                         }
@@ -1283,6 +1336,7 @@ function hasLOSForUnit(x0, y0, x1, y1, unit) {
         const sx = x0 + dx * t;
         const sy = y0 + dy * t;
         if (!validateTerrainMovement(unit, sx, sy)) return false;
+        if (typeof isSpawnPathable === 'function' && !isSpawnPathable(sx, sy, unit.type)) return false;
     }
     return true;
 }

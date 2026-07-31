@@ -8,17 +8,18 @@ const FogOfWar = (function () {
     let worldWidth = 0, worldHeight = 0;
     let visibleCells = [];
     let fogCanvas = null, fogCtx = null;
+    let visibleMaskCanvas = null, visibleMaskCtx = null;
     let exploredWorldCanvas = null, exploredWorldCtx = null;
 
     const SIGHT_RANGES = { villager: 7, militia: 6, warrior: 6, axeman: 6, archer: 9, crossbowman: 9, catapult: 7, ballista: 8, fishingBoat: 6, transportLarge: 6, warship: 8 };
     const BUILDING_SIGHT = { 'town-center': 12, 'house': 4, 'barracks': 6, 'archeryRange': 6, 'craftery': 6, 'navy': 6 };
-    const VISIBLE_EDGE_BLUR = 34;
-    const VISIBLE_CORE_INSET = 82;
+    const VISIBLE_EDGE_FEATHER = 210;
+    const VISIBLE_EDGE_NOISE = 190;
+    const VISIBLE_MASK_SCALE = 1 / 5;
     const EXPLORED_EDGE_BLUR = 28;
     const EXPLORED_FOG_ALPHA = 0.5;
     const EXPLORED_CLEAR_ALPHA = 1 - EXPLORED_FOG_ALPHA;
     const EXPLORED_MASK_SCALE = 1 / 16;
-    const FOG_EDGE_POINTS = 52;
 
     function init(mapWidth, mapHeight) {
         worldWidth = mapWidth;
@@ -27,14 +28,21 @@ const FogOfWar = (function () {
         grid = Array(rows).fill().map(() => new Uint8Array(cols));
         visibleCells = [];
         fogCanvas = null; fogCtx = null;
+        visibleMaskCanvas = null; visibleMaskCtx = null;
         exploredWorldCanvas = null; exploredWorldCtx = null;
         ensureExploredWorldCanvas();
     }
 
     function ensureFogCanvas(viewWidth, viewHeight) {
+        const maskWidth = Math.max(1, Math.ceil(viewWidth * VISIBLE_MASK_SCALE));
+        const maskHeight = Math.max(1, Math.ceil(viewHeight * VISIBLE_MASK_SCALE));
         if (!fogCanvas || fogCanvas.width !== viewWidth || fogCanvas.height !== viewHeight) {
             fogCanvas = document.createElement('canvas'); fogCanvas.width = viewWidth; fogCanvas.height = viewHeight;
             fogCtx = fogCanvas.getContext('2d');
+        }
+        if (!visibleMaskCanvas || visibleMaskCanvas.width !== maskWidth || visibleMaskCanvas.height !== maskHeight) {
+            visibleMaskCanvas = document.createElement('canvas'); visibleMaskCanvas.width = maskWidth; visibleMaskCanvas.height = maskHeight;
+            visibleMaskCtx = visibleMaskCanvas.getContext('2d');
         }
     }
 
@@ -49,55 +57,18 @@ const FogOfWar = (function () {
         }
     }
 
-    function hashString(value) {
-        const text = String(value);
-        let hash = 2166136261;
-        for (let i = 0; i < text.length; i++) {
-            hash ^= text.charCodeAt(i);
-            hash = Math.imul(hash, 16777619);
-        }
-        return hash >>> 0;
+    function smoothstep(value) {
+        return value * value * (3 - 2 * value);
     }
 
-    function seededNoise(seed, index) {
-        let value = (seed + Math.imul(index + 1, 0x9E3779B9)) >>> 0;
-        value = Math.imul(value ^ (value >>> 15), value | 1);
-        value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
-        return ((value ^ (value >>> 14)) >>> 0) / 4294967295;
-    }
-
-    function sourceSeed(entity, prefix, x, y) {
-        if (entity.id) return hashString(`${prefix}:${entity.id}`);
-        return hashString(`${prefix}:${entity.type}:${Math.round(x / cellSize)}:${Math.round(y / cellSize)}`);
-    }
-
-    function buildIrregularBlobPath(context, x, y, radius, seed, jitter) {
-        const points = [];
-        const seedPhaseA = (seed % 1000) * 0.0063;
-        const seedPhaseB = (seed % 791) * 0.0091;
-        for (let i = 0; i < FOG_EDGE_POINTS; i++) {
-            const angle = (i / FOG_EDGE_POINTS) * Math.PI * 2;
-            const longWave = Math.sin(angle * 3 + seedPhaseA) * jitter * 0.46;
-            const midWave = Math.sin(angle * 7 + seedPhaseB) * jitter * 0.28;
-            const speckle = (seededNoise(seed, i) - 0.5) * jitter * 0.68;
-            const multiplier = Math.max(0.78, Math.min(1.22, 1 + longWave + midWave + speckle));
-            const localRadius = radius * multiplier;
-            points.push({
-                x: x + Math.cos(angle) * localRadius,
-                y: y + Math.sin(angle) * localRadius
-            });
-        }
-
-        const first = points[0];
-        const last = points[points.length - 1];
-        context.beginPath();
-        context.moveTo((first.x + last.x) / 2, (first.y + last.y) / 2);
-        for (let i = 0; i < points.length; i++) {
-            const current = points[i];
-            const next = points[(i + 1) % points.length];
-            context.quadraticCurveTo(current.x, current.y, (current.x + next.x) / 2, (current.y + next.y) / 2);
-        }
-        context.closePath();
+    function cloudEdgeNoise(worldX, worldY, time) {
+        const t = time * 0.000035;
+        return (
+            Math.sin(worldX * 0.0065 + worldY * 0.0032 + t * 1.4) * 0.34 +
+            Math.sin(worldX * -0.0044 + worldY * 0.0105 - t * 1.1) * 0.28 +
+            Math.sin(worldX * 0.014 + worldY * -0.0085 + t * 0.8) * 0.22 +
+            Math.sin(worldX * -0.022 + worldY * -0.015 + t * 0.55) * 0.16
+        );
     }
 
     function revealCircle(cx, cy, radius) {
@@ -120,7 +91,8 @@ const FogOfWar = (function () {
         const radius = (source.range * cellSize + cellSize * 0.5) * scale;
         exploredWorldCtx.save();
         exploredWorldCtx.fillStyle = '#fff';
-        buildIrregularBlobPath(exploredWorldCtx, source.x * scale, source.y * scale, radius, source.seed, 0.16);
+        exploredWorldCtx.beginPath();
+        exploredWorldCtx.arc(source.x * scale, source.y * scale, radius, 0, Math.PI * 2);
         exploredWorldCtx.fill();
         exploredWorldCtx.restore();
     }
@@ -146,8 +118,7 @@ const FogOfWar = (function () {
             sources.push({
                 x: unit.x,
                 y: unit.y,
-                range: SIGHT_RANGES[unit.type] || 6,
-                seed: sourceSeed(unit, 'unit', unit.x, unit.y)
+                range: SIGHT_RANGES[unit.type] || 6
             });
         }
         for (const building of gameState.buildings || []) {
@@ -157,8 +128,7 @@ const FogOfWar = (function () {
             sources.push({
                 x,
                 y,
-                range: BUILDING_SIGHT[building.type] || 5,
-                seed: sourceSeed(building, 'building', x, y)
+                range: BUILDING_SIGHT[building.type] || 5
             });
         }
         return sources;
@@ -224,31 +194,54 @@ const FogOfWar = (function () {
 
     function drawVisibleCutouts(camera, viewW, viewH) {
         const sources = getVisionSources();
-        fogCtx.save();
-        fogCtx.globalCompositeOperation = 'destination-out';
-        fogCtx.filter = `blur(${VISIBLE_EDGE_BLUR}px)`;
-        fogCtx.fillStyle = 'rgba(0, 0, 0, 1)';
+        const maskW = visibleMaskCanvas.width;
+        const maskH = visibleMaskCanvas.height;
+        const imageData = visibleMaskCtx.createImageData(maskW, maskH);
+        const data = imageData.data;
+        const scale = VISIBLE_MASK_SCALE;
+        const time = gameState.gameTime || 0;
+
         for (const source of sources) {
             const radius = source.range * cellSize + cellSize * 0.5;
-            const sx = source.x - camera.x;
-            const sy = source.y - camera.y;
-            if (sx < -radius || sy < -radius || sx > viewW + radius || sy > viewH + radius) continue;
-            buildIrregularBlobPath(fogCtx, sx, sy, Math.max(0, radius - VISIBLE_EDGE_BLUR), source.seed, 0.23);
-            fogCtx.fill();
+            const maxRadius = radius + VISIBLE_EDGE_NOISE;
+            const sx = (source.x - camera.x) * scale;
+            const sy = (source.y - camera.y) * scale;
+            const maxMaskRadius = maxRadius * scale;
+            if (sx < -maxMaskRadius || sy < -maxMaskRadius || sx > maskW + maxMaskRadius || sy > maskH + maxMaskRadius) continue;
+            const startX = Math.max(0, Math.floor(sx - maxMaskRadius));
+            const endX = Math.min(maskW - 1, Math.ceil(sx + maxMaskRadius));
+            const startY = Math.max(0, Math.floor(sy - maxMaskRadius));
+            const endY = Math.min(maskH - 1, Math.ceil(sy + maxMaskRadius));
+
+            for (let y = startY; y <= endY; y++) {
+                const worldY = camera.y + (y + 0.5) / scale;
+                const dy = worldY - source.y;
+                for (let x = startX; x <= endX; x++) {
+                    const worldX = camera.x + (x + 0.5) / scale;
+                    const dx = worldX - source.x;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    if (distance > maxRadius) continue;
+                    const noisyRadius = radius + cloudEdgeNoise(worldX, worldY, time) * VISIBLE_EDGE_NOISE;
+                    const rawAlpha = (noisyRadius - distance) / VISIBLE_EDGE_FEATHER;
+                    if (rawAlpha <= 0) continue;
+                    const alpha = rawAlpha >= 1 ? 1 : smoothstep(rawAlpha);
+                    const index = (y * maskW + x) * 4;
+                    const alphaByte = Math.round(alpha * 255);
+                    if (alphaByte <= data[index + 3]) continue;
+                    data[index] = 255;
+                    data[index + 1] = 255;
+                    data[index + 2] = 255;
+                    data[index + 3] = alphaByte;
+                }
+            }
         }
-        fogCtx.restore();
+
+        visibleMaskCtx.putImageData(imageData, 0, 0);
 
         fogCtx.save();
         fogCtx.globalCompositeOperation = 'destination-out';
-        fogCtx.fillStyle = 'rgba(0, 0, 0, 1)';
-        for (const source of sources) {
-            const radius = source.range * cellSize + cellSize * 0.5;
-            const sx = source.x - camera.x;
-            const sy = source.y - camera.y;
-            if (sx < -radius || sy < -radius || sx > viewW + radius || sy > viewH + radius) continue;
-            buildIrregularBlobPath(fogCtx, sx, sy, Math.max(0, radius - VISIBLE_CORE_INSET), source.seed + 97, 0.16);
-            fogCtx.fill();
-        }
+        fogCtx.imageSmoothingEnabled = true;
+        fogCtx.drawImage(visibleMaskCanvas, 0, 0, viewW, viewH);
         fogCtx.restore();
     }
 

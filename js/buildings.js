@@ -498,6 +498,19 @@ function placeBuilding(type, x, y) {
     };
     gameState.buildings.push(building);
     if (typeof markPathfindingDirty === 'function') markPathfindingDirty();
+    // Rebuild now so the clearance data reflects this footprint, then free any
+    // unit the new foundation just sealed into an unpathable pocket.
+    if (typeof updatePathfindingGrid === 'function') updatePathfindingGrid();
+    if (typeof nudgeUnitTowardOpenGround === 'function' && typeof isSpawnPathable === 'function') {
+        for (const u of [...gameState.units, ...gameState.enemyUnits]) {
+            if (u.state === 'embarked') continue;
+            let guard = 0;
+            while (!isSpawnPathable(u.x, u.y, u.type) && nudgeUnitTowardOpenGround(u) && guard++ < 40) { /* walk out */ }
+            if (!isSpawnPathable(u.x, u.y, u.type) && typeof relocateUnitToPathableGround === 'function') {
+                relocateUnitToPathableGround(u);
+            }
+        }
+    }
     const assigned = assignWorkersToConstruction(building, getBuilderUnitsFromIds(gameState.placingWorkerIds || []));
     if (typeof SFX !== 'undefined') SFX.buildingPlace();
     showNotification(`${displayName(type)} foundation placed. ${assigned} villager(s) building.`);

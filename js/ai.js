@@ -111,7 +111,9 @@ function createEnemyBase() {
                 // Avoid water
                 if (typeof isPointInWater === 'function' && isPointInWater(px, py)) continue;
                 // Avoid collisions with buildings/units
-                if (typeof isPositionOccupied === 'function' && isPositionOccupied(px, py, null, 15)) continue;
+                if (typeof isPositionOccupied === 'function' && isPositionOccupied(px, py, { type: entry.type }, 15)) continue;
+                // Reject spots the unit could stand on but never path out of.
+                if (typeof isSpawnPathable === 'function' && !isSpawnPathable(px, py, entry.type)) continue;
                 // Keep distance from already-placed enemy idle units (at least one body apart)
                 let tooClose = false;
                 for (const u of gameState.enemyUnits) {
@@ -124,23 +126,7 @@ function createEnemyBase() {
                 break;
             }
             if (!spawn) {
-                const px = Math.max(8, Math.min(GAME_CONFIG.world.width - 8, centerX + Math.cos(dirToCenter) * (baseR + 60)));
-                const py = Math.max(8, Math.min(GAME_CONFIG.world.height - 8, centerY + Math.sin(dirToCenter) * (baseR + 60)));
-                // Final guard: nudge fallback outward slightly until separation is met
-                let fx = px, fy = py, attempts = 0;
-                while (attempts < 10) {
-                    let bad = false;
-                    for (const u of gameState.enemyUnits) {
-                        if (Math.hypot(fx - u.x, fy - u.y) < minSeparation) { bad = true; break; }
-                    }
-                    if (!bad) break;
-                    const bumpAng = dirToCenter + Math.PI + (Math.random() - 0.5) * 0.6;
-                    const bump = minSeparation * 0.6;
-                    fx = Math.max(8, Math.min(GAME_CONFIG.world.width - 8, fx + Math.cos(bumpAng) * bump));
-                    fy = Math.max(8, Math.min(GAME_CONFIG.world.height - 8, fy + Math.sin(bumpAng) * bump));
-                    attempts++;
-                }
-                spawn = { x: fx, y: fy };
+                continue;
             }
             const cfg = GAME_CONFIG.units[entry.type] || { maxHealth: 50 };
             gameState.enemyUnits.push({
@@ -228,6 +214,9 @@ const AIManager = (function() {
             if (isPointInRoundedRectangle(px, py, enemyTC, 18)) continue;
             if (typeof validateTerrainMovement === 'function' && !validateTerrainMovement(dummyUnit, px, py)) continue;
             if (typeof isPositionOccupied === 'function' && isPositionOccupied(px, py, dummyUnit, 18)) continue;
+            // Same trap as player spawns: a legal-but-unpathable cell produces a
+            // wave unit that stands next to its town center and never attacks.
+            if (typeof isSpawnPathable === 'function' && !isSpawnPathable(px, py, unitType)) continue;
 
             return { x: px, y: py };
         }

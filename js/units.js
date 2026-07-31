@@ -33,7 +33,7 @@ function spreadIdleUnits(unit) {
             const newX = unit.x + pushX;
             const newY = unit.y + pushY;
 
-            if (validateTerrainMovement(unit, newX, newY) && !isPositionOccupied(newX, newY, unit, 8)) {
+            if (canTakeSeparationStep(unit, newX, newY) && !isPositionOccupied(newX, newY, unit, 8)) {
                 unit.x = newX;
                 unit.y = newY;
             }
@@ -41,7 +41,7 @@ function spreadIdleUnits(unit) {
             const otherNewX = otherUnit.x - pushX;
             const otherNewY = otherUnit.y - pushY;
 
-            if (validateTerrainMovement(otherUnit, otherNewX, otherNewY) && !isPositionOccupied(otherNewX, otherNewY, otherUnit, 8)) {
+            if (canTakeSeparationStep(otherUnit, otherNewX, otherNewY) && !isPositionOccupied(otherNewX, otherNewY, otherUnit, 8)) {
                 otherUnit.x = otherNewX;
                 otherUnit.y = otherNewY;
             }
@@ -65,7 +65,7 @@ function spreadIdleUnits(unit) {
             const newX = unit.x + pushX;
             const newY = unit.y + pushY;
 
-            if (validateTerrainMovement(unit, newX, newY) && !isPositionOccupied(newX, newY, unit, 8)) {
+            if (canTakeSeparationStep(unit, newX, newY) && !isPositionOccupied(newX, newY, unit, 8)) {
                 unit.x = newX;
                 unit.y = newY;
             }
@@ -73,12 +73,18 @@ function spreadIdleUnits(unit) {
             const otherNewX = otherUnit.x - pushX;
             const otherNewY = otherUnit.y - pushY;
 
-            if (validateTerrainMovement(otherUnit, otherNewX, otherNewY) && !isPositionOccupied(otherNewX, otherNewY, otherUnit, 8)) {
+            if (canTakeSeparationStep(otherUnit, otherNewX, otherNewY) && !isPositionOccupied(otherNewX, otherNewY, otherUnit, 8)) {
                 otherUnit.x = otherNewX;
                 otherUnit.y = otherNewY;
             }
         }
     }
+}
+
+function canTakeSeparationStep(unit, x, y) {
+    if (!validateTerrainMovement(unit, x, y)) return false;
+    if (typeof isSpawnPathable !== 'function') return true;
+    return isSpawnPathable(x, y, unit.type) || !isSpawnPathable(unit.x, unit.y, unit.type);
 }
 
 /**
@@ -127,11 +133,104 @@ function applyUnitSeparation(unit) {
         const stepY = (pushY / mag) * Math.min(maxStep, mag);
         const nx = unit.x + stepX;
         const ny = unit.y + stepY;
-        if (validateTerrainMovement(unit, nx, ny)) {
+        // Terrain-legal is not sufficient: crowding could otherwise press a
+        // unit into the tight band against a building where it is legal to
+        // stand but impossible to path out of. Never let separation make a
+        // unit's pathability worse.
+        if (canTakeSeparationStep(unit, nx, ny)) {
             unit.x = nx;
             unit.y = ny;
         }
     }
+}
+
+/**
+ * Pushes a unit that is standing in a legal-but-unpathable pocket (typically the
+ * tight band hugging a building it was just trained from) back out toward open
+ * ground. This is the runtime safety net: even if a unit ends up wedged by a
+ * newly placed building, separation shove, or disembark, it will walk itself free
+ * instead of staying selected-but-immobile forever.
+ * @returns {boolean} true if the unit moved this tick.
+ */
+function nudgeUnitTowardOpenGround(unit) {
+    const isVessel = !!GAME_CONFIG.units[unit.type]?.vessel;
+    const speed = Math.max(0.6, (GAME_CONFIG.units[unit.type]?.speed || 1) * 0.75);
+
+    // Aim away from whatever is crowding us: the nearest building for land units,
+    // the nearest land for vessels.
+    let awayX = 0;
+    let awayY = 0;
+    let best = Infinity;
+    for (const b of [...gameState.buildings, ...gameState.enemyBuildings]) {
+        const cx = clamp(unit.x, b.x, b.x + b.width);
+        const cy = clamp(unit.y, b.y, b.y + b.height);
+        const d = Math.hypot(unit.x - cx, unit.y - cy);
+        if (d < best) {
+            best = d;
+            awayX = unit.x - (b.x + b.width / 2);
+            awayY = unit.y - (b.y + b.height / 2);
+        }
+    }
+    const mag = Math.hypot(awayX, awayY);
+    const baseAngle = mag > 0.001 ? Math.atan2(awayY, awayX) : Math.random() * Math.PI * 2;
+
+    // Sweep outward from the away-direction so the unit prefers the shortest exit.
+    for (const spread of [0, 0.4, -0.4, 0.8, -0.8, 1.2, -1.2, 1.6, -1.6, 2.0, -2.0, 2.5, -2.5, Math.PI]) {
+        for (const dist of [speed, speed * 2, speed * 4]) {
+            const a = baseAngle + spread;
+            const nx = unit.x + Math.cos(a) * dist;
+            const ny = unit.y + Math.sin(a) * dist;
+            if (!validateTerrainMovement(unit, nx, ny)) continue;
+            if (isVessel && !isPointInWater(nx, ny)) continue;
+            // Only accept a step that strictly improves pathability, or that keeps
+            // us legal while heading outward.
+            if (isSpawnPathable(nx, ny, unit.type) || !isSpawnPathable(unit.x, unit.y, unit.type)) {
+                unit.x = nx;
+                unit.y = ny;
+                return true;
+            }
+        }
+    }
+    return relocateUnitToPathableGround(unit);
+}
+
+function findNearestPathableUnitPosition(unit, originX = unit.x, originY = unit.y, maxRadius = 768, step = 24) {
+    const currentClear = validateTerrainMovement(unit, originX, originY) &&
+        !isPositionOccupied(originX, originY, unit, 15) &&
+        isSpawnPathable(originX, originY, unit.type);
+    if (currentClear) return { x: originX, y: originY };
+
+    for (let radius = step; radius <= maxRadius; radius += step) {
+        const samples = Math.max(16, Math.ceil((radius / step) * 12));
+        for (let i = 0; i < samples; i++) {
+            const angle = (i / samples) * Math.PI * 2;
+            const x = clamp(originX + Math.cos(angle) * radius, 8, GAME_CONFIG.world.width - 8);
+            const y = clamp(originY + Math.sin(angle) * radius, 8, GAME_CONFIG.world.height - 8);
+            if (!validateTerrainMovement(unit, x, y)) continue;
+            if (isPositionOccupied(x, y, unit, 15)) continue;
+            if (!isSpawnPathable(x, y, unit.type)) continue;
+            return { x, y };
+        }
+    }
+    return null;
+}
+
+function relocateUnitToPathableGround(unit) {
+    const spot = findNearestPathableUnitPosition(unit);
+    if (!spot) return false;
+    const retryTargetX = unit.requestedTargetX ?? unit.targetX;
+    const retryTargetY = unit.requestedTargetY ?? unit.targetY;
+    unit.x = spot.x;
+    unit.y = spot.y;
+    unit.prevX = spot.x;
+    unit.prevY = spot.y;
+    unit.path = null;
+    unit.pathfindingFailed = false;
+    if (Number.isFinite(retryTargetX) && Number.isFinite(retryTargetY) &&
+        typeof setUnitDestination === 'function') {
+        setUnitDestination(unit, retryTargetX, retryTargetY);
+    }
+    return true;
 }
 
 function updateUnits(deltaTime) {
@@ -455,6 +554,18 @@ function updateUnit(unit, deltaTime) {
                                     unit.x = fx;
                                     unit.y = fy;
                                     applyUnitSeparation(unit);
+                                } else if (!nudgeUnitTowardOpenGround(unit)) {
+                                    // Genuinely walled in and unable to shuffle:
+                                    // retry the full path periodically instead of
+                                    // burning CPU on a hopeless direct step.
+                                    unit.pathRetryTimer = (unit.pathRetryTimer || 0) + deltaTime;
+                                    if (unit.pathRetryTimer > 1000) {
+                                        unit.pathRetryTimer = 0;
+                                        unit.pathfindingFailed = false;
+                                        setUnitDestination(unit,
+                                            unit.requestedTargetX ?? unit.targetX,
+                                            unit.requestedTargetY ?? unit.targetY);
+                                    }
                                 }
                             }
                         }
@@ -1134,7 +1245,14 @@ function updateTrainingQueue(deltaTime) {
             if (newUnit && b.rallyPoint) {
                 setUnitDestination(newUnit, b.rallyPoint.x, b.rallyPoint.y);
             }
-            b.trainingQueue.shift();
+            if (newUnit) {
+                b.trainingQueue.shift();
+            } else {
+                // Keep completed training queued until population or deployment
+                // space opens. Losing the unit or forcing an unsafe spawn both
+                // feel worse than a paused queue.
+                t.timeRemaining = 250;
+            }
         }
     }
 }
@@ -1158,8 +1276,10 @@ function hasLOSForUnit(x0, y0, x1, y1, unit) {
 // Compute minimum outward clearance from a building edge along a given side
 // side: 'top' | 'right' | 'bottom' | 'left'
 function computeSideMinClearance(building, unitType, side) {
-    const unitSize = 24; // base sprite size used across infantry
-    const minProbeDepth = Math.ceil(unitSize * 1.5); // 1.5x unit size as requested
+    // Probe at least as deep as a spawn needs to be legal, otherwise every side
+    // reports the same saturated depth and the "prefer the roomiest side" sort
+    // below degenerates into a tie.
+    const minProbeDepth = Math.ceil(getSpawnClearance(unitType) * 1.5);
     const stepAlong = 8; // sample along the side every 8px
     const stepOut = 4; // step outward when probing clearance
     let minClear = Infinity;
@@ -1201,8 +1321,7 @@ function computeSideMinClearance(building, unitType, side) {
 }
 
 function getAllowedSpawnSides(building, unitType) {
-    const unitSize = 24;
-    const minRequired = Math.ceil(unitSize * 1.5); // 1.5x unit size
+    const minRequired = Math.ceil(getSpawnClearance(unitType));
     const sides = ['top', 'right', 'bottom', 'left'];
     const allowed = [];
     for (const s of sides) {
@@ -1210,6 +1329,32 @@ function getAllowedSpawnSides(building, unitType) {
         if (clear >= minRequired) allowed.push(s);
     }
     return allowed;
+}
+
+// Minimum distance a spawn must keep from any building edge. It is not enough to
+// merely satisfy validateTerrainMovement(): the A* grid quantises clearance to
+// whole cells, so a unit can sit at a legal-but-tight offset whose grid cell is
+// unwalkable — a spot it can occupy but cannot path out of. Reserve a full
+// pathfinding cell beyond the terrain radius so every spawn starts on a cell A*
+// will actually expand.
+function getSpawnClearance(unitType) {
+    const terrainRadius = typeof getTerrainClearanceRadius === 'function'
+        ? getTerrainClearanceRadius(unitType)
+        : 16;
+    const cellSize = (typeof pathfindingGrid !== 'undefined' && pathfindingGrid)
+        ? pathfindingGrid.cellSize
+        : (GAME_CONFIG.pathfinding?.cellSize || 32);
+    return terrainRadius + cellSize;
+}
+
+// True when the position sits on a grid cell A* can route through for this unit.
+function isSpawnPathable(x, y, unitType) {
+    if (typeof pathfindingGrid === 'undefined' || !pathfindingGrid || !pathfinder) return true;
+    const cell = pathfindingGrid.worldToGrid(x, y);
+    if (!pathfindingGrid.isValidCell(cell.x, cell.y)) return false;
+    const isShip = !!GAME_CONFIG.units[unitType]?.vessel;
+    const clearanceCells = pathfinder.getClearanceCellsForUnit(unitType);
+    return pathfinder.isWalkable(cell.x, cell.y, isShip, clearanceCells);
 }
 
 // Validate that a unit of unitType can safely exist and move from a position
@@ -1224,22 +1369,29 @@ function isValidSpawnPosition(x, y, unitType, buildingCenter) {
     const inWater = typeof isPointInWater === 'function' ? isPointInWater(x, y) : false;
     const onBridge = typeof isPointOnBridge === 'function' ? isPointOnBridge(x, y) : false;
     if (isVessel) {
-        if (!inWater) return false; // ships only in water
+        if (!inWater || onBridge) return false; // ships only in open water
     } else {
         if (inWater && !onBridge) return false; // land units not in water unless on bridge
     }
 
-    // Not inside or too close to any building footprint (rounded collision)
+    // Keep clear of every building by the full spawn clearance, not just the
+    // 17px collision buffer, so the unit is not born wedged against a wall.
+    const spawnClearance = getSpawnClearance(unitType);
     for (const b of [...gameState.buildings, ...gameState.enemyBuildings]) {
-        if (isPointInRoundedRectangle(x, y, b, 17)) return false;
+        if (isPointInRoundedRectangle(x, y, b, spawnClearance)) return false;
     }
 
-    // Not occupied by other units
-    if (isPositionOccupied(x, y, null, 15)) return false;
+    // Not occupied by other units. Pass a typed probe so the water/land rule is
+    // evaluated for THIS unit type — a null probe reports all water occupied,
+    // which made every vessel spawn check fail.
+    const dummyUnit = { type: unitType };
+    if (isPositionOccupied(x, y, dummyUnit, 15)) return false;
 
     // Respect obstacles/no-go via movement validator
-    const dummyUnit = { type: unitType };
     if (!validateTerrainMovement(dummyUnit, x, y)) return false;
+
+    // The decisive check: the unit must land on a cell A* can route out of.
+    if (!isSpawnPathable(x, y, unitType)) return false;
 
     // Ensure the unit can move at least a few pixels in some direction from here (not stuck)
     const steps = [
@@ -1275,7 +1427,13 @@ function findSpawnPointNearBuilding(building, unitType) {
         .map(e => e.side);
     const stepAlong = 8;
     const pad = 6; // avoid exact corners
-    const offsets = [18, 26, 34, 42, 50, 60, 72, 84, 96, 112, 128, 150, 175, 200];
+    // Start at the real minimum safe distance rather than a hardcoded 18px. The
+    // old first ring sat 1px inside the terrain radius and on an unwalkable A*
+    // cell, so the very first spawn attempt usually "succeeded" into a pocket the
+    // unit could never path out of.
+    const minOffset = Math.ceil(getSpawnClearance(unitType)) + 2;
+    const offsets = [];
+    for (let off = minOffset; off <= minOffset + 200; off += 12) offsets.push(off);
 
     for (const off of offsets) {
         for (const side of byClear) {
@@ -1318,7 +1476,7 @@ function findSpawnPointNearBuilding(building, unitType) {
 }
 
 // BFS outward from building to find the nearest water cell for vessel spawning
-function findWaterSpawnPoint(building) {
+function findWaterSpawnPoint(building, unitType = 'transportLarge') {
     if (!pathfindingGrid) return null;
     const cx = building.x + building.width / 2;
     const cy = building.y + building.height / 2;
@@ -1330,12 +1488,17 @@ function findWaterSpawnPoint(building) {
     const bfsDirs = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]];
     // Search up to ~200px radius (200/16 ≈ 13 cells, but BFS covers more)
     const maxCells = 8000;
+    const probe = { type: unitType };
     while (bfsHead < bfsQ.length && bfsHead < maxCells) {
         const c = bfsQ[bfsHead++];
         if (pathfindingGrid.isValidCell(c.x, c.y) && pathfindingGrid.grid[c.y][c.x].isWater) {
             const wp = pathfindingGrid.gridToWorld(c.x, c.y);
-            // Ensure not occupied
-            if (!isPositionOccupied(wp.x, wp.y, null, 15)) {
+            // Pass the vessel as the probe: with a null probe, isPositionOccupied()
+            // reports every water tile as occupied, so this BFS could never return
+            // a water cell and ships ended up spawned on land, unable to move.
+            if (!isPositionOccupied(wp.x, wp.y, probe, 15) &&
+                validateTerrainMovement(probe, wp.x, wp.y) &&
+                isSpawnPathable(wp.x, wp.y, unitType)) {
                 return wp;
             }
         }
@@ -1377,27 +1540,46 @@ function spawnUnit(type, spawnAnchor) {
 
     const centerX = spawnBuilding.x + spawnBuilding.width / 2;
     const centerY = spawnBuilding.y + spawnBuilding.height / 2;
-    const ringRadius = Math.max(spawnBuilding.width, spawnBuilding.height) / 2 + 18;
     const isVessel = !!GAME_CONFIG.units[type]?.vessel;
+    const spawnClearance = getSpawnClearance(type);
+    const ringRadius = Math.max(spawnBuilding.width, spawnBuilding.height) / 2 + spawnClearance;
+
+    // The grid must reflect current buildings before any spawn decision, or the
+    // clearance checks below read a stale map and place the unit in a pocket.
+    if (typeof pathfindingGrid !== 'undefined' && pathfindingGrid?._dirty &&
+        typeof updatePathfindingGrid === 'function') {
+        updatePathfindingGrid();
+    }
 
     // For vessels, use water-specific BFS spawn first
     let position = null;
     if (isVessel) {
-        position = findWaterSpawnPoint(spawnBuilding);
+        position = findWaterSpawnPoint(spawnBuilding, type);
     }
     if (!position) {
         position = findSpawnPointNearBuilding(spawnBuilding, type);
     }
 
-    // Fallback position with terrain validation
+    // Last-resort placement. Sweep a widening ring and take the first spot that
+    // fully validates. If none exists, do not deploy: spawning into a merely
+    // terrain-legal fallback is exactly how units end up selected-but-immobile.
     if (!position) {
-        // Absolute fallback: place at a safe ring offset in front (bottom side) if possible
-        const extra = Math.ceil(24 * 1.5);
-        const fx = centerX;
-        const fy = centerY + ringRadius + extra;
-        const free = getAvailablePosition(fx, fy, 15);
-        const ok = isValidSpawnPosition(free.x, free.y, type, { x: centerX, y: centerY });
-        position = ok ? { x: free.x, y: free.y } : { x: centerX, y: centerY + ringRadius + extra };
+        outer:
+        for (let radius = ringRadius; radius <= ringRadius + 600; radius += 24) {
+            for (let i = 0; i < 24; i++) {
+                const theta = (i / 24) * Math.PI * 2;
+                const px = centerX + Math.cos(theta) * radius;
+                const py = centerY + Math.sin(theta) * radius;
+                if (isValidSpawnPosition(px, py, type, { x: centerX, y: centerY })) {
+                    position = { x: px, y: py };
+                    break outer;
+                }
+            }
+        }
+        if (!position) {
+            showNotification(`No clear space to deploy ${type} — clear the area around the building.`);
+            return null;
+        }
     }
 
     const newUnit = {
@@ -1555,11 +1737,14 @@ function disembarkCargoNearShore(transport) {
                 const testY = baseY + Math.sin(angle) * radius;
 
                 // Must be on valid land terrain (not water, not in no-go zones, not in buildings)
-                // Use validateTerrainMovement with a dummy land unit for full terrain validation
-                const dummyUnit = { type: 'villager' };
+                // Use validateTerrainMovement with the actual cargo unit type so
+                // its own clearance rules apply.
+                const probe = { type: unit.type };
                 if (!isPointInWater(testX, testY) &&
-                    validateTerrainMovement(dummyUnit, testX, testY) &&
-                    !isPositionOccupied(testX, testY, null, 15) &&
+                    validateTerrainMovement(probe, testX, testY) &&
+                    !isPositionOccupied(testX, testY, probe, 15) &&
+                    // Do not unload troops onto a spot they cannot walk away from.
+                    isSpawnPathable(testX, testY, unit.type) &&
                     testX >= 0 && testY >= 0 &&
                     testX < GAME_CONFIG.world.width && testY < GAME_CONFIG.world.height) {
 

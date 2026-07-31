@@ -31,6 +31,10 @@ async function initGame() {
 
     // Create enemy base after water, so it can adapt to river placement
     createEnemyBase();
+    // Build the navigation grid before placing units so spawn validation can
+    // reject positions A* would not be able to route out of. It is rebuilt again
+    // below once every late terrain adjustment has settled.
+    initializePathfinding();
     createInitialUnits();
     // Ensure water does not overlap buildings or units by re-marking after spawns
     if (tilemap && gameState && gameState.worldObjects) {
@@ -249,30 +253,36 @@ function createInitialUnits() {
     const playerTC = gameState.buildings.find(b => b.type === 'town-center' && b.player === 'player');
 
     if (playerTC) {
-        // Use the same spawning logic as spawnUnit to place villager around the building
+        // Reuse the exact spawn validation spawnUnit() uses. Rolling a bespoke
+        // ring here is what left the starting villager parked in the tight band
+        // against the town center, where it is legal to stand but impossible to
+        // path out of — it would sit selected but unresponsive to Move orders.
         const centerX = playerTC.x + playerTC.width / 2;
         const centerY = playerTC.y + playerTC.height / 2;
-        const ringRadius = Math.max(playerTC.width, playerTC.height) / 2 + 25; // Slightly further out
 
-        // Try multiple positions around the town center
-        let spawnPosition = null;
-        const tries = 16;
+        let spawnPosition = typeof findSpawnPointNearBuilding === 'function'
+            ? findSpawnPointNearBuilding(playerTC, 'villager')
+            : null;
 
-        for (let i = 0; i < tries; i++) {
-            const theta = (i / tries) * Math.PI * 2;
-            const tx = centerX + Math.cos(theta) * ringRadius;
-            const ty = centerY + Math.sin(theta) * ringRadius;
-
-            // Check if this position is available
-            if (!isPositionOccupied(tx, ty, null, 15)) {
-                spawnPosition = { x: tx, y: ty };
-                break;
-            }
-        }
-
-        // Fallback position if no good spot found
         if (!spawnPosition) {
-            spawnPosition = { x: centerX, y: centerY + ringRadius };
+            const clearance = typeof getSpawnClearance === 'function'
+                ? getSpawnClearance('villager')
+                : 49;
+            const ringRadius = Math.max(playerTC.width, playerTC.height) / 2 + clearance;
+            for (let radius = ringRadius; radius <= ringRadius + 400 && !spawnPosition; radius += 24) {
+                for (let i = 0; i < 24; i++) {
+                    const theta = (i / 24) * Math.PI * 2;
+                    const tx = centerX + Math.cos(theta) * radius;
+                    const ty = centerY + Math.sin(theta) * radius;
+                    if (isValidSpawnPosition(tx, ty, 'villager', { x: centerX, y: centerY })) {
+                        spawnPosition = { x: tx, y: ty };
+                        break;
+                    }
+                }
+            }
+            if (!spawnPosition) {
+                spawnPosition = { x: centerX, y: centerY + ringRadius };
+            }
         }
 
         gameState.units.push({

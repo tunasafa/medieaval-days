@@ -348,9 +348,16 @@ class BinaryMinHeap {
     }
 }
 
+// Cardinals first so an escape walk prefers straight-out over diagonal.
+const ESCAPE_DIRS = [
+    [1, 0], [-1, 0], [0, 1], [0, -1],
+    [1, 1], [-1, 1], [1, -1], [-1, -1]
+];
+
 class AStarPathfinder {
     constructor(grid) {
         this.grid = grid;
+        this.lastPathUsedEscape = false;
     }
 
     getClearanceCellsForUnit(unitType) {
@@ -360,7 +367,97 @@ class AStarPathfinder {
         return Math.max(1, Math.ceil((radius + this.grid.cellSize * 0.5) / this.grid.cellSize));
     }
 
+    // A unit standing where validateTerrainMovement() allows it but the grid does
+    // not (the band around every building/shore that is legal to occupy yet too
+    // tight for A* clearance) has no walkable start cell, so a plain A* returns
+    // null and the order is dropped. Walk such a unit back out to open ground
+    // first and treat that walk as the head of the path.
+    findEscapeRoute(startX, startY, unitType, isShip, clearanceCells, maxCells = 600) {
+        const startCell = this.grid.worldToGrid(startX, startY);
+        if (!this.grid.isValidCell(startCell.x, startCell.y)) return null;
+
+        const probe = { type: unitType };
+        const canOccupy = (cx, cy) => {
+            if (!this.grid.isValidCell(cx, cy)) return false;
+            if (typeof validateTerrainMovement !== 'function') return true;
+            const w = this.grid.gridToWorld(cx, cy);
+            return validateTerrainMovement(probe, w.x, w.y);
+        };
+
+        const keyOf = c => `${c.x},${c.y}`;
+        const cameFrom = new Map();
+        const visited = new Set([keyOf(startCell)]);
+        const queue = [startCell];
+        let head = 0;
+        let goal = null;
+
+        while (head < queue.length && head < maxCells) {
+            const cur = queue[head++];
+            const isStart = cur.x === startCell.x && cur.y === startCell.y;
+            if (!isStart && this.isWalkable(cur.x, cur.y, isShip, clearanceCells)) {
+                goal = cur;
+                break;
+            }
+            for (const [dx, dy] of ESCAPE_DIRS) {
+                const nx = cur.x + dx;
+                const ny = cur.y + dy;
+                const nk = `${nx},${ny}`;
+                if (visited.has(nk) || !this.grid.isValidCell(nx, ny)) continue;
+                // Step only through cells the unit could legally stand on, or the
+                // properly-clear cell we are trying to reach.
+                if (!canOccupy(nx, ny) && !this.isWalkable(nx, ny, isShip, clearanceCells)) continue;
+                visited.add(nk);
+                cameFrom.set(nk, cur);
+                queue.push({ x: nx, y: ny });
+            }
+        }
+        if (!goal) return null;
+
+        const cells = [];
+        for (let cur = goal; cur; cur = cameFrom.get(keyOf(cur))) {
+            cells.unshift(cur);
+        }
+        // Index 0 is the unit's real position so callers can strip it exactly
+        // like the first element of an ordinary path.
+        const points = [{ x: startX, y: startY }];
+        for (let i = 1; i < cells.length; i++) {
+            points.push(this.grid.gridToWorld(cells[i].x, cells[i].y));
+        }
+        if (points.length < 2) return null;
+
+        for (let i = 1; i < points.length; i++) {
+            const prev = points[i - 1];
+            const prevCell = this.grid.worldToGrid(prev.x, prev.y);
+            const prevIsClear = this.isWalkable(prevCell.x, prevCell.y, isShip, clearanceCells);
+            // While still inside the pocket only the hard terrain rule applies —
+            // demanding full clearance there is what trapped the unit to begin
+            // with. Once out, hold the segment to the normal standard.
+            const ok = prevIsClear
+                ? this.hasTerrainFootprintLineOfSight(prev.x, prev.y, points[i].x, points[i].y, unitType, false)
+                : this.hasTerrainTypeLineOfSight(prev.x, prev.y, points[i].x, points[i].y, unitType);
+            if (!ok) return null;
+        }
+        return { points, cell: goal };
+    }
+
+    // Water/bridge legality only — no building or clearance buffer. Used while a
+    // unit is escaping a pocket, where the buffer is the very thing being left.
+    hasTerrainTypeLineOfSight(x0, y0, x1, y1, unitType) {
+        if (typeof isTerrainPointAllowedForUnit !== 'function') return true;
+        const dx = x1 - x0;
+        const dy = y1 - y0;
+        const dist = Math.hypot(dx, dy);
+        if (dist === 0) return true;
+        const steps = Math.max(2, Math.ceil(dist / 8));
+        for (let i = 0; i <= steps; i++) {
+            const t = i / steps;
+            if (!isTerrainPointAllowedForUnit(unitType, x0 + dx * t, y0 + dy * t)) return false;
+        }
+        return true;
+    }
+
     findPath(startX, startY, endX, endY, unitType = 'villager') {
+        this.lastPathUsedEscape = false;
         const start = this.grid.worldToGrid(startX, startY);
         const end = this.grid.worldToGrid(endX, endY);
 
@@ -379,6 +476,21 @@ class AStarPathfinder {
                 end.y = nearestWalkable.y;
             } else {
                 return null; // No walkable path exists
+            }
+        }
+
+        // If the unit itself is parked in a sub-clearance pocket, prepend the walk
+        // out of it and run A* from open ground instead of failing outright.
+        let escapePoints = null;
+        if (!this.isWalkable(start.x, start.y, isShip, clearanceCells)) {
+            const escape = this.findEscapeRoute(startX, startY, unitType, isShip, clearanceCells);
+            if (!escape) return null;
+            escapePoints = escape.points;
+            start.x = escape.cell.x;
+            start.y = escape.cell.y;
+            this.lastPathUsedEscape = true;
+            if (start.x === end.x && start.y === end.y) {
+                return escapePoints;
             }
         }
 
@@ -420,9 +532,15 @@ class AStarPathfinder {
                 const curved = this.splineSmooth(rounded, isShip, clearanceCells);
                 for (const candidate of [curved, rounded, simplified, path]) {
                     const safePath = this.validatePath(candidate, isShip, clearanceCells, unitType);
-                    if (safePath && safePath.length > 1) return safePath;
+                    if (safePath && safePath.length > 1) {
+                        // Escape prefix ends on the A* start cell, so drop that
+                        // duplicate joint before splicing.
+                        return escapePoints ? escapePoints.concat(safePath.slice(1)) : safePath;
+                    }
                 }
-                return null;
+                // The unit still gets to leave the pocket even if the onward leg
+                // is unusable — better than standing frozen next to its barracks.
+                return escapePoints || null;
             }
 
             closedList.add(currentKey);
@@ -464,7 +582,9 @@ class AStarPathfinder {
             }
         }
 
-        return null; // No path found
+        // Exhausted the open set. If we at least computed a way out of a pocket,
+        // hand that back so the unit is not left permanently immobile.
+        return escapePoints || null;
     }
 
     // Check line of sight between two world points using grid walkability
@@ -807,7 +927,12 @@ function findPath(startX, startY, endX, endY, unitType = 'villager') {
     }
 
     const path = pathfinder.findPath(startX, startY, endX, endY, unitType);
-    setCachedPath(cacheKey, path);
+    // Never cache a failure or an escape route. Cache keys are quantised to
+    // ~256px clusters, so one unit wedged against a wall would otherwise hand
+    // its null (or its own personal way out) to every other unit nearby.
+    if (path && path.length > 1 && !pathfinder.lastPathUsedEscape) {
+        setCachedPath(cacheKey, path);
+    }
     return clonePath(path);
 }
 
@@ -864,13 +989,62 @@ function setUnitDestination(unit, targetX, targetY) {
         unit._stuckCount = 0;
         unit._moveProg = null;
         return true;
-    } else {
-        // Do NOT fallback to direct movement if pathfinding fails
-        // This prevents units from moving through invalid terrain
-        console.warn(`No valid path found for ${unit.type} to destination`);
-        unit.path = null;
-        unit.state = 'idle'; // Stop the unit instead of allowing illegal movement
-        unit.pathfindingFailed = true;
-        return false;
     }
+
+    // Pathfinding failed. Do NOT fall back to free-form direct movement — that is
+    // what let units walk through water. But do keep the order alive: hold the
+    // destination and stay in 'moving' so updateUnit()'s validated step-and-slide
+    // can nudge the unit out and retry. Going straight to 'idle' here is what made
+    // freshly trained units ignore Move clicks entirely while still accepting
+    // gather/attack orders (those states carry their own retry loops).
+    const reachable = findNearestReachablePoint(unit, targetX, targetY);
+    if (reachable) {
+        const retryPath = findPath(unit.x, unit.y, reachable.x, reachable.y, unit.type);
+        if (retryPath && retryPath.length > 1) {
+            const safeEnd = retryPath[retryPath.length - 1];
+            unit.path = retryPath.slice(1);
+            unit.state = 'moving';
+            unit.requestedTargetX = targetX;
+            unit.requestedTargetY = targetY;
+            unit.targetX = safeEnd.x;
+            unit.targetY = safeEnd.y;
+            unit.pathfindingFailed = false;
+            unit._stuckCount = 0;
+            unit._moveProg = null;
+            return true;
+        }
+    }
+
+    unit.path = null;
+    unit.state = 'moving';
+    unit.requestedTargetX = targetX;
+    unit.requestedTargetY = targetY;
+    unit.targetX = targetX;
+    unit.targetY = targetY;
+    unit.pathfindingFailed = true;
+    unit._stuckCount = 0;
+    unit._moveProg = null;
+    return false;
+}
+
+// Walk outward from a blocked destination looking for somewhere the unit can
+// actually stand and reach, so an order onto an unreachable tile becomes an
+// order onto the closest sane tile rather than a dropped command.
+function findNearestReachablePoint(unit, targetX, targetY, maxRadius = 256, step = 32) {
+    if (!pathfindingGrid) return null;
+    const isVessel = !!GAME_CONFIG.units[unit.type]?.vessel;
+    for (let radius = step; radius <= maxRadius; radius += step) {
+        const samples = Math.max(8, Math.round((radius / step) * 8));
+        for (let i = 0; i < samples; i++) {
+            const theta = (i / samples) * Math.PI * 2;
+            const px = targetX + Math.cos(theta) * radius;
+            const py = targetY + Math.sin(theta) * radius;
+            if (px < 8 || py < 8 ||
+                px > GAME_CONFIG.world.width - 8 || py > GAME_CONFIG.world.height - 8) continue;
+            if (isVessel && !isPointInWater(px, py)) continue;
+            if (!validateTerrainMovement(unit, px, py)) continue;
+            return { x: px, y: py };
+        }
+    }
+    return null;
 }

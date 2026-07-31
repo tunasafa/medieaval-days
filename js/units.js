@@ -86,7 +86,41 @@ function spreadIdleUnits(unit) {
 }
 
 function canTakeSeparationStep(unit, x, y) {
-    return canTakeNavigationStep(unit, x, y);
+    if (!canTakeNavigationStep(unit, x, y)) return false;
+    if (typeof isSpawnPathable !== 'function' || !isSpawnPathable(unit.x, unit.y, unit.type)) return true;
+    const comfort = getNavigationComfortClearance(unit);
+    const currentLane = getNavigationLaneClearance(unit, unit.x, unit.y);
+    const nextLane = getNavigationLaneClearance(unit, x, y);
+    if (currentLane >= comfort && nextLane < currentLane - 0.5) return false;
+    return getNavigationSafetyScore(unit, x, y) >= getNavigationSafetyScore(unit, unit.x, unit.y) - 0.4;
+}
+
+function getNavigationLaneClearance(unit, x, y) {
+    if (typeof pathfindingGrid === 'undefined' || !pathfindingGrid) return Infinity;
+    const cellPos = pathfindingGrid.worldToGrid(x, y);
+    if (!pathfindingGrid.isValidCell(cellPos.x, cellPos.y)) return -Infinity;
+    const cell = pathfindingGrid.grid[cellPos.y][cellPos.x];
+    const isVessel = !!GAME_CONFIG.units[unit.type]?.vessel;
+    if (isVessel) return cell.waterClearance || 0;
+    if (cell.isBridge) return cell.clearance || 0;
+    return Math.min(cell.clearance || 0, cell.shoreClearance ?? cell.clearance ?? 0);
+}
+
+function getNavigationComfortClearance(unit) {
+    const isVessel = !!GAME_CONFIG.units[unit.type]?.vessel;
+    if (typeof pathfinder !== 'undefined' && pathfinder) {
+        const clearanceCells = pathfinder.getClearanceCellsForUnit(unit.type);
+        return Math.max(
+            pathfinder.getPreferredShoreClearanceCells(isVessel),
+            pathfinder.getPreferredObstacleClearanceCells(isVessel, clearanceCells)
+        );
+    }
+    return isVessel
+        ? (GAME_CONFIG.pathfinding?.shipShorelinePreferredClearanceCells ?? 4)
+        : Math.max(
+            GAME_CONFIG.pathfinding?.shorelinePreferredClearanceCells ?? 9,
+            GAME_CONFIG.pathfinding?.obstaclePreferredClearanceCells ?? 6
+        );
 }
 
 function getNavigationSafetyScore(unit, x, y) {
@@ -109,9 +143,21 @@ function getNavigationSafetyScore(unit, x, y) {
 function canTakeNavigationStep(unit, x, y) {
     if (!validateTerrainMovement(unit, x, y)) return false;
     if (typeof isSpawnPathable !== 'function') return true;
-    if (isSpawnPathable(x, y, unit.type)) return true;
-    if (isSpawnPathable(unit.x, unit.y, unit.type)) return false;
-    return getNavigationSafetyScore(unit, x, y) > getNavigationSafetyScore(unit, unit.x, unit.y);
+    const nextPathable = isSpawnPathable(x, y, unit.type);
+    if (nextPathable) return true;
+    const currentPathable = isSpawnPathable(unit.x, unit.y, unit.type);
+    if (currentPathable) return false;
+
+    const currentScore = getNavigationSafetyScore(unit, unit.x, unit.y);
+    const nextScore = getNavigationSafetyScore(unit, x, y);
+    if (nextScore > currentScore + 0.01) return true;
+
+    // If the unit is already inside one unpathable grid cell, small escape steps
+    // can stay in that same cell for several frames. Permit flat-score motion so
+    // it can physically reach the neighboring open cell instead of freezing.
+    const currentCell = pathfindingGrid.worldToGrid(unit.x, unit.y);
+    const nextCell = pathfindingGrid.worldToGrid(x, y);
+    return currentCell.x === nextCell.x && currentCell.y === nextCell.y && nextScore >= currentScore;
 }
 
 function findSaferNavigationDirection(unit, maxCells = 6) {
@@ -513,14 +559,17 @@ function updateUnit(unit, deltaTime) {
                                 }
                                 if (!unstuck) setUnitDestination(unit, unit.targetX, unit.targetY);
                             } else {
-                                // Give up — go idle to avoid infinite loop
-                                unit.state = 'idle';
-                                unit.path = null;
-                                unit.targetX = undefined;
-                                unit.targetY = undefined;
-                                unit.requestedTargetX = undefined;
-                                unit.requestedTargetY = undefined;
-                                unit._stuckCount = 0;
+                                const retryX = unit.requestedTargetX ?? unit.targetX;
+                                const retryY = unit.requestedTargetY ?? unit.targetY;
+                                if (!nudgeUnitTowardOpenGround(unit) && !relocateUnitToPathableGround(unit)) {
+                                    unit.path = null;
+                                    unit.pathfindingFailed = true;
+                                    unit.pathRetryTimer = 800;
+                                }
+                                if (Number.isFinite(retryX) && Number.isFinite(retryY)) {
+                                    setUnitDestination(unit, retryX, retryY);
+                                }
+                                unit._stuckCount = Math.min(unit._stuckCount, 2);
                             }
                         } else {
                             // Making progress — reset stuck counter
@@ -530,6 +579,14 @@ function updateUnit(unit, deltaTime) {
                     }
                 } else {
                     // Reached destination
+                    if (unit._repathAfterEscape) {
+                        const retry = unit._repathAfterEscape;
+                        unit._repathAfterEscape = null;
+                        unit.path = null;
+                        unit.pathfindingFailed = false;
+                        setUnitDestination(unit, retry.x, retry.y);
+                        return;
+                    }
                     if (validateTerrainMovement(unit, unit.targetX, unit.targetY)) {
                         unit.x = unit.targetX;
                         unit.y = unit.targetY;
@@ -545,6 +602,18 @@ function updateUnit(unit, deltaTime) {
                 }
             } else {
                 // Fallback to original movement system if no path or pathfinding failed
+                if (unit.pathfindingFailed) {
+                    nudgeUnitTowardOpenGround(unit);
+                    unit.pathRetryTimer = (unit.pathRetryTimer || 0) + deltaTime;
+                    if (unit.pathRetryTimer > 700) {
+                        unit.pathRetryTimer = 0;
+                        unit.pathfindingFailed = false;
+                        setUnitDestination(unit,
+                            unit.requestedTargetX ?? unit.targetX,
+                            unit.requestedTargetY ?? unit.targetY);
+                    }
+                    return;
+                }
                 let dx = unit.targetX - unit.x;
                 let dy = unit.targetY - unit.y;
                 const distance = Math.sqrt(dx * dx + dy * dy);
@@ -623,6 +692,14 @@ function updateUnit(unit, deltaTime) {
                     }
                 } else {
                     // Reached destination
+                    if (unit._repathAfterEscape) {
+                        const retry = unit._repathAfterEscape;
+                        unit._repathAfterEscape = null;
+                        unit.path = null;
+                        unit.pathfindingFailed = false;
+                        setUnitDestination(unit, retry.x, retry.y);
+                        return;
+                    }
                     const finalX = unit.targetX;
                     const finalY = unit.targetY;
 
@@ -1326,6 +1403,12 @@ function updateTrainingQueue(deltaTime) {
 
 // Simple LOS check for a specific unit using terrain validator
 function hasLOSForUnit(x0, y0, x1, y1, unit) {
+    if (typeof pathfinder !== 'undefined' && pathfinder &&
+        typeof pathfindingGrid !== 'undefined' && pathfindingGrid) {
+        const isVessel = !!GAME_CONFIG.units[unit.type]?.vessel;
+        const clearanceCells = pathfinder.getClearanceCellsForUnit(unit.type);
+        return pathfinder.hasComfortLineOfSight(x0, y0, x1, y1, isVessel, clearanceCells);
+    }
     const dx = x1 - x0, dy = y1 - y0;
     const dist = Math.hypot(dx, dy);
     if (dist === 0) return true;

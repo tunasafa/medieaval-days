@@ -148,6 +148,10 @@ function isConstructionWorkSpotOpen(x, y, unit, reservedSpots = []) {
         !isConstructionSpotReserved(x, y, reservedSpots);
 }
 
+function isConstructionWorkSpotPathable(x, y, unit) {
+    return typeof isSpawnPathable !== 'function' || isSpawnPathable(x, y, unit?.type || 'villager');
+}
+
 function findConstructionWorkSpot(building, unit, slotIndex = 0, reservedSpots = []) {
     const dummy = unit || { type: 'villager', player: 'player' };
     const candidates = getConstructionWorkCandidates(building, slotIndex);
@@ -156,6 +160,11 @@ function findConstructionWorkSpot(building, unit, slotIndex = 0, reservedSpots =
     const centerX = building.x + building.width / 2;
     const centerY = building.y + building.height / 2;
 
+    // Prefer a work side whose grid cell is usable by A*. A legal standing
+    // position can still be inside the pathfinding clearance band around a
+    // foundation or shoreline; choosing one of those makes the generic failed
+    // path recovery walk the worker away from the building.
+    const legalFallbacks = [];
     for (const candidate of candidates) {
         const vx = candidate.x - centerX;
         const vy = candidate.y - centerY;
@@ -168,12 +177,18 @@ function findConstructionWorkSpot(building, unit, slotIndex = 0, reservedSpots =
             for (const lateral of lateralOffsets) {
                 const x = clamp(candidate.x + ux * nudge + px * lateral, 12, GAME_CONFIG.world.width - 12);
                 const y = clamp(candidate.y + uy * nudge + py * lateral, 12, GAME_CONFIG.world.height - 12);
-                if (isConstructionWorkSpotOpen(x, y, unit || dummy, reservedSpots)) {
+                if (!isConstructionWorkSpotOpen(x, y, unit || dummy, reservedSpots)) continue;
+                if (isConstructionWorkSpotPathable(x, y, unit || dummy)) {
                     return { x, y };
                 }
+                legalFallbacks.push({ x, y });
             }
         }
     }
+
+    // Keep the old legal fallback for tight maps where no pathable work cell
+    // exists. This still lets the worker build if it can reach within workRange.
+    if (legalFallbacks.length > 0) return legalFallbacks[0];
 
     const fallback = getDropOffPointOutside(dummy, building, (typeof EDGE_CLEARANCE !== 'undefined' ? EDGE_CLEARANCE : 20) + 24);
     const fallbackOffsets = computeFormationOffsets((GAME_CONFIG.construction?.maxWorkers || 4) * 4, 28);
@@ -225,6 +240,9 @@ function assignWorkersToConstruction(building, workers) {
     if (!building?.underConstruction || !building.construction) return 0;
     const owner = building.player || 'player';
     const settings = getConstructionSettings();
+    // A* ends at cell centres, so its final point can be several pixels away
+    // from the exact work spot even when the route is valid.
+    const effectiveWorkRange = settings.workRange + 8;
     const existingWorkers = getConstructionWorkers(building);
     const existingIds = new Set(existingWorkers.map(worker => worker.id));
     const usedSlots = new Set(existingWorkers
@@ -260,7 +278,7 @@ function assignWorkersToConstruction(building, workers) {
         worker.buildSlotIndex = slotIndex;
         worker.buildSpot = workSpot;
 
-        if (Math.hypot(worker.x - workSpot.x, worker.y - workSpot.y) <= settings.workRange) {
+        if (Math.hypot(worker.x - workSpot.x, worker.y - workSpot.y) <= effectiveWorkRange) {
             worker.state = 'building';
             clearConstructionMovement(worker);
         } else if (!setUnitDestination(worker, workSpot.x, workSpot.y)) {
@@ -274,6 +292,7 @@ function assignWorkersToConstruction(building, workers) {
 
 function updateConstructionWorker(building, worker, index) {
     const settings = getConstructionSettings();
+    const effectiveWorkRange = settings.workRange + 8;
     const reservedSpots = getConstructionWorkers(building)
         .filter(other => other !== worker)
         .map(other => other.buildSpot)
@@ -282,7 +301,7 @@ function updateConstructionWorker(building, worker, index) {
     worker.buildSpot = workSpot;
 
     const dist = Math.hypot(worker.x - workSpot.x, worker.y - workSpot.y);
-    if (dist <= settings.workRange) {
+    if (dist <= effectiveWorkRange) {
         if (worker.state !== 'building') {
             clearConstructionMovement(worker);
             worker.state = 'building';

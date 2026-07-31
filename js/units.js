@@ -5,6 +5,8 @@
  */
 
 const UNIT_SPATIAL_CELL_SIZE = 64;
+const UNIT_MIN_SEPARATION = 24;
+const VESSEL_MIN_SEPARATION = 32;
 let __unitSpatialIndex = null;
 
 function buildUnitSpatialIndex() {
@@ -13,7 +15,8 @@ function buildUnitSpatialIndex() {
         ? getAllUnits()
         : [...gameState.units, ...gameState.enemyUnits];
     for (const unit of units) {
-        if (!unit || unit.health <= 0 || unit.state === 'embarked') continue;
+        if (!unit || unit.health <= 0 || unit.state === 'embarked' ||
+            !Number.isFinite(unit.x) || !Number.isFinite(unit.y)) continue;
         const cx = Math.floor(unit.x / UNIT_SPATIAL_CELL_SIZE);
         const cy = Math.floor(unit.y / UNIT_SPATIAL_CELL_SIZE);
         const key = `${cx},${cy}`;
@@ -23,8 +26,35 @@ function buildUnitSpatialIndex() {
             buckets.set(key, bucket);
         }
         bucket.push(unit);
+        unit.__spatialIndexKey = key;
     }
     __unitSpatialIndex = buckets;
+}
+
+function updateUnitSpatialIndexEntry(unit) {
+    if (!__unitSpatialIndex || !unit || !Number.isFinite(unit.x) || !Number.isFinite(unit.y)) return;
+    const cx = Math.floor(unit.x / UNIT_SPATIAL_CELL_SIZE);
+    const cy = Math.floor(unit.y / UNIT_SPATIAL_CELL_SIZE);
+    const nextKey = `${cx},${cy}`;
+    const previousKey = unit.__spatialIndexKey;
+    if (previousKey === nextKey) return;
+
+    if (previousKey) {
+        const previousBucket = __unitSpatialIndex.get(previousKey);
+        if (previousBucket) {
+            const index = previousBucket.indexOf(unit);
+            if (index !== -1) previousBucket.splice(index, 1);
+            if (previousBucket.length === 0) __unitSpatialIndex.delete(previousKey);
+        }
+    }
+
+    let nextBucket = __unitSpatialIndex.get(nextKey);
+    if (!nextBucket) {
+        nextBucket = [];
+        __unitSpatialIndex.set(nextKey, nextBucket);
+    }
+    if (!nextBucket.includes(unit)) nextBucket.push(unit);
+    unit.__spatialIndexKey = nextKey;
 }
 
 function getNearbyUnits(unit, radius) {
@@ -46,6 +76,31 @@ function getNearbyUnits(unit, radius) {
     return nearby;
 }
 
+function getUnitSeparationDistance(unit) {
+    return GAME_CONFIG.units[unit.type]?.vessel
+        ? VESSEL_MIN_SEPARATION
+        : UNIT_MIN_SEPARATION;
+}
+
+function getDeterministicSeparationDirection(unit, other) {
+    const pair = `${unit.id ?? ''}:${other.id ?? ''}`;
+    let seed = 0;
+    for (let i = 0; i < pair.length; i++) seed = (seed * 31 + pair.charCodeAt(i)) >>> 0;
+    const angle = (seed % 6283) / 1000;
+    return { x: Math.cos(angle), y: Math.sin(angle) };
+}
+
+function hasUnitNearTarget(unit, targetX, targetY) {
+    if (!Number.isFinite(targetX) || !Number.isFinite(targetY)) return false;
+    const desired = getUnitSeparationDistance(unit);
+    const units = typeof getAllUnits === 'function'
+        ? getAllUnits()
+        : [...gameState.units, ...gameState.enemyUnits];
+    return units.some(other => other && other !== unit && other.health > 0 &&
+        other.state !== 'embarked' &&
+        Math.hypot(other.x - targetX, other.y - targetY) < desired);
+}
+
 /**
  * Prevents idle units from clustering by applying positional spread when units are too close.
  * Maintains unit spacing to improve visual clarity and prevent overlapping during idle states.
@@ -55,8 +110,7 @@ function getNearbyUnits(unit, radius) {
 function spreadIdleUnits(unit) {
     if (unit.state !== 'idle') return;
 
-    const unitSize = 24;
-    const minDistance = unitSize * 0.5;
+    const minDistance = getUnitSeparationDistance(unit);
     const minDistanceSq = minDistance * minDistance;
     let pushX = 0;
     let pushY = 0;
@@ -66,22 +120,26 @@ function spreadIdleUnits(unit) {
         const dx = unit.x - otherUnit.x;
         const dy = unit.y - otherUnit.y;
         const distSq = dx * dx + dy * dy;
-        if (distSq > 0 && distSq < minDistanceSq) {
+        if (distSq < minDistanceSq) {
             const distance = Math.sqrt(distSq);
+            const direction = distance > 0
+                ? { x: dx / distance, y: dy / distance }
+                : getDeterministicSeparationDirection(unit, otherUnit);
             const overlap = (minDistance - distance) * 0.5;
-            pushX += (dx / distance) * overlap;
-            pushY += (dy / distance) * overlap;
+            pushX += direction.x * overlap;
+            pushY += direction.y * overlap;
         }
     }
 
     if (pushX === 0 && pushY === 0) return;
     const mag = Math.hypot(pushX, pushY) || 1;
-    const step = Math.min(0.8, mag);
+    const step = Math.min(1.2, mag);
     const newX = unit.x + (pushX / mag) * step;
     const newY = unit.y + (pushY / mag) * step;
-    if (canTakeSeparationStep(unit, newX, newY) && !isPositionOccupied(newX, newY, unit, 8)) {
+    if (canTakeSeparationStep(unit, newX, newY)) {
         unit.x = newX;
         unit.y = newY;
+        updateUnitSpatialIndexEntry(unit);
     }
 }
 
@@ -196,9 +254,12 @@ function findSaferNavigationDirection(unit, maxCells = 6) {
  */
 function applyUnitSeparation(unit) {
     if (unit.state === 'building') return;
-    const isVessel = !!GAME_CONFIG.units[unit.type]?.vessel;
-    const isEnemyIdle = typeof isEnemyFaction === 'function' && isEnemyFaction(unit) && unit.state === 'idle';
-    const desired = isVessel ? 28 : (isEnemyIdle ? 24 : 18); // give ships more berth; enemy idle keep 1 body
+    // Do not pull a unit backwards while it is still following a multi-cell
+    // route. The final crowding pass handles the approach and stopping area,
+    // where separation matters most and cannot deadlock the route itself.
+    if (unit.state === 'moving' && unit.path && unit.path.length > 1) return;
+    updateUnitSpatialIndexEntry(unit);
+    const desired = getUnitSeparationDistance(unit);
     const desiredSq = desired * desired;
     let pushX = 0;
     let pushY = 0;
@@ -208,17 +269,20 @@ function applyUnitSeparation(unit) {
         const dx = unit.x - other.x;
         const dy = unit.y - other.y;
         const distSq = dx * dx + dy * dy;
-        if (distSq > 0 && distSq < desiredSq) {
+        if (distSq < desiredSq) {
             const dist = Math.sqrt(distSq);
+            const direction = dist > 0
+                ? { x: dx / dist, y: dy / dist }
+                : getDeterministicSeparationDirection(unit, other);
             const overlap = desired - dist;
-            pushX += (dx / dist) * overlap;
-            pushY += (dy / dist) * overlap;
+            pushX += direction.x * overlap;
+            pushY += direction.y * overlap;
         }
     }
 
     if (pushX !== 0 || pushY !== 0) {
         // Limit the correction per tick to avoid jitter
-        const maxStep = 0.9;
+        const maxStep = 1.2;
         const mag = Math.hypot(pushX, pushY) || 1;
         const stepX = (pushX / mag) * Math.min(maxStep, mag);
         const stepY = (pushY / mag) * Math.min(maxStep, mag);
@@ -231,7 +295,73 @@ function applyUnitSeparation(unit) {
         if (canTakeSeparationStep(unit, nx, ny)) {
             unit.x = nx;
             unit.y = ny;
+            updateUnitSpatialIndexEntry(unit);
         }
+    }
+}
+
+function resolveUnitCrowding() {
+    const allUnits = (typeof getAllUnits === 'function'
+        ? getAllUnits()
+        : [...gameState.units, ...gameState.enemyUnits]);
+    allUnits.forEach(unit => { if (unit) unit.__crowdOrder = -1; });
+    const units = allUnits
+        .filter(unit => unit && unit.health > 0 && unit.state !== 'embarked' &&
+            unit.state !== 'building' && Number.isFinite(unit.x) && Number.isFinite(unit.y) &&
+            (unit.state !== 'moving' || !unit.path || unit.path.length <= 1));
+    if (units.length < 2) return;
+
+    units.forEach((unit, index) => { unit.__crowdOrder = index; });
+    const maxDistance = Math.max(UNIT_MIN_SEPARATION, VESSEL_MIN_SEPARATION);
+
+    // Multiple short passes converge dense groups without teleporting them or
+    // allowing a correction to cross water, buildings, or an unsafe shoreline.
+    for (let pass = 0; pass < 4; pass++) {
+        buildUnitSpatialIndex();
+        let moved = false;
+
+        for (const unit of units) {
+            for (const other of getNearbyUnits(unit, maxDistance)) {
+                if (other === unit || other.state === 'building' ||
+                    !Number.isInteger(other.__crowdOrder) ||
+                    other.__crowdOrder <= unit.__crowdOrder) continue;
+
+                const desired = Math.max(
+                    getUnitSeparationDistance(unit),
+                    getUnitSeparationDistance(other)
+                );
+                const dx = unit.x - other.x;
+                const dy = unit.y - other.y;
+                const distance = Math.hypot(dx, dy);
+                if (distance >= desired) continue;
+
+                const direction = distance > 0
+                    ? { x: dx / distance, y: dy / distance }
+                    : getDeterministicSeparationDirection(unit, other);
+                const correction = Math.min(6, (desired - distance) * 0.5);
+                const unitX = unit.x + direction.x * correction;
+                const unitY = unit.y + direction.y * correction;
+                const otherX = other.x - direction.x * correction;
+                const otherY = other.y - direction.y * correction;
+                const moveUnit = canTakeSeparationStep(unit, unitX, unitY);
+                const moveOther = canTakeSeparationStep(other, otherX, otherY);
+
+                if (moveUnit) {
+                    unit.x = unitX;
+                    unit.y = unitY;
+                    updateUnitSpatialIndexEntry(unit);
+                    moved = true;
+                }
+                if (moveOther) {
+                    other.x = otherX;
+                    other.y = otherY;
+                    updateUnitSpatialIndexEntry(other);
+                    moved = true;
+                }
+            }
+        }
+
+        if (!moved) break;
     }
 }
 
@@ -341,6 +471,7 @@ function updateUnits(deltaTime) {
         updateUnitAnimation(unit, deltaTime);
         applyUnitSeparation(unit);
     });
+    resolveUnitCrowding();
     if (typeof updateConstructionSites === 'function') {
         updateConstructionSites(deltaTime);
     }
@@ -618,7 +749,14 @@ function updateUnit(unit, deltaTime) {
                 let dy = unit.targetY - unit.y;
                 const distance = Math.sqrt(dx * dx + dy * dy);
 
-                if (distance > 5) {
+                // A group can have several units assigned to the same grid cell.
+                // Once another unit has claimed the target area, let this unit
+                // settle at the nearest legal free point instead of orbiting it.
+                const crowdedArrival = hasUnitNearTarget(unit, unit.targetX, unit.targetY);
+                const arrivalDistance = crowdedArrival
+                    ? getUnitSeparationDistance(unit)
+                    : 5;
+                if (distance > arrivalDistance) {
                     const moveSpeed = config.speed;
                     // Smooth steering for vessels
                     if (!!GAME_CONFIG.units[unit.type]?.vessel) {

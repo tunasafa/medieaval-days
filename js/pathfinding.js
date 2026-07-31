@@ -1182,16 +1182,19 @@ function clonePath(path) {
 }
 
 function getPathCacheKey(startX, startY, endX, endY, unitType) {
-    const clusterCells = GAME_CONFIG.pathfinding?.cacheClusterCells || 4;
-    const clusterSize = (pathfindingGrid?.cellSize || 32) * clusterCells;
-    const pathClass = GAME_CONFIG.units[unitType]?.vessel ? 'vessel' : 'land';
+    const cellSize = pathfindingGrid?.cellSize || 32;
+    const toCell = (x, y) => pathfindingGrid
+        ? pathfindingGrid.worldToGrid(x, y)
+        : { x: Math.floor(x / cellSize), y: Math.floor(y / cellSize) };
+    const start = toCell(startX, startY);
+    const end = toCell(endX, endY);
     return [
         pathfindingGrid?.version || 0,
-        pathClass,
-        Math.floor(startX / clusterSize),
-        Math.floor(startY / clusterSize),
-        Math.floor(endX / clusterSize),
-        Math.floor(endY / clusterSize)
+        unitType,
+        start.x,
+        start.y,
+        end.x,
+        end.y
     ].join('|');
 }
 
@@ -1247,9 +1250,9 @@ function findPath(startX, startY, endX, endY, unitType = 'villager') {
         GAME_CONFIG.pathfinding?.allowShorelineFallback !== false) {
         path = pathfinder.findPath(startX, startY, endX, endY, unitType, { allowUnsafeShoreline: true });
     }
-    // Never cache a failure or an escape route. Cache keys are quantised to
-    // ~256px clusters, so one unit wedged against a wall would otherwise hand
-    // its null (or its own personal way out) to every other unit nearby.
+    // Never cache a failure or an escape route. The cache key is scoped to the
+    // exact start/end grid cells because returning a path from a larger cluster
+    // can send a nearby order to the previous order's endpoint.
     if (path && path.length > 1 && !pathfinder.lastPathUsedEscape && !pathfinder.lastPathEscapeOnly) {
         setCachedPath(cacheKey, path);
     }
@@ -1293,6 +1296,28 @@ function setUnitDestination(unit, targetX, targetY) {
             console.warn(`Land unit ${unit.type} cannot move to water destination`);
             return false; // Invalid destination
         }
+    }
+
+    // A* returns grid-cell routes, so a click inside the unit's current cell
+    // can otherwise be treated as a failed path and replaced with a 32px
+    // nearest-reachable search. Keep short, terrain-legal orders exact.
+    if (!pathfinder) initializePathfinding();
+    if (pathfindingGrid?._dirty) updatePathfindingGrid();
+    const startCell = pathfindingGrid.worldToGrid(unit.x, unit.y);
+    const targetCell = pathfindingGrid.worldToGrid(targetX, targetY);
+    if (startCell.x === targetCell.x && startCell.y === targetCell.y &&
+        validateTerrainMovement(unit, targetX, targetY)) {
+        unit.path = null;
+        unit.state = 'moving';
+        unit.requestedTargetX = targetX;
+        unit.requestedTargetY = targetY;
+        unit.targetX = targetX;
+        unit.targetY = targetY;
+        unit._repathAfterEscape = null;
+        unit.pathfindingFailed = false;
+        unit._stuckCount = 0;
+        unit._moveProg = null;
+        return true;
     }
 
     const path = findPath(unit.x, unit.y, targetX, targetY, unit.type);

@@ -621,7 +621,7 @@ function handleRightClick(x, y) {
             showNotification('Gather command issued!');
             return;
         }
-        const offsets = computeFormationOffsets(gameState.selectedUnits.length, 24);
+        const offsets = computeFormationOffsets(gameState.selectedUnits.length, 28);
         gameState.selectedUnits.forEach((unit, idx) => {
             if (unit.type === 'villager') {
                 unit.state = 'gathering';
@@ -695,7 +695,7 @@ function handleRightClick(x, y) {
         });
         return;
     }
-    const offsets = computeFormationOffsets(gameState.selectedUnits.length, 24);
+    const offsets = computeFormationOffsets(gameState.selectedUnits.length, 28);
     gameState.selectedUnits.forEach((unit, idx) => {
         unit.state = 'moving';
         const off = offsets[idx] || { dx: 0, dy: 0 };
@@ -705,6 +705,11 @@ function handleRightClick(x, y) {
 
         // Use advanced pathfinding for movement
         setUnitDestination(unit, free.x, free.y);
+        // Keep the formation slot as the final target. A* waypoints are cell
+        // centers, and collapsing several slots onto one center makes units
+        // orbit the same point instead of settling beside one another.
+        unit.targetX = free.x;
+        unit.targetY = free.y;
         unit.target = null;
     });
 }

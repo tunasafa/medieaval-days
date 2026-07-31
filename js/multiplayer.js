@@ -764,7 +764,7 @@ const Multiplayer = (() => {
     function issueMoveCommand(units, targetX, targetY) {
         if (!units.length || !Number.isFinite(targetX) || !Number.isFinite(targetY)) return;
         const offsets = typeof computeFormationOffsets === 'function'
-            ? computeFormationOffsets(units.length, 24)
+            ? computeFormationOffsets(units.length, 28)
             : units.map(() => ({ dx: 0, dy: 0 }));
         units.forEach((unit, idx) => {
             unit.state = 'moving';
@@ -777,6 +777,8 @@ const Multiplayer = (() => {
                 : clamped;
             if (typeof setUnitDestination === 'function') {
                 setUnitDestination(unit, free.x, free.y);
+                unit.targetX = free.x;
+                unit.targetY = free.y;
             } else {
                 unit.targetX = free.x;
                 unit.targetY = free.y;
@@ -794,7 +796,7 @@ const Multiplayer = (() => {
     function issueGatherCommand(units, resource) {
         if (!units.length || !resource || resource.type !== 'resource' || resource.amount <= 0) return;
         const offsets = typeof computeFormationOffsets === 'function'
-            ? computeFormationOffsets(units.length, 24)
+            ? computeFormationOffsets(units.length, 28)
             : units.map(() => ({ dx: 0, dy: 0 }));
         units.forEach((unit, idx) => {
             const off = offsets[idx] || { dx: 0, dy: 0 };

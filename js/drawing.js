@@ -508,17 +508,15 @@ function getUnitDomId(unit) {
 function drawUnits(ctx) {
 
     syncOverlayToCanvas();
-    const visibleEnemyUnits = gameState.enemyUnits.filter(unit =>
-        typeof canPlayerSeeEnemyUnit !== 'function' || canPlayerSeeEnemyUnit(unit)
+    const visibleUnits = getAllUnits().filter(unit =>
+        isLocalPlayerEntity(unit) ||
+        typeof canPlayerSeeEnemyUnit !== 'function' ||
+        canPlayerSeeEnemyUnit(unit)
     );
-    gameState.units.forEach(unit => drawUnit(ctx, unit));
-    visibleEnemyUnits.forEach(unit => drawUnit(ctx, unit));
+    visibleUnits.forEach(unit => drawUnit(ctx, unit));
 
     const overlay = getUnitOverlay();
-    const validIds = new Set([
-        ...gameState.units.map(u => getUnitDomId(u)),
-        ...visibleEnemyUnits.map(u => getUnitDomId(u))
-    ]);
+    const validIds = new Set(visibleUnits.map(u => getUnitDomId(u)));
     overlay.querySelectorAll('img[data-unit-id]').forEach(img => {
         if (!validIds.has(img.dataset.unitId)) {
             if (img.parentNode) img.parentNode.removeChild(img);
@@ -587,7 +585,9 @@ function drawUnit(ctx, unit) {
             }
         }
         if (unit.type === 'villager' && unit.state === 'building' && unit.buildTargetId) {
-            const targetBuilding = gameState.buildings.find(building => building.id === unit.buildTargetId);
+            const targetBuilding = typeof findBuildingById === 'function'
+                ? findBuildingById(unit.buildTargetId)
+                : [...gameState.buildings, ...gameState.enemyBuildings].find(building => building.id === unit.buildTargetId);
             if (targetBuilding) {
                 const bx = targetBuilding.x + targetBuilding.width / 2;
                 const by = targetBuilding.y + targetBuilding.height / 2;
@@ -1183,8 +1183,11 @@ function drawBuildings(ctx) {
     const viewW = GAME_CONFIG.canvas.width / zoom;
     const viewH = GAME_CONFIG.canvas.height / zoom;
 
-    [...gameState.buildings, ...gameState.enemyBuildings].forEach(building => {
+    getAllBuildings().forEach(building => {
         if (building.health <= 0) return;
+        if (!isLocalPlayerEntity(building) &&
+            typeof hasPlayerExploredEnemyEntity === 'function' &&
+            !hasPlayerExploredEnemyEntity(building)) return;
         const drawX = building.x - gameState.camera.x;
         const drawY = building.y - gameState.camera.y;
         if (drawX + building.width < 0 || drawX > viewW ||
@@ -1378,23 +1381,18 @@ function drawMinimap() {
     ctx.clip();
 
     ctx.drawImage(getMinimapBaseLayer(minimapCanvas, scaleX, scaleY), 0, 0);
-    gameState.units.forEach(unit => {
-        ctx.fillStyle = getFactionColor(unit);
-        ctx.fillRect(unit.x * scaleX - 1, unit.y * scaleY - 1, 2, 2);
-    });
-    gameState.enemyUnits
-        .filter(unit => typeof canPlayerSeeEnemyUnit !== 'function' || canPlayerSeeEnemyUnit(unit))
+    getAllUnits()
+        .filter(unit => isLocalPlayerEntity(unit) ||
+            typeof canPlayerSeeEnemyUnit !== 'function' ||
+            canPlayerSeeEnemyUnit(unit))
         .forEach(unit => {
             ctx.fillStyle = getFactionColor(unit);
             ctx.fillRect(unit.x * scaleX - 1, unit.y * scaleY - 1, 2, 2);
         });
-    gameState.buildings.forEach(building => {
-        ctx.fillStyle = getFactionColor(building);
-        ctx.fillRect(building.x * scaleX, building.y * scaleY,
-                   Math.max(2, building.width * scaleX), Math.max(2, building.height * scaleY));
-    });
-    gameState.enemyBuildings
-        .filter(building => typeof hasPlayerExploredEnemyEntity !== 'function' || hasPlayerExploredEnemyEntity(building))
+    getAllBuildings()
+        .filter(building => isLocalPlayerEntity(building) ||
+            typeof hasPlayerExploredEnemyEntity !== 'function' ||
+            hasPlayerExploredEnemyEntity(building))
         .forEach(building => {
             ctx.fillStyle = getFactionColor(building);
             ctx.fillRect(building.x * scaleX, building.y * scaleY,

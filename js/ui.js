@@ -64,13 +64,16 @@ function setTextIfChanged(id, value) {
 }
 
 function updateUI() {
-    setResourceCounter('food', gameState.resources.food);
-    setResourceCounter('wood', gameState.resources.wood);
-    setResourceCounter('stone', gameState.resources.stone);
-    setResourceCounter('gold', gameState.resources.gold);
-    setTextIfChanged('population', `${gameState.population.current}/${gameState.population.max}`);
-    setTextIfChanged('enemy-units', gameState.enemyUnits.length);
-    setTextIfChanged('enemy-buildings', gameState.enemyBuildings.length);
+    const owner = getLocalPlayerId();
+    const resources = getResourcesForPlayer(owner);
+    const population = getPopulationForPlayer(owner);
+    setResourceCounter('food', resources.food);
+    setResourceCounter('wood', resources.wood);
+    setResourceCounter('stone', resources.stone);
+    setResourceCounter('gold', resources.gold);
+    setTextIfChanged('population', `${population.current}/${population.max}`);
+    setTextIfChanged('enemy-units', getAllUnits().filter(unit => areHostile(owner, unit)).length);
+    setTextIfChanged('enemy-buildings', getAllBuildings().filter(building => areHostile(owner, building)).length);
 }
 
 function updateTrainingQueueUI() {
@@ -115,7 +118,9 @@ function updateTrainingQueueUI() {
 
 function getUnitTooltipHTML(unitType) {
     const base = GAME_CONFIG.units[unitType] || {};
-    const cfg = typeof getEffectiveUnitConfig === 'function' ? getEffectiveUnitConfig(unitType) : base;
+    const cfg = typeof getEffectiveUnitConfig === 'function'
+        ? getEffectiveUnitConfig({ type: unitType, player: getLocalPlayerId() })
+        : base;
     const cost = typeof formatUpgradeCost === 'function' ? formatUpgradeCost(base.cost || {}) : formatCost(base.cost || {});
     const parts = [
         `<strong>${displayName(unitType)}</strong>`,
@@ -126,7 +131,7 @@ function getUnitTooltipHTML(unitType) {
         `Train: ${typeof formatProductionSeconds === 'function' ? formatProductionSeconds(base.buildTime || 0, 'unit') : base.buildTime || 0}s`,
         `Cost: ${cost || 'Free'}`
     ];
-    if (unitType === 'villager') parts.splice(5, 0, `Carry: ${getUnitCarryCapacity(unitType)}`);
+    if (unitType === 'villager') parts.splice(5, 0, `Carry: ${getUnitCarryCapacity({ type: unitType, player: getLocalPlayerId() })}`);
     if (base.capacity) parts.splice(5, 0, `Capacity: ${base.capacity}`);
     return parts.join('<br>');
 }
@@ -135,7 +140,7 @@ function getBuildingTooltipHTML(buildingType) {
     const cfg = getBuildingConfig(buildingType) || {};
     const cost = typeof formatUpgradeCost === 'function' ? formatUpgradeCost(cfg.cost || {}) : formatCost(cfg.cost || {});
     const maxHealth = typeof getEffectiveBuildingMaxHealth === 'function'
-        ? getEffectiveBuildingMaxHealth(buildingType, 'player')
+        ? getEffectiveBuildingMaxHealth(buildingType, getLocalPlayerId())
         : cfg.maxHealth;
     return [
         `<strong>${displayName(buildingType)}</strong>`,
@@ -231,7 +236,18 @@ function updateSelectionInfo() {
             if (used > 0) {
                 const disembarkBtn = document.createElement('button');
                 disembarkBtn.textContent = `Disembark ${used} unit(s)`;
-                disembarkBtn.onclick = () => disembarkCargoNearShore(unit);
+                disembarkBtn.onclick = () => {
+                    if (typeof Multiplayer !== 'undefined' && Multiplayer.isClient) {
+                        Multiplayer.sendCommand({
+                            action: 'DISEMBARK',
+                            transportId: unit.id,
+                            targetX: unit.x,
+                            targetY: unit.y
+                        });
+                    } else {
+                        disembarkCargoNearShore(unit);
+                    }
+                };
                 btns.appendChild(disembarkBtn);
             }
 
@@ -295,8 +311,9 @@ function renderResearchActions(building, container) {
     group.appendChild(heading);
 
     upgrades.forEach(([upgradeId, upgrade]) => {
+        const owner = building.player || getLocalPlayerId();
         const status = getUpgradeStatus(upgradeId, building);
-        const active = status.active || getActiveResearchForUpgrade(upgradeId);
+        const active = status.active || getActiveResearchForUpgrade(upgradeId, owner);
         const pct = active ? getResearchProgressPct(active) : 0;
         const card = document.createElement('button');
         card.type = 'button';
@@ -306,7 +323,7 @@ function renderResearchActions(building, container) {
             card.innerHTML = `
             <div class="research-name">
                 <span>${upgrade.name}</span>
-                <span>${typeof formatProductionSeconds === 'function' ? formatProductionSeconds(upgrade.time, 'research') : upgrade.time}s</span>
+                <span>${typeof formatProductionSeconds === 'function' ? formatProductionSeconds(upgrade.time, 'research', owner) : upgrade.time}s</span>
             </div>
             <div class="research-desc">${upgrade.desc}</div>
             <div class="research-cost">${formatUpgradeCost(upgrade.cost)}</div>
@@ -326,8 +343,9 @@ function updateResearchQueueUI() {
     if (!list || !building || typeof getUpgradeStatus !== 'function') return;
     list.querySelectorAll('.research-card').forEach(card => {
         const upgradeId = card.dataset.upgradeId;
+        const owner = building.player || getLocalPlayerId();
         const status = getUpgradeStatus(upgradeId, building);
-        const active = status.active || getActiveResearchForUpgrade(upgradeId);
+        const active = status.active || getActiveResearchForUpgrade(upgradeId, owner);
         const fill = card.querySelector('.research-fill');
         const label = card.querySelector('.research-status');
         card.className = `research-card ${status.state}`;
@@ -340,13 +358,14 @@ function updateResearchQueueUI() {
 function getUpgradeTooltipHTML(upgradeId, building = null) {
     const upgrade = GAME_UPGRADES[upgradeId];
     if (!upgrade) return '';
+    const owner = building?.player || getLocalPlayerId();
     const status = getUpgradeStatus(upgradeId, building);
     return [
         `<strong>${upgrade.name}</strong>`,
         upgrade.desc,
         `Cost: ${formatUpgradeCost(upgrade.cost)}`,
         `Time: ${upgrade.time}s`,
-        typeof formatProductionSeconds === 'function' ? `Current Time: ${formatProductionSeconds(upgrade.time, 'research')}s` : '',
+        typeof formatProductionSeconds === 'function' ? `Current Time: ${formatProductionSeconds(upgrade.time, 'research', owner)}s` : '',
         `At: ${displayName(upgrade.researchedAt)}`,
         status.label
     ].filter(Boolean).join('<br>');
@@ -378,13 +397,13 @@ function renderTechTreeModal() {
             .filter(([, upgrade]) => normalizeAge(upgrade.requiredAge) === column.key)
             .forEach(([upgradeId, upgrade]) => {
                 const status = getUpgradeStatus(upgradeId);
-                const active = status.active || getActiveResearchForUpgrade(upgradeId);
+                const active = status.active || getActiveResearchForUpgrade(upgradeId, getLocalPlayerId());
                 const card = document.createElement('div');
                 card.className = `tech-upgrade-card ${status.state}`;
                 card.innerHTML = `
                     <div class="tech-upgrade-title">${upgrade.name}</div>
                     <div class="tech-upgrade-meta">${upgrade.desc}</div>
-                    <div class="tech-upgrade-meta">${displayName(upgrade.researchedAt)} - ${formatUpgradeCost(upgrade.cost)} - ${typeof formatProductionSeconds === 'function' ? formatProductionSeconds(upgrade.time, 'research') : upgrade.time}s</div>
+                    <div class="tech-upgrade-meta">${displayName(upgrade.researchedAt)} - ${formatUpgradeCost(upgrade.cost)} - ${typeof formatProductionSeconds === 'function' ? formatProductionSeconds(upgrade.time, 'research', getLocalPlayerId()) : upgrade.time}s</div>
                     <div class="tech-upgrade-meta">${status.label}</div>
                     <div class="research-progress"><div class="research-fill" style="width: ${active ? getResearchProgressPct(active) : 0}%;"></div></div>
                 `;
@@ -645,8 +664,7 @@ function updateGameTimerUI() {
 }
 
 function scanIdleVillagers() {
-    gameState.ui.idleVillagers = gameState.units.filter(unit =>
-        unit.player === 'player' &&
+    gameState.ui.idleVillagers = getUnitsForPlayer(getLocalPlayerId()).filter(unit =>
         unit.type === 'villager' &&
         unit.state === 'idle' &&
         unit.health > 0
@@ -689,7 +707,7 @@ function selectNextIdleVillager() {
     gameState.ui.idleVillagerIndex = (gameState.ui.idleVillagerIndex + 1) % idle.length;
     const villager = idle[gameState.ui.idleVillagerIndex];
     gameState.selectedUnits.forEach(unit => unit.isSelected = false);
-    gameState.buildings.forEach(building => building.isSelected = false);
+    getAllBuildings().forEach(building => building.isSelected = false);
     gameState.selectedUnits = [villager];
     villager.isSelected = true;
     gameState.selectedBuilding = null;
@@ -879,59 +897,92 @@ function setupUiControls() {
 }
 
 function advanceAge() {
-    if (gameState.currentAge === 'Dark Age') {
-        if (gameState.resources.food >= 500) {
-            gameState.resources.food -= 500;
-            gameState.currentAge = 'Feudal Age';
-            document.getElementById('age-display').textContent = gameState.currentAge;
-            showNotification('Advanced to Feudal Age! Axemen, Crossbowmen and Feudal technologies unlocked.');
-            document.getElementById('btn-age-up').textContent = 'Advance to Castle Age (800 Food, 200 Gold)';
+    if (typeof Multiplayer !== 'undefined' && Multiplayer.isClient) {
+        Multiplayer.sendCommand({ action: 'AGE_UP' });
+        showNotification('Age advancement requested.');
+        return;
+    }
 
-            if (gameState.selectedBuilding) showBuildingActions(gameState.selectedBuilding);
-            renderTechTreeModal();
-        } else {
+    const owner = getLocalPlayerId();
+    advanceAgeForPlayer(owner);
+}
+
+function advanceAgeForPlayer(owner = getLocalPlayerId()) {
+    const resources = getResourcesForPlayer(owner);
+    const currentAge = getAgeForPlayer(owner);
+
+    if (currentAge === 'Dark Age') {
+        if (resources.food < 500) {
             showNotification('Not enough Food (need 500)!');
+            return false;
         }
-    } else if (gameState.currentAge === 'Feudal Age') {
-        if (gameState.resources.food >= 800 && gameState.resources.gold >= 200) {
-            gameState.resources.food -= 800;
-            gameState.resources.gold -= 200;
-            gameState.currentAge = 'Castle Age';
-            document.getElementById('age-display').textContent = gameState.currentAge;
-            showNotification('Advanced to Castle Age! Siege weapons and Castle technologies unlocked.');
-            document.getElementById('btn-age-up').textContent = 'Advance to Imperial Age (1000 Food, 800 Gold)';
-
-            if (gameState.selectedBuilding) showBuildingActions(gameState.selectedBuilding);
-            renderTechTreeModal();
-        } else {
+        resources.food -= 500;
+        setAgeForPlayer(owner, 'Feudal Age');
+        showNotification('Advanced to Feudal Age! Axemen, Crossbowmen and Feudal technologies unlocked.');
+    } else if (currentAge === 'Feudal Age') {
+        if (resources.food < 800 || resources.gold < 200) {
             showNotification('Not enough resources (need 800 Food, 200 Gold)!');
+            return false;
         }
-    } else if (gameState.currentAge === 'Castle Age') {
-        if (gameState.resources.food >= 1000 && gameState.resources.gold >= 800) {
-            gameState.resources.food -= 1000;
-            gameState.resources.gold -= 800;
-            gameState.currentAge = 'Imperial Age';
-            document.getElementById('age-display').textContent = gameState.currentAge;
-            showNotification('Advanced to Imperial Age!');
-            document.getElementById('btn-age-up').disabled = true;
-            document.getElementById('btn-age-up').textContent = 'Max Age Reached';
-            if (gameState.selectedBuilding) showBuildingActions(gameState.selectedBuilding);
-            renderTechTreeModal();
-        } else {
+        resources.food -= 800;
+        resources.gold -= 200;
+        setAgeForPlayer(owner, 'Castle Age');
+        showNotification('Advanced to Castle Age! Siege weapons and Castle technologies unlocked.');
+    } else if (currentAge === 'Castle Age') {
+        if (resources.food < 1000 || resources.gold < 800) {
             showNotification('Not enough resources (need 1000 Food, 800 Gold)!');
+            return false;
         }
+        resources.food -= 1000;
+        resources.gold -= 800;
+        setAgeForPlayer(owner, 'Imperial Age');
+        showNotification('Advanced to Imperial Age!');
+    } else {
+        return false;
+    }
+
+    syncAgeUiForLocalPlayer();
+    if (gameState.selectedBuilding) showBuildingActions(gameState.selectedBuilding);
+    renderTechTreeModal();
+    return true;
+}
+
+function syncAgeUiForLocalPlayer() {
+    const age = getAgeForPlayer(getLocalPlayerId());
+    const ageDisplay = document.getElementById('age-display');
+    const ageButton = document.getElementById('btn-age-up');
+    if (ageDisplay) ageDisplay.textContent = age;
+    if (!ageButton) return;
+    if (age === 'Dark Age') {
+        ageButton.disabled = false;
+        ageButton.textContent = 'Advance to Feudal Age (500 Food)';
+    } else if (age === 'Feudal Age') {
+        ageButton.disabled = false;
+        ageButton.textContent = 'Advance to Castle Age (800 Food, 200 Gold)';
+    } else if (age === 'Castle Age') {
+        ageButton.disabled = false;
+        ageButton.textContent = 'Advance to Imperial Age (1000 Food, 800 Gold)';
+    } else {
+        ageButton.disabled = true;
+        ageButton.textContent = 'Max Age Reached';
     }
 }
 
 function checkWinConditions() {
-    const enemyTownCenters = gameState.enemyBuildings.filter(b =>
-        b.type === 'town-center' && b.health > 0
+    const owner = typeof getLocalPlayerId === 'function' ? getLocalPlayerId() : 'player';
+    const allBuildings = typeof getAllBuildings === 'function'
+        ? getAllBuildings()
+        : [...gameState.buildings, ...gameState.enemyBuildings];
+    const enemyTownCenters = allBuildings.filter(b =>
+        b.type === 'town-center' &&
+        b.health > 0 &&
+        (typeof areHostile !== 'function' || areHostile(owner, b))
     );
     if (enemyTownCenters.length === 0) {
         endGame(true, 'Victory! Every rival command has fallen.');
         return;
     }
-    const playerTownCenters = gameState.buildings.filter(b =>
+    const playerTownCenters = (typeof getBuildingsForPlayer === 'function' ? getBuildingsForPlayer(owner) : gameState.buildings).filter(b =>
         b.type === 'town-center' && b.health > 0
     );
     if (playerTownCenters.length === 0) {
@@ -962,7 +1013,7 @@ function showNotification(message) {
 // Removed legacy PNG sprite-sheet debug/preload; units load via AssetManager GIFs.
 
 function centerOnTownCenter() {
-    const townCenter = gameState.buildings.find(b => b.type === 'town-center' && b.player === 'player');
+    const townCenter = getBuildingsForPlayer(getLocalPlayerId()).find(b => b.type === 'town-center');
     if (townCenter) {
         centerCameraOn(townCenter.x + townCenter.width / 2, townCenter.y + townCenter.height / 2);
     }

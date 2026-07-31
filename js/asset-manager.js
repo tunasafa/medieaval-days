@@ -381,6 +381,14 @@ class AssetManager {
                 .filter(Boolean)
         );
         enemyAssetFolders.add('enemy');
+        if (typeof getFactionConfig === 'function') {
+            ['player', 'player2'].forEach(playerId => {
+                const folder = getFactionConfig(playerId)?.assetFolder;
+                if (folder) enemyAssetFolders.add(folder);
+            });
+        } else {
+            enemyAssetFolders.add('desert');
+        }
 
         enemyAssetFolders.forEach(folder => {
             const buildingNames = folder === 'enemy'
@@ -392,7 +400,7 @@ class AssetManager {
         });
 
         const enemyUnitPrefixes = [
-            'archer/', 'militia/', 'warrior/', 'axeman/', 'crossbowman/',
+            'villager/', 'archer/', 'militia/', 'warrior/', 'axeman/', 'crossbowman/',
             'ballista/', 'catapult/', 'warship/', 'FishingBoat/', 'TransportLarge/'
         ];
         const themedUnitAssets = assetList

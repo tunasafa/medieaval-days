@@ -329,8 +329,10 @@ function updateUnit(unit, deltaTime) {
 
     // NEW EMBARK SYSTEM: When moving toward a transport, check for automatic embark
     if (unit.embarkTargetId && unit.state === 'moving' && !GAME_CONFIG.units[unit.type]?.vessel) {
-        const transport = gameState.units.find(u => u.id === unit.embarkTargetId && isTransport(u));
-        if (transport) {
+        const transport = typeof findUnitById === 'function'
+            ? findUnitById(unit.embarkTargetId)
+            : [...gameState.units, ...gameState.enemyUnits].find(u => u.id === unit.embarkTargetId && isTransport(u));
+        if (transport && isTransport(transport)) {
             const dist = Math.hypot(unit.x - transport.x, unit.y - transport.y);
             const capacity = GAME_CONFIG.units[transport.type].capacity || 0;
             const currentCargo = (transport.cargo || []).length;
@@ -343,10 +345,11 @@ function updateUnit(unit, deltaTime) {
                 transport.cargo = transport.cargo || [];
                 transport.cargo.push(unit);
 
-                // Remove unit from gameState.units
-                const unitIndex = gameState.units.indexOf(unit);
+                // Remove unit from its active owner container
+                const unitContainer = getUnitContainerForPlayer(unit.player);
+                const unitIndex = unitContainer.indexOf(unit);
                 if (unitIndex > -1) {
-                    gameState.units.splice(unitIndex, 1);
+                    unitContainer.splice(unitIndex, 1);
                 }
 
                 // Clean up DOM overlay if exists
@@ -369,7 +372,7 @@ function updateUnit(unit, deltaTime) {
                 unit.gatherType = 'food';
                 unit.gatheredAmount = (unit.gatheredAmount || 0) + (config.gatherRate || 2.5) * (deltaTime / 1000);
                 if (unit.gatheredAmount >= carryCapacity) {
-                    gameState.resources.food += unit.gatheredAmount;
+                    getResourcesForPlayer(unit.player).food += unit.gatheredAmount;
                     if (typeof SFX !== 'undefined') SFX.resourceDeposit();
                     showNotification(`+${Math.floor(unit.gatheredAmount)} food (fishing)`);
                     unit.gatheredAmount = 0;
@@ -650,7 +653,7 @@ function updateUnit(unit, deltaTime) {
             }
         }
     } else if (unit.state === 'attacking' && unit.target) {
-        if (unit.player === 'player' &&
+        if ((typeof isLocalPlayerEntity !== 'function' || isLocalPlayerEntity(unit)) &&
             typeof canPlayerSeeEntity === 'function' &&
             !canPlayerSeeEntity(unit.target, true)) {
             unit.state = 'idle';
@@ -1011,7 +1014,7 @@ function updateUnit(unit, deltaTime) {
                 unit.returnPathFailed = false;
                 unit.returnPathFailCount = 0;
                 unit.returnPathRetryDelay = 0;
-                const tc = gameState.buildings.find(b => b.type === 'town-center' && b.player === 'player');
+                const tc = getBuildingsForPlayer(unit.player).find(b => b.type === 'town-center');
                 if (tc) {
                     // Remember which side is closest at the moment we start returning, to avoid oscillation
                     let edge = getDropOffPointOutside(unit, tc);
@@ -1030,7 +1033,7 @@ function updateUnit(unit, deltaTime) {
         }
     } else if (unit.state === 'returning') {
         // Dynamically target the nearest Town Center border every tick and deposit once close enough
-        const tc = gameState.buildings.find(b => b.type === 'town-center' && b.player === 'player');
+        const tc = getBuildingsForPlayer(unit.player).find(b => b.type === 'town-center');
         let targetX = unit.dropOffX;
         let targetY = unit.dropOffY;
         if (tc) {
@@ -1058,7 +1061,8 @@ function updateUnit(unit, deltaTime) {
         if (targetX === undefined || targetY === undefined) {
             // No valid target; fail-safe: finish delivery immediately
             if (unit.gatheredAmount > 0 && unit.gatherType) {
-                gameState.resources[unit.gatherType] += unit.gatheredAmount;
+                const resources = getResourcesForPlayer(unit.player);
+                resources[unit.gatherType] = (resources[unit.gatherType] || 0) + unit.gatheredAmount;
                 if (typeof SFX !== 'undefined') SFX.resourceDeposit();
                 showNotification(`+${Math.floor(unit.gatheredAmount)} ${unit.gatherType}`);
             }
@@ -1209,7 +1213,8 @@ function updateUnit(unit, deltaTime) {
         } else {
             // Deposit resources
             if (unit.gatheredAmount > 0 && unit.gatherType) {
-                gameState.resources[unit.gatherType] += unit.gatheredAmount;
+                const resources = getResourcesForPlayer(unit.player);
+                resources[unit.gatherType] = (resources[unit.gatherType] || 0) + unit.gatheredAmount;
                 if (typeof SFX !== 'undefined') SFX.resourceDeposit();
                 showNotification(`+${Math.floor(unit.gatheredAmount)} ${unit.gatherType}`);
             }
@@ -1301,7 +1306,7 @@ function updateUnitAnimations() {
 
 function updateTrainingQueue(deltaTime) {
     // Process training per building: one unit at a time per building
-    const allPlayerBuildings = gameState.buildings.filter(b => b.player === 'player');
+    const allPlayerBuildings = getAllBuildings().filter(b => isHumanFaction(b));
     for (const b of allPlayerBuildings) {
         if (b.underConstruction) continue;
         if (!b.trainingQueue || b.trainingQueue.length === 0) continue;
@@ -1583,14 +1588,17 @@ function findWaterSpawnPoint(building, unitType = 'transportLarge') {
 }
 
 function spawnUnit(type, spawnAnchor) {
+    let spawnBuilding = spawnAnchor || gameState.selectedBuilding;
+    const owner = spawnBuilding?.player || getLocalPlayerId();
+
     // Check population limit before spawning
-    if (gameState.population.current >= gameState.population.max) {
+    const population = getPopulationForPlayer(owner);
+    if (population.current >= population.max) {
         showNotification('Cannot complete training: population limit reached!');
         return;
     }
 
-    let spawnBuilding = spawnAnchor || gameState.selectedBuilding;
-    if (!spawnBuilding || (spawnBuilding.player && spawnBuilding.player !== 'player')) {
+    if (!spawnBuilding || (spawnBuilding.player && spawnBuilding.player !== owner)) {
         const capable = {
             villager: ['town-center'],
             militia: ['barracks'], warrior: ['barracks'], axeman: ['barracks'],
@@ -1599,9 +1607,10 @@ function spawnUnit(type, spawnAnchor) {
             fishingBoat: ['navy'], transportLarge: ['navy'], warship: ['navy']
         };
         const types = capable[type] || [];
-        const b = gameState.buildings.find(b => b.player === 'player' && !b.underConstruction && types.includes(b.type));
-        spawnBuilding = b || gameState.buildings.find(b =>
-            b.type === 'town-center' && b.player === 'player' && !b.underConstruction
+        const ownerBuildings = getBuildingsForPlayer(owner);
+        const b = ownerBuildings.find(b => b.player === owner && !b.underConstruction && types.includes(b.type));
+        spawnBuilding = b || ownerBuildings.find(b =>
+            b.type === 'town-center' && b.player === owner && !b.underConstruction
         );
     }
     if (!spawnBuilding) return;
@@ -1653,7 +1662,10 @@ function spawnUnit(type, spawnAnchor) {
     const newUnit = {
         id: generateId(),
         type,
-        player: 'player',
+        player: owner,
+        faction: owner,
+        factionName: getFactionName(owner),
+        factionColor: getFactionColor(owner),
         x: position.x,
         y: position.y,
         health: GAME_CONFIG.units[type].maxHealth,
@@ -1670,8 +1682,8 @@ function spawnUnit(type, spawnAnchor) {
         prevX: position.x,
         prevY: position.y
     };
-    gameState.units.push(newUnit);
-    gameState.population.current++;
+    getUnitContainerForPlayer(owner).push(newUnit);
+    addPopulationForPlayer(owner, 1);
     if (typeof ParticleSystem !== 'undefined') {
         ParticleSystem.emitUnitTrainEffect(position.x, position.y);
     }
@@ -1688,22 +1700,26 @@ function trainUnit(type, producingBuilding = null) {
         'crossbowman': ['Feudal Age', 'Castle Age', 'Imperial Age']
     };
 
-    if (ageRestrictions[type] && !ageRestrictions[type].includes(gameState.currentAge)) {
-        showNotification(`Cannot train ${type} in ${gameState.currentAge}!`);
+    const b = producingBuilding || gameState.selectedBuilding;
+    const owner = b?.player || getLocalPlayerId();
+    const currentAge = getAgeForPlayer(owner);
+
+    if (ageRestrictions[type] && !ageRestrictions[type].includes(currentAge)) {
+        showNotification(`Cannot train ${type} in ${currentAge}!`);
         return;
     }
 
     const unitConfig = GAME_CONFIG.units[type];
-    if (!canAfford(unitConfig.cost)) {
+    if (!canAfford(unitConfig.cost, owner)) {
         showNotification(`Not enough resources!`);
         return;
     }
-    if (gameState.population.current >= gameState.population.max) {
+    const population = getPopulationForPlayer(owner);
+    if (population.current >= population.max) {
         showNotification('Population limit reached. Build more houses.');
         return;
     }
-    deductResources(unitConfig.cost);
-    const b = producingBuilding || gameState.selectedBuilding;
+    deductResources(unitConfig.cost, owner);
     if (!b) {
         showNotification('Select a building to train from.');
         return;
@@ -1714,7 +1730,7 @@ function trainUnit(type, producingBuilding = null) {
     }
     // Initialize per-building queue
     const trainingTime = typeof getProductionTimeMs === 'function'
-        ? getProductionTimeMs(unitConfig.buildTime, 'unit')
+        ? getProductionTimeMs(unitConfig.buildTime, 'unit', owner)
         : unitConfig.buildTime * 1000;
     b.trainingQueue = b.trainingQueue || [];
     b.trainingQueue.push({
@@ -1729,6 +1745,16 @@ function trainUnit(type, producingBuilding = null) {
 function trainUnitFromBuilding(type, building) {
     if (!building || building.health <= 0) {
         showNotification('Building is not available!');
+        return;
+    }
+    if (typeof Multiplayer !== 'undefined' && Multiplayer.isClient) {
+        if (typeof isLocalPlayerEntity === 'function' && !isLocalPlayerEntity(building)) return;
+        Multiplayer.sendCommand({
+            action: 'TRAIN',
+            buildingId: building.id,
+            unitType: type
+        });
+        showNotification(`Queued ${displayName(type)}.`);
         return;
     }
     trainUnit(type, building);
@@ -1754,11 +1780,10 @@ function embarkUnitsNearTransport(selectedUnits, transport) {
             unit.embarkedIn = transport.id;
             transport.cargo.push(unit);
 
-            // Remove from active units
-            const unitIndex = gameState.units.indexOf(unit);
-            if (unitIndex > -1) {
-                gameState.units.splice(unitIndex, 1);
-            }
+            // Remove from active owner container
+            const unitContainer = getUnitContainerForPlayer(unit.player);
+            const unitIndex = unitContainer.indexOf(unit);
+            if (unitIndex > -1) unitContainer.splice(unitIndex, 1);
 
             // Clean up unit selection
             if (unit.isSelected) {
@@ -1830,8 +1855,8 @@ function disembarkCargoNearShore(transport) {
             unit.state = 'idle';
             unit.embarkedIn = null;
 
-            // Add back to active units
-            gameState.units.push(unit);
+            // Add back to active owner container
+            getUnitContainerForPlayer(unit.player).push(unit);
 
             // Clean up DOM overlay to ensure visibility
             if (unit._domGif) {
@@ -1860,15 +1885,11 @@ function handleUnitDeath(unit) {
         ParticleSystem.emitBlood(unit.x, unit.y);
     }
     if (typeof SFX !== 'undefined') SFX.unitDeath();
-    if (unit.player === 'player') {
-        const index = gameState.units.indexOf(unit);
-        if (index > -1) {
-            gameState.units.splice(index, 1);
-            gameState.population.current--;
-        }
-    } else {
-        const index = gameState.enemyUnits.indexOf(unit);
-        if (index > -1) gameState.enemyUnits.splice(index, 1);
+    const container = getUnitContainerForPlayer(unit.player);
+    const index = container.indexOf(unit);
+    if (index > -1) {
+        container.splice(index, 1);
+        if (isHumanFaction(unit)) addPopulationForPlayer(unit.player, -1);
     }
     if (unit.type === 'resource' && unit.amount !== undefined) {
         unit.amount = 0;

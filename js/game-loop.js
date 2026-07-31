@@ -29,7 +29,7 @@ function gameLoop() {
     if (!uiPaused && !isClientMP && typeof ParticleSystem !== 'undefined') {
         ParticleSystem.update(deltaTime);
     }
-    if (!uiPaused && !isClientMP && typeof FogOfWar !== 'undefined') {
+    if (!uiPaused && typeof FogOfWar !== 'undefined') {
         FogOfWar.update();
     }
     if (!uiPaused && !isClientMP && typeof AIManager !== 'undefined') {

@@ -38,8 +38,11 @@ const ProjectileSystem = (function () {
             ? getUnitAttack(fromUnit)
             : GAME_CONFIG.units[fromUnit.type]?.attack || 0;
 
-        // Apply ballistics tech speed multiplier
-        const speedMult = 1 + (fromUnit.player === 'player' && typeof gameState !== 'undefined' ? (gameState.modifiers?.projectileSpeedMult || 0) : 0);
+        const modifiers = typeof getModifiersForPlayer === 'function' && typeof isHumanFaction === 'function' && isHumanFaction(fromUnit)
+            ? getModifiersForPlayer(fromUnit.player)
+            : null;
+        // Apply ballistics tech speed multiplier for the firing player's own tech state.
+        const speedMult = 1 + (modifiers?.projectileSpeedMult || 0);
         const finalSpeed = config.speed * speedMult;
 
         const proj = { x: fromUnit.x, y: fromUnit.y, startX: fromUnit.x, startY: fromUnit.y, targetX: tx, targetY: ty, totalDist: dist, traveled: 0, vx: (dx/dist)*finalSpeed, vy: (dy/dist)*finalSpeed, type: projType, config, target, damage, fromPlayer: fromUnit.player, angle: Math.atan2(dy, dx), trail: [], alive: true };
@@ -115,7 +118,10 @@ const ProjectileSystem = (function () {
             if (sx < -30 || sx > GAME_CONFIG.canvas.width + 30 || sy < -30 || sy > GAME_CONFIG.canvas.height + 30) continue;
 
             const cfg = p.config;
-            const isFireArrow = p.fromPlayer === 'player' && (p.type === 'arrow' || p.type === 'bolt') && typeof gameState !== 'undefined' && gameState.modifiers?.projectileFire;
+            const projectileModifiers = typeof getModifiersForPlayer === 'function' && typeof isHumanFaction === 'function' && isHumanFaction(p.fromPlayer)
+                ? getModifiersForPlayer(p.fromPlayer)
+                : null;
+            const isFireArrow = (p.type === 'arrow' || p.type === 'bolt') && !!projectileModifiers?.projectileFire;
 
             if (p.trail.length > 1) {
                 ctx.save(); ctx.globalAlpha = 0.3;

@@ -15,15 +15,13 @@ function getCombatDistance(a, b) {
 function findNearestHostileUnit(source, maxDistance = Infinity) {
     let nearest = null;
     let bestDistance = maxDistance;
-    const groups = [gameState.units, gameState.enemyUnits];
-    for (const group of groups) {
-        for (const unit of group) {
-            if (unit === source || unit.state === 'embarked' || !areHostile(source, unit)) continue;
-            const distance = getCombatDistance(source, unit);
-            if (distance < bestDistance) {
-                bestDistance = distance;
-                nearest = unit;
-            }
+    const units = typeof getAllUnits === 'function' ? getAllUnits() : [...gameState.units, ...gameState.enemyUnits];
+    for (const unit of units) {
+        if (unit === source || unit.state === 'embarked' || !areHostile(source, unit)) continue;
+        const distance = getCombatDistance(source, unit);
+        if (distance < bestDistance) {
+            bestDistance = distance;
+            nearest = unit;
         }
     }
     return nearest;
@@ -32,15 +30,13 @@ function findNearestHostileUnit(source, maxDistance = Infinity) {
 function findNearestHostileBuilding(source, maxDistance = Infinity, type = null) {
     let nearest = null;
     let bestDistance = maxDistance;
-    const groups = [gameState.buildings, gameState.enemyBuildings];
-    for (const group of groups) {
-        for (const building of group) {
-            if (!areHostile(source, building) || (type && building.type !== type)) continue;
-            const distance = getCombatDistance(source, building);
-            if (distance < bestDistance) {
-                bestDistance = distance;
-                nearest = building;
-            }
+    const buildings = typeof getAllBuildings === 'function' ? getAllBuildings() : [...gameState.buildings, ...gameState.enemyBuildings];
+    for (const building of buildings) {
+        if (!areHostile(source, building) || (type && building.type !== type)) continue;
+        const distance = getCombatDistance(source, building);
+        if (distance < bestDistance) {
+            bestDistance = distance;
+            nearest = building;
         }
     }
     return nearest;
@@ -65,7 +61,10 @@ function selectWaveTarget(enemyTC) {
 }
 
 function createEnemyBase() {
-    const enemyTCs = gameState.enemyBuildings.filter(b => b.type === 'town-center');
+    const enemyTCs = gameState.enemyBuildings.filter(b =>
+        b.type === 'town-center' &&
+        (typeof isComputerFaction !== 'function' || isComputerFaction(b))
+    );
 
     enemyTCs.forEach(enemyTC => {
         // Spawn requested idle defenders around the enemy Town Center
@@ -225,7 +224,10 @@ const AIManager = (function() {
     }
 
     function launchWave() {
-        const enemyTCs = gameState.enemyBuildings.filter(b => b.type === 'town-center' && isEnemyFaction(b));
+        const enemyTCs = gameState.enemyBuildings.filter(b =>
+            b.type === 'town-center' &&
+            (typeof isComputerFaction !== 'function' ? isEnemyFaction(b) : isComputerFaction(b))
+        );
         if (enemyTCs.length === 0) return;
 
         // Scale wave based on waveCount

@@ -60,22 +60,24 @@ function getConstructionSettings() {
     };
 }
 
-function getSelectedBuilderUnits() {
+function getSelectedBuilderUnits(owner = getLocalPlayerId()) {
     return gameState.selectedUnits.filter(unit =>
         unit &&
-        unit.player === 'player' &&
+        unit.player === owner &&
         unit.type === 'villager' &&
         unit.health > 0 &&
         unit.state !== 'embarked'
     );
 }
 
-function getBuilderUnitsFromIds(ids = []) {
+function getBuilderUnitsFromIds(ids = [], owner = null) {
     return ids
-        .map(id => gameState.units.find(unit => unit.id === id))
+        .map(id => (typeof findUnitById === 'function'
+            ? findUnitById(id)
+            : [...gameState.units, ...gameState.enemyUnits].find(unit => unit.id === id)))
         .filter(unit =>
             unit &&
-            unit.player === 'player' &&
+            (!owner || unit.player === owner) &&
             unit.type === 'villager' &&
             unit.health > 0 &&
             unit.state !== 'embarked'
@@ -95,7 +97,7 @@ function getConstructionProgressPct(building) {
 
 function getConstructionWorkers(building) {
     if (!building?.construction) return [];
-    return getBuilderUnitsFromIds(building.construction.workerIds || [])
+    return getBuilderUnitsFromIds(building.construction.workerIds || [], building.player)
         .filter(unit => unit.buildTargetId === building.id);
 }
 
@@ -205,7 +207,9 @@ function clearConstructionMovement(unit) {
 
 function releaseUnitFromConstruction(unit, nextState = 'idle') {
     if (!unit?.buildTargetId) return;
-    const building = gameState.buildings.find(b => b.id === unit.buildTargetId);
+    const building = typeof findBuildingById === 'function'
+        ? findBuildingById(unit.buildTargetId)
+        : [...gameState.buildings, ...gameState.enemyBuildings].find(b => b.id === unit.buildTargetId);
     if (building?.construction?.workerIds) {
         building.construction.workerIds = building.construction.workerIds.filter(id => id !== unit.id);
     }
@@ -219,6 +223,7 @@ function releaseUnitFromConstruction(unit, nextState = 'idle') {
 
 function assignWorkersToConstruction(building, workers) {
     if (!building?.underConstruction || !building.construction) return 0;
+    const owner = building.player || 'player';
     const settings = getConstructionSettings();
     const existingWorkers = getConstructionWorkers(building);
     const existingIds = new Set(existingWorkers.map(worker => worker.id));
@@ -233,7 +238,7 @@ function assignWorkersToConstruction(building, workers) {
     let added = 0;
 
     for (const worker of workers) {
-        if (!worker || worker.type !== 'villager' || worker.player !== 'player' || worker.health <= 0) continue;
+        if (!worker || worker.type !== 'villager' || worker.player !== owner || worker.health <= 0) continue;
         if (existingIds.has(worker.id)) continue;
         if (existingIds.size >= settings.maxWorkers) break;
         if (worker.buildTargetId && worker.buildTargetId !== building.id) {
@@ -303,15 +308,16 @@ function updateConstructionWorker(building, worker, index) {
 
 function completeConstruction(building) {
     const cfg = getBuildingConfig(building.type);
+    const owner = building.player || 'player';
     building.underConstruction = false;
     building.health = building.maxHealth || cfg.maxHealth;
     building.construction = null;
 
     if (building.type === 'house' && cfg.population) {
-        gameState.population.max += cfg.population;
+        addPopulationCapForPlayer(owner, cfg.population);
     }
 
-    gameState.units.forEach(unit => {
+    getAllUnits().forEach(unit => {
         if (unit.buildTargetId !== building.id) return;
         clearConstructionMovement(unit);
         unit.buildTargetId = null;
@@ -330,7 +336,7 @@ function completeConstruction(building) {
 }
 
 function updateConstructionSites(deltaTime) {
-    for (const building of gameState.buildings) {
+    for (const building of getAllBuildings()) {
         if (!building.underConstruction || !building.construction) continue;
 
         const workers = getConstructionWorkers(building);
@@ -361,13 +367,14 @@ function startPlacingBuilding(type) {
         return;
     }
     const buildingConfig = getBuildingConfig(type);
-    if (!canAfford(buildingConfig.cost)) {
+    const owner = getLocalPlayerId();
+    if (!canAfford(buildingConfig.cost, owner)) {
         showNotification(`Not enough resources to build ${type}!`);
         return;
     }
     if (type !== 'bridge') {
         const settings = getConstructionSettings();
-        const workers = getSelectedBuilderUnits().slice(0, settings.maxWorkers);
+        const workers = getSelectedBuilderUnits(owner).slice(0, settings.maxWorkers);
         if (workers.length < settings.minWorkers) {
             showNotification(`Select ${settings.minWorkers}-${settings.maxWorkers} villager(s) to build ${displayName(type)}.`);
             return;
@@ -386,20 +393,22 @@ function startPlacingBuilding(type) {
     );
 }
 
-function placeBuilding(type, x, y) {
+function placeBuilding(type, x, y, options = {}) {
     const buildingConfig = getBuildingConfig(type);
+    const owner = options.owner || getLocalPlayerId();
+    const workerIds = options.workerIds || gameState.placingWorkerIds || [];
     if (type !== 'bridge') {
-        if (!canAfford(buildingConfig.cost)) {
+        if (!canAfford(buildingConfig.cost, owner)) {
             showNotification(`Not enough resources!`);
             return;
         }
         const settings = getConstructionSettings();
-        const workers = getBuilderUnitsFromIds(gameState.placingWorkerIds || []).slice(0, settings.maxWorkers);
+        const workers = getBuilderUnitsFromIds(workerIds, owner).slice(0, settings.maxWorkers);
         if (workers.length < settings.minWorkers) {
             showNotification(`Select ${settings.minWorkers}-${settings.maxWorkers} villager(s) to build ${displayName(type)}.`);
             return;
         }
-        deductResources(buildingConfig.cost);
+        deductResources(buildingConfig.cost, owner);
     }
     const buildingX = x - buildingConfig.width / 2;
     const buildingY = y - buildingConfig.height / 2;
@@ -410,12 +419,13 @@ function placeBuilding(type, x, y) {
             return;
         }
         const bridgeCost = scaleCost(buildingConfig.cost, blk.costMultiplier || 1);
-        if (!canAfford(bridgeCost)) {
+        if (!canAfford(bridgeCost, owner)) {
             showNotification(`Not enough resources for bridge (${formatCost(bridgeCost)}).`);
             return;
         }
-        deductResources(bridgeCost);
+        deductResources(bridgeCost, owner);
         const bridge = {
+            id: generateId(),
             type: 'bridge',
             x: blk.x,
             y: blk.y,
@@ -473,13 +483,16 @@ function placeBuilding(type, x, y) {
     }
 
     const maxHealth = typeof getEffectiveBuildingMaxHealth === 'function'
-        ? getEffectiveBuildingMaxHealth(type, 'player')
+        ? getEffectiveBuildingMaxHealth(type, owner)
         : buildingConfig.maxHealth;
     const buildTime = getBuildingBuildTimeMs(type);
     const building = {
         id: generateId(),
         type: type,
-        player: 'player',
+        player: owner,
+        faction: owner,
+        factionName: getFactionName(owner),
+        factionColor: getFactionColor(owner),
         x: buildingX,
         y: buildingY,
         width: buildingConfig.width,
@@ -496,7 +509,7 @@ function placeBuilding(type, x, y) {
         },
         trainingQueue: []
     };
-    gameState.buildings.push(building);
+    getBuildingContainerForPlayer(owner).push(building);
     if (typeof markPathfindingDirty === 'function') markPathfindingDirty();
     // Rebuild now so the clearance data reflects this footprint, then free any
     // unit the new foundation just sealed into an unpathable pocket.
@@ -511,7 +524,7 @@ function placeBuilding(type, x, y) {
             }
         }
     }
-    const assigned = assignWorkersToConstruction(building, getBuilderUnitsFromIds(gameState.placingWorkerIds || []));
+    const assigned = assignWorkersToConstruction(building, getBuilderUnitsFromIds(workerIds, owner));
     if (typeof SFX !== 'undefined') SFX.buildingPlace();
     showNotification(`${displayName(type)} foundation placed. ${assigned} villager(s) building.`);
 }
@@ -628,7 +641,7 @@ function canPlaceBuilding(type, x, y) {
 function selectBuilding(building) {
     gameState.selectedUnits.forEach(unit => unit.isSelected = false);
     gameState.selectedUnits = [];
-    gameState.buildings.forEach(b => b.isSelected = false);
+    getAllBuildings().forEach(b => b.isSelected = false);
 
     building.isSelected = true;
     gameState.selectedBuilding = building;
@@ -724,7 +737,10 @@ function showBuildingActions(building) {
             'crossbowman': ['Feudal Age', 'Castle Age', 'Imperial Age']
         };
 
-        if (ageRestrictions[unitType] && !ageRestrictions[unitType].includes(gameState.currentAge)) {
+        const ownerAge = typeof getAgeForPlayer === 'function'
+            ? getAgeForPlayer(building.player || getLocalPlayerId())
+            : gameState.currentAge;
+        if (ageRestrictions[unitType] && !ageRestrictions[unitType].includes(ownerAge)) {
             const unitDiv = document.createElement('div');
             unitDiv.className = 'unit command-tile disabled';
             unitDiv.dataset.type = unitType;
@@ -797,7 +813,8 @@ function handleBuildingDestruction(building) {
     }
     if (typeof SFX !== 'undefined') SFX.buildingDestroyed();
     const cfg = getBuildingConfig(building.type);
-    gameState.units.forEach(unit => {
+    const owner = building.player || 'player';
+    getAllUnits().forEach(unit => {
         if (unit.buildTargetId !== building.id) return;
         clearConstructionMovement(unit);
         unit.buildTargetId = null;
@@ -806,16 +823,12 @@ function handleBuildingDestruction(building) {
         unit.state = 'idle';
     });
     building.health = 0;
-    if (building.player === 'player') {
-        if (!building.underConstruction && building.type === 'house' && cfg?.population) {
-            gameState.population.max = Math.max(0, gameState.population.max - cfg.population);
-        }
-        const idx = gameState.buildings.indexOf(building);
-        if (idx > -1) gameState.buildings.splice(idx, 1);
-    } else {
-        const idx = gameState.enemyBuildings.indexOf(building);
-        if (idx > -1) gameState.enemyBuildings.splice(idx, 1);
+    if (!building.underConstruction && building.type === 'house' && cfg?.population) {
+        addPopulationCapForPlayer(owner, -cfg.population);
     }
+    const container = getBuildingContainerForPlayer(owner);
+    const idx = container.indexOf(building);
+    if (idx > -1) container.splice(idx, 1);
     if (gameState.selectedBuilding === building) {
         gameState.selectedBuilding = null;
         updateSelectionInfo();

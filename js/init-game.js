@@ -49,7 +49,8 @@ async function initGame() {
         FogOfWar.init(GAME_CONFIG.world.width, GAME_CONFIG.world.height);
     }
     setupEventListeners();
-    const playerTC = gameState.buildings.find(b => b.type === 'town-center' && b.player === 'player');
+    const playerTC = (typeof getBuildingsForPlayer === 'function' ? getBuildingsForPlayer('player') : gameState.buildings)
+        .find(b => b.type === 'town-center' && b.player === 'player');
     if (playerTC) {
         const zoom = gameState.zoomLevel || 1;
         gameState.camera.x = playerTC.x + playerTC.width / 2 - (GAME_CONFIG.canvas.width / zoom) / 2;
@@ -133,6 +134,7 @@ function createWorldObjects() {
             seed
         });
         gameState.waterLayout = waterRoll;
+        gameState.waterSeed = seed;
     } else {
         createWorldObjectsLegacyRects();
         return;
@@ -248,78 +250,77 @@ function createWorldObjectsLegacyRects() {
 
 }
 
-function createInitialUnits() {
-    // Find the player's town center to spawn the initial villager around it
-    const playerTC = gameState.buildings.find(b => b.type === 'town-center' && b.player === 'player');
+function createStartingVillagerForTownCenter(playerTC) {
+    if (!playerTC) return;
 
-    if (playerTC) {
-        // Reuse the exact spawn validation spawnUnit() uses. Rolling a bespoke
-        // ring here is what left the starting villager parked in the tight band
-        // against the town center, where it is legal to stand but impossible to
-        // path out of — it would sit selected but unresponsive to Move orders.
-        const centerX = playerTC.x + playerTC.width / 2;
-        const centerY = playerTC.y + playerTC.height / 2;
+    // Reuse the exact spawn validation spawnUnit() uses. Rolling a bespoke
+    // ring here is what left the starting villager parked in the tight band
+    // against the town center, where it is legal to stand but impossible to
+    // path out of — it would sit selected but unresponsive to Move orders.
+    const owner = playerTC.player || 'player';
+    const centerX = playerTC.x + playerTC.width / 2;
+    const centerY = playerTC.y + playerTC.height / 2;
 
-        let spawnPosition = typeof findSpawnPointNearBuilding === 'function'
-            ? findSpawnPointNearBuilding(playerTC, 'villager')
-            : null;
+    let spawnPosition = typeof findSpawnPointNearBuilding === 'function'
+        ? findSpawnPointNearBuilding(playerTC, 'villager')
+        : null;
 
-        if (!spawnPosition) {
-            const clearance = typeof getSpawnClearance === 'function'
-                ? getSpawnClearance('villager')
-                : 49;
-            const ringRadius = Math.max(playerTC.width, playerTC.height) / 2 + clearance;
-            for (let radius = ringRadius; radius <= ringRadius + 400 && !spawnPosition; radius += 24) {
-                for (let i = 0; i < 24; i++) {
-                    const theta = (i / 24) * Math.PI * 2;
-                    const tx = centerX + Math.cos(theta) * radius;
-                    const ty = centerY + Math.sin(theta) * radius;
-                    if (isValidSpawnPosition(tx, ty, 'villager', { x: centerX, y: centerY })) {
-                        spawnPosition = { x: tx, y: ty };
-                        break;
-                    }
+    if (!spawnPosition) {
+        const clearance = typeof getSpawnClearance === 'function'
+            ? getSpawnClearance('villager')
+            : 49;
+        const ringRadius = Math.max(playerTC.width, playerTC.height) / 2 + clearance;
+        for (let radius = ringRadius; radius <= ringRadius + 400 && !spawnPosition; radius += 24) {
+            for (let i = 0; i < 24; i++) {
+                const theta = (i / 24) * Math.PI * 2;
+                const tx = centerX + Math.cos(theta) * radius;
+                const ty = centerY + Math.sin(theta) * radius;
+                if (isValidSpawnPosition(tx, ty, 'villager', { x: centerX, y: centerY })) {
+                    spawnPosition = { x: tx, y: ty };
+                    break;
                 }
             }
-            if (!spawnPosition) {
-                spawnPosition = { x: centerX, y: centerY + ringRadius };
-            }
         }
+        if (!spawnPosition) {
+            spawnPosition = { x: centerX, y: centerY + ringRadius };
+        }
+    }
 
-        gameState.units.push({
-            id: generateId(),
-            type: 'villager',
-            player: 'player',
-            x: spawnPosition.x,
-            y: spawnPosition.y,
-            health: GAME_CONFIG.units.villager.maxHealth,
-            state: 'idle',
-            target: null,
-            gatherType: null,
-            isSelected: false,
-            // Initialize animation state for immediate rendering
-            anim: { action: 'idle', direction: 'down', frame: 0, elapsed: 0 },
-            prevX: spawnPosition.x,
-            prevY: spawnPosition.y
-        });
-    } else {
-        // Fallback to old method if no town center found
-        const centerX = GAME_CONFIG.world.width / 4;
-        const centerY = GAME_CONFIG.world.height / 2;
-        gameState.units.push({
-            id: generateId(),
-            type: 'villager',
-            player: 'player',
-            x: centerX + 50,
-            y: centerY + 50,
-            health: GAME_CONFIG.units.villager.maxHealth,
-            state: 'idle',
-            target: null,
-            gatherType: null,
-            isSelected: false,
-            anim: { action: 'idle', direction: 'down', frame: 0, elapsed: 0 },
-            prevX: centerX + 50,
-            prevY: centerY + 50
-        });
+    const unit = {
+        id: generateId(),
+        type: 'villager',
+        player: owner,
+        faction: owner,
+        factionName: getFactionName(owner),
+        factionColor: getFactionColor(owner),
+        x: spawnPosition.x,
+        y: spawnPosition.y,
+        health: GAME_CONFIG.units.villager.maxHealth,
+        state: 'idle',
+        target: null,
+        gatherType: null,
+        isSelected: false,
+        anim: { action: 'idle', direction: 'down', frame: 0, elapsed: 0 },
+        prevX: spawnPosition.x,
+        prevY: spawnPosition.y
+    };
+    getUnitContainerForPlayer(owner).push(unit);
+    if (owner === 'player2') addPopulationForPlayer(owner, 1);
+}
+
+function createInitialUnits() {
+    const playerBuildings = typeof getBuildingsForPlayer === 'function'
+        ? getBuildingsForPlayer('player')
+        : gameState.buildings;
+    createStartingVillagerForTownCenter(playerBuildings.find(b =>
+        b.type === 'town-center' && b.player === 'player'
+    ));
+
+    if (typeof Multiplayer !== 'undefined' && Multiplayer.isMultiplayer) {
+        ensurePlayerEconomy('player2');
+        createStartingVillagerForTownCenter(gameState.enemyBuildings.find(b =>
+            b.type === 'town-center' && b.player === 'player2'
+        ));
     }
 }
 

@@ -45,7 +45,11 @@ const GAME_UPGRADES = {
         requiredAge: 'castle',
         effect: (state) => {
             state.modifiers.buildingHpMult += 0.2;
-            refreshPlayerBuildingMaxHealths();
+            if (typeof state.refreshBuildingMaxHealths === 'function') {
+                state.refreshBuildingMaxHealths();
+            } else if (typeof refreshPlayerBuildingMaxHealths === 'function') {
+                refreshPlayerBuildingMaxHealths(state.owner || 'player');
+            }
         }
     },
     chemistry: {
@@ -91,18 +95,44 @@ const UPGRADE_RANGED_TYPES = new Set(['archer', 'crossbowman']);
 const UPGRADE_RANGED_RANGE_STEP = 32;
 const DEFAULT_CARRY_CAPACITY = 25;
 
-function ensureUpgradeState() {
-    gameState.upgrades = gameState.upgrades || {};
-    gameState.upgrades.researched = Array.isArray(gameState.upgrades.researched) ? gameState.upgrades.researched : [];
-    gameState.upgrades.activeResearch = Array.isArray(gameState.upgrades.activeResearch) ? gameState.upgrades.activeResearch : [];
-    gameState.modifiers = gameState.modifiers || {};
+function normalizeUpgradeState(upgrades) {
+    const state = upgrades && typeof upgrades === 'object' ? upgrades : {};
+    state.researched = Array.isArray(state.researched) ? state.researched : [];
+    state.activeResearch = Array.isArray(state.activeResearch) ? state.activeResearch : [];
+    return state;
+}
+
+function normalizeUpgradeModifiers(modifiers) {
+    const state = modifiers && typeof modifiers === 'object' ? modifiers : {};
     Object.entries(UPGRADE_DEFAULT_MODIFIERS).forEach(([key, value]) => {
         if (typeof value === 'number') {
-            if (typeof gameState.modifiers[key] !== 'number') gameState.modifiers[key] = value;
-        } else if (typeof gameState.modifiers[key] !== typeof value) {
-            gameState.modifiers[key] = value;
+            if (typeof state[key] !== 'number') state[key] = value;
+        } else if (typeof state[key] !== typeof value) {
+            state[key] = value;
         }
     });
+    return state;
+}
+
+function ensureUpgradeState(owner = 'player') {
+    const resolvedOwner = owner === 'player2' ? 'player2' : 'player';
+    if (resolvedOwner === 'player2') {
+        gameState.p2Upgrades = normalizeUpgradeState(gameState.p2Upgrades);
+        gameState.p2Modifiers = normalizeUpgradeModifiers(gameState.p2Modifiers);
+        return { upgrades: gameState.p2Upgrades, modifiers: gameState.p2Modifiers, owner: 'player2' };
+    }
+
+    gameState.upgrades = normalizeUpgradeState(gameState.upgrades);
+    gameState.modifiers = normalizeUpgradeModifiers(gameState.modifiers);
+    return { upgrades: gameState.upgrades, modifiers: gameState.modifiers, owner: 'player' };
+}
+
+function getUpgradeStateForPlayer(owner = getLocalPlayerId()) {
+    return ensureUpgradeState(owner);
+}
+
+function getModifiersForPlayer(owner = getLocalPlayerId()) {
+    return getUpgradeStateForPlayer(owner).modifiers;
 }
 
 function normalizeAge(age) {
@@ -147,30 +177,30 @@ function getUpgradesForBuilding(buildingType) {
     ));
 }
 
-function isUpgradeResearched(upgradeId) {
-    ensureUpgradeState();
-    return gameState.upgrades.researched.includes(upgradeId);
+function isUpgradeResearched(upgradeId, owner = getLocalPlayerId()) {
+    const state = ensureUpgradeState(owner);
+    return state.upgrades.researched.includes(upgradeId);
 }
 
-function getActiveResearchForUpgrade(upgradeId) {
-    ensureUpgradeState();
-    return gameState.upgrades.activeResearch.find(research => research.id === upgradeId) || null;
+function getActiveResearchForUpgrade(upgradeId, owner = getLocalPlayerId()) {
+    const state = ensureUpgradeState(owner);
+    return state.upgrades.activeResearch.find(research => research.id === upgradeId) || null;
 }
 
 function getActiveResearchForBuilding(building) {
     if (!building) return null;
-    ensureUpgradeState();
-    return gameState.upgrades.activeResearch.find(research => research.buildingId === building.id) || null;
+    const state = ensureUpgradeState(building.player || 'player');
+    return state.upgrades.activeResearch.find(research => research.buildingId === building.id) || null;
 }
 
 function getUpgradeStatus(upgradeId, building = null) {
-    ensureUpgradeState();
+    const owner = building?.player || getLocalPlayerId();
     const upgrade = GAME_UPGRADES[upgradeId];
     if (!upgrade) return { state: 'missing', label: 'Missing' };
-    if (isUpgradeResearched(upgradeId)) return { state: 'researched', label: 'Researched' };
-    const active = getActiveResearchForUpgrade(upgradeId);
+    if (isUpgradeResearched(upgradeId, owner)) return { state: 'researched', label: 'Researched' };
+    const active = getActiveResearchForUpgrade(upgradeId, owner);
     if (active) return { state: 'researching', label: 'Researching', active };
-    if (!isAgeAtLeast(gameState.currentAge, upgrade.requiredAge)) {
+    if (!isAgeAtLeast(getAgeForPlayer(owner), upgrade.requiredAge)) {
         return { state: 'locked', label: `Requires ${formatEntityName(upgrade.requiredAge)} Age` };
     }
     if (building) {
@@ -185,29 +215,42 @@ function getUpgradeStatus(upgradeId, building = null) {
             return { state: 'busy', label: 'Building Busy' };
         }
     }
-    if (!canAfford(upgrade.cost)) {
+    if (!canAfford(upgrade.cost, owner)) {
             return { state: 'unaffordable', label: `Need ${formatUpgradeCost(upgrade.cost)}` };
     }
     return { state: 'available', label: 'Research' };
 }
 
 function startResearchUpgrade(upgradeId, building) {
-    ensureUpgradeState();
     const upgrade = GAME_UPGRADES[upgradeId];
-    if (!upgrade || !building || building.player !== 'player') return false;
+    if (!upgrade || !building || (typeof isHumanFaction === 'function' && !isHumanFaction(building))) return false;
+    if (typeof Multiplayer !== 'undefined' && Multiplayer.isClient) {
+        if (typeof isLocalPlayerEntity === 'function' && !isLocalPlayerEntity(building)) return false;
+        Multiplayer.sendCommand({
+            action: 'RESEARCH',
+            buildingId: building.id,
+            upgradeId
+        });
+        showNotification(`Researching ${upgrade.name}.`);
+        return true;
+    }
+
+    const owner = building.player || 'player';
+    const state = ensureUpgradeState(owner);
     const status = getUpgradeStatus(upgradeId, building);
     if (status.state !== 'available') {
         showNotification(status.label);
         return false;
     }
-    deductResources(upgrade.cost);
+    deductResources(upgrade.cost, owner);
     const researchTime = typeof getProductionTimeMs === 'function'
-        ? getProductionTimeMs(upgrade.time, 'research')
+        ? getProductionTimeMs(upgrade.time, 'research', owner)
         : upgrade.time * 1000;
     building.activeResearchId = upgradeId;
-    gameState.upgrades.activeResearch.push({
+    state.upgrades.activeResearch.push({
         id: upgradeId,
         buildingId: building.id,
+        owner,
         timeRemaining: researchTime,
         totalTime: researchTime
     });
@@ -219,12 +262,21 @@ function startResearchUpgrade(upgradeId, building) {
     return true;
 }
 
-function completeResearch(research) {
+function completeResearch(research, owner = research?.owner || 'player') {
     const upgrade = GAME_UPGRADES[research.id];
-    if (!upgrade || isUpgradeResearched(research.id)) return;
-    gameState.upgrades.researched.push(research.id);
-    upgrade.effect(gameState);
-    const building = gameState.buildings.find(b => b.id === research.buildingId);
+    const state = ensureUpgradeState(owner);
+    if (!upgrade || isUpgradeResearched(research.id, owner)) return;
+    state.upgrades.researched.push(research.id);
+    const effectState = {
+        ...gameState,
+        owner,
+        modifiers: state.modifiers,
+        refreshBuildingMaxHealths: () => refreshPlayerBuildingMaxHealths(owner)
+    };
+    upgrade.effect(effectState);
+    const building = typeof findBuildingById === 'function'
+        ? findBuildingById(research.buildingId)
+        : null;
     if (building && building.activeResearchId === research.id) {
         building.activeResearchId = null;
     }
@@ -237,20 +289,25 @@ function completeResearch(research) {
 }
 
 function updateResearchQueues(deltaTime) {
-    ensureUpgradeState();
-    for (let index = gameState.upgrades.activeResearch.length - 1; index >= 0; index--) {
-        const research = gameState.upgrades.activeResearch[index];
-        const building = gameState.buildings.find(b => b.id === research.buildingId);
-        if (!building || building.health <= 0) {
-            gameState.upgrades.activeResearch.splice(index, 1);
-            continue;
+    const owners = typeof HUMAN_FACTIONS !== 'undefined' ? HUMAN_FACTIONS : ['player'];
+    owners.forEach(owner => {
+        const state = ensureUpgradeState(owner);
+        for (let index = state.upgrades.activeResearch.length - 1; index >= 0; index--) {
+            const research = state.upgrades.activeResearch[index];
+            const building = typeof findBuildingById === 'function'
+                ? findBuildingById(research.buildingId)
+                : null;
+            if (!building || building.health <= 0 || building.player !== owner) {
+                state.upgrades.activeResearch.splice(index, 1);
+                continue;
+            }
+            research.timeRemaining -= deltaTime;
+            if (research.timeRemaining <= 0) {
+                state.upgrades.activeResearch.splice(index, 1);
+                completeResearch(research, owner);
+            }
         }
-        research.timeRemaining -= deltaTime;
-        if (research.timeRemaining <= 0) {
-            gameState.upgrades.activeResearch.splice(index, 1);
-            completeResearch(research);
-        }
-    }
+    });
 }
 
 function getResearchProgressPct(research) {
@@ -258,50 +315,50 @@ function getResearchProgressPct(research) {
     return Math.max(0, Math.min(100, (1 - (research.timeRemaining / research.totalTime)) * 100));
 }
 
-function getCurrentAgeIndex() {
-    const index = UPGRADE_AGE_ORDER.indexOf(normalizeAge(gameState.currentAge));
+function getCurrentAgeIndex(owner = getLocalPlayerId()) {
+    const index = UPGRADE_AGE_ORDER.indexOf(normalizeAge(getAgeForPlayer(owner)));
     return Math.max(0, index);
 }
 
-function getDevelopmentSpeedMultiplier(kind = 'unit') {
-    ensureUpgradeState();
-    const ageBonus = getCurrentAgeIndex() * 0.08;
-    const researchedCount = gameState.upgrades.researched.length;
+function getDevelopmentSpeedMultiplier(kind = 'unit', owner = getLocalPlayerId()) {
+    const state = ensureUpgradeState(owner);
+    const ageBonus = getCurrentAgeIndex(owner) * 0.08;
+    const researchedCount = state.upgrades.researched.length;
     const researchBonus = Math.min(0.18, researchedCount * (kind === 'research' ? 0.035 : 0.025));
     const modifierBonus = kind === 'research'
-        ? gameState.modifiers.researchSpeedMult
-        : gameState.modifiers.trainingSpeedMult;
+        ? state.modifiers.researchSpeedMult
+        : state.modifiers.trainingSpeedMult;
     return Math.max(1, 1 + ageBonus + researchBonus + (modifierBonus || 0));
 }
 
-function getProductionTimeMs(baseSeconds, kind = 'unit') {
+function getProductionTimeMs(baseSeconds, kind = 'unit', owner = getLocalPlayerId()) {
     const baseMs = Math.max(0, (Number(baseSeconds) || 0) * 1000);
     if (baseMs === 0) return 0;
-    return Math.max(1000, Math.round(baseMs / getDevelopmentSpeedMultiplier(kind)));
+    return Math.max(1000, Math.round(baseMs / getDevelopmentSpeedMultiplier(kind, owner)));
 }
 
-function formatProductionSeconds(baseSeconds, kind = 'unit') {
-    return Math.ceil(getProductionTimeMs(baseSeconds, kind) / 1000);
+function formatProductionSeconds(baseSeconds, kind = 'unit', owner = getLocalPlayerId()) {
+    return Math.ceil(getProductionTimeMs(baseSeconds, kind, owner) / 1000);
 }
 
 function getEffectiveUnitConfig(unitOrType) {
     const type = typeof unitOrType === 'string' ? unitOrType : unitOrType?.type;
     const base = GAME_CONFIG.units[type];
     if (!base) return {};
-    const owner = typeof unitOrType === 'string' ? 'player' : unitOrType?.player;
-    if (owner && owner !== 'player') return base;
-    ensureUpgradeState();
+    const owner = typeof unitOrType === 'string' ? getLocalPlayerId() : unitOrType?.player;
+    if (owner && typeof isHumanFaction === 'function' && !isHumanFaction(owner)) return base;
+    const state = ensureUpgradeState(owner);
     const config = { ...base };
     if (UPGRADE_MELEE_TYPES.has(type)) {
-        config.attack = (config.attack || 0) + gameState.modifiers.meleeAttack;
+        config.attack = (config.attack || 0) + state.modifiers.meleeAttack;
     }
     if (UPGRADE_RANGED_TYPES.has(type)) {
-        config.attack = (config.attack || 0) + gameState.modifiers.rangedAttack;
-        config.attackRange = (config.attackRange || 0) + gameState.modifiers.rangedRange * UPGRADE_RANGED_RANGE_STEP;
+        config.attack = (config.attack || 0) + state.modifiers.rangedAttack;
+        config.attackRange = (config.attackRange || 0) + state.modifiers.rangedRange * UPGRADE_RANGED_RANGE_STEP;
     }
     if (type === 'villager') {
-        config.speed = (config.speed || 0) * (1 + gameState.modifiers.villagerSpeed);
-        config.carryCapacity = DEFAULT_CARRY_CAPACITY + gameState.modifiers.villagerCarry;
+        config.speed = (config.speed || 0) * (1 + state.modifiers.villagerSpeed);
+        config.carryCapacity = DEFAULT_CARRY_CAPACITY + state.modifiers.villagerCarry;
     }
     return config;
 }
@@ -330,15 +387,17 @@ function getEffectiveBuildingMaxHealth(buildingOrType, owner = 'player') {
     const buildingOwner = typeof buildingOrType === 'string' ? owner : buildingOrType?.player;
     const base = getBuildingConfig(type);
     if (!base) return 0;
-    if (buildingOwner && buildingOwner !== 'player') return base.maxHealth;
-    ensureUpgradeState();
-    return Math.round(base.maxHealth * (1 + gameState.modifiers.buildingHpMult));
+    if (buildingOwner && typeof isHumanFaction === 'function' && !isHumanFaction(buildingOwner)) return base.maxHealth;
+    const state = ensureUpgradeState(buildingOwner || owner);
+    return Math.round(base.maxHealth * (1 + state.modifiers.buildingHpMult));
 }
 
-function refreshPlayerBuildingMaxHealths() {
-    ensureUpgradeState();
-    gameState.buildings.forEach(building => {
-        if (building.player !== 'player') return;
+function refreshPlayerBuildingMaxHealths(owner = 'player') {
+    ensureUpgradeState(owner);
+    const buildings = typeof getBuildingsForPlayer === 'function'
+        ? getBuildingsForPlayer(owner)
+        : (gameState.buildings || []).filter(building => building.player === owner);
+    buildings.forEach(building => {
         const previousMax = building.maxHealth || getBuildingConfig(building.type)?.maxHealth || 0;
         const nextMax = getEffectiveBuildingMaxHealth(building);
         if (!nextMax || nextMax === previousMax) return;

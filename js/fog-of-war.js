@@ -113,7 +113,12 @@ const FogOfWar = (function () {
 
     function getVisionSources() {
         const sources = [];
-        for (const unit of gameState.units || []) {
+        const owner = typeof getLocalPlayerId === 'function' ? getLocalPlayerId() : 'player';
+        const units = typeof getAllUnits === 'function' ? getAllUnits() : (gameState.units || []);
+        const buildings = typeof getAllBuildings === 'function' ? getAllBuildings() : (gameState.buildings || []);
+
+        for (const unit of units) {
+            if (unit.player !== owner) continue;
             if (unit.health <= 0) continue;
             sources.push({
                 x: unit.x,
@@ -121,8 +126,8 @@ const FogOfWar = (function () {
                 range: SIGHT_RANGES[unit.type] || 6
             });
         }
-        for (const building of gameState.buildings || []) {
-            if (building.player !== 'player') continue;
+        for (const building of buildings) {
+            if (building.player !== owner) continue;
             const x = building.x + building.width / 2;
             const y = building.y + building.height / 2;
             sources.push({

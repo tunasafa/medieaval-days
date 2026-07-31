@@ -5,20 +5,30 @@ function setResourceRateText(id, value) {
 }
 
 function updateResourceRates() {
-    gameState.resourceRates = { food: 0, wood: 0, stone: 0, gold: 0 };
-    gameState.units.forEach(unit => {
+    const makeRates = () => ({ food: 0, wood: 0, stone: 0, gold: 0 });
+    gameState.resourceRates = makeRates();
+    gameState.p2ResourceRates = makeRates();
+    const units = typeof getAllUnits === 'function' ? getAllUnits() : gameState.units;
+    units.forEach(unit => {
+        if (typeof isHumanFaction === 'function' && !isHumanFaction(unit)) return;
+        const rates = typeof getResourceRatesForPlayer === 'function'
+            ? getResourceRatesForPlayer(unit.player)
+            : gameState.resourceRates;
         if (unit.state === 'gathering' && unit.gatherType && unit.gatheredAmount > 0) {
             const config = GAME_CONFIG.units[unit.type];
-            gameState.resourceRates[unit.gatherType] += config.gatherRate;
+            rates[unit.gatherType] += config.gatherRate;
         } else if (unit.type === 'fishingBoat' && unit.state === 'fishing') {
             const config = GAME_CONFIG.units[unit.type];
-            gameState.resourceRates.food += (config.gatherRate || 2.5);
+            rates.food += (config.gatherRate || 2.5);
         }
     });
-    setResourceRateText('food-rate', gameState.resourceRates.food.toFixed(1));
-    setResourceRateText('wood-rate', gameState.resourceRates.wood.toFixed(1));
-    setResourceRateText('stone-rate', gameState.resourceRates.stone.toFixed(1));
-    setResourceRateText('gold-rate', gameState.resourceRates.gold.toFixed(1));
+    const localRates = typeof getResourceRatesForPlayer === 'function'
+        ? getResourceRatesForPlayer(getLocalPlayerId())
+        : gameState.resourceRates;
+    setResourceRateText('food-rate', localRates.food.toFixed(1));
+    setResourceRateText('wood-rate', localRates.wood.toFixed(1));
+    setResourceRateText('stone-rate', localRates.stone.toFixed(1));
+    setResourceRateText('gold-rate', localRates.gold.toFixed(1));
 }
 
 function findNearestResource(unit, resourceType) {
@@ -80,6 +90,7 @@ function scatterResourcesAcrossWorld(options = {}) {
             const amount = Math.floor(amountRange[0] + Math.random() * (amountRange[1] - amountRange[0] + 1));
             const sprite = spriteNames[Math.floor(Math.random() * spriteNames.length)];
             const obj = {
+                id: generateId(),
                 type: 'resource',
                 resourceType,
                 amount,
@@ -154,6 +165,7 @@ function scatterDecorationsAcrossWorld(options = {}) {
         if (overlapsOther) continue;
 
         const obj = {
+            id: generateId(),
             type: 'decoration',
             width: w,
             height: h,

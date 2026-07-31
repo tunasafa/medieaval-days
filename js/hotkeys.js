@@ -55,14 +55,15 @@ const Hotkeys = (function() {
                 // Load selection from control group
                 const group = controlGroups[key];
                 if (group && group.length > 0) {
-                    // Filter out dead units/buildings
-                    const validGroup = group.filter(entity => {
-                        if (entity.health <= 0) return false;
-                        if (entity.width) {
-                            return gameState.buildings.includes(entity);
-                        }
-                        return gameState.units.includes(entity);
-                    });
+                        // Filter out dead units/buildings
+                        const validGroup = group.filter(entity => {
+                            if (entity.health <= 0) return false;
+                            if (typeof isLocalPlayerEntity === 'function' && !isLocalPlayerEntity(entity)) return false;
+                            if (entity.width) {
+                                return getAllBuildings().includes(entity);
+                            }
+                            return getAllUnits().includes(entity);
+                        });
 
                     // Update the group with only alive entities
                     controlGroups[key] = validGroup;
@@ -125,7 +126,7 @@ const Hotkeys = (function() {
         }
 
         // --- Quick Train ---
-        if (quickTrainMap[key] !== undefined && gameState.selectedBuilding && gameState.selectedBuilding.player === 'player') {
+        if (quickTrainMap[key] !== undefined && gameState.selectedBuilding && isLocalPlayerEntity(gameState.selectedBuilding)) {
             e.preventDefault();
             const buildingType = gameState.selectedBuilding.type;
             let trainableUnits = [];
@@ -146,7 +147,7 @@ const Hotkeys = (function() {
                 if (unitToTrain === 'bridge') {
                     startPlacingBuilding('bridge');
                 } else {
-                    trainUnit(unitToTrain, gameState.selectedBuilding);
+                    trainUnitFromBuilding(unitToTrain, gameState.selectedBuilding);
                 }
             }
             return true;
@@ -155,6 +156,7 @@ const Hotkeys = (function() {
         // --- Delete Selected Units ---
         if (key === 'delete' || key === 'backspace') {
             e.preventDefault();
+            if (typeof Multiplayer !== 'undefined' && Multiplayer.isClient) return true;
             if (gameState.selectedUnits.length > 0) {
                 // Kill them all
                 [...gameState.selectedUnits].forEach(u => {

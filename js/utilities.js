@@ -5,6 +5,9 @@
  */
 
 const EDGE_CLEARANCE = 20;
+const HUMAN_FACTIONS = ['player', 'player2'];
+const DEFAULT_RESOURCE_POOL = { food: 999999, wood: 999999, stone: 999999, gold: 999999 };
+const DEFAULT_POPULATION_POOL = { current: 0, max: 5 };
 
 /**
  * Generates a unique identifier combining current timestamp with random number.
@@ -26,6 +29,9 @@ function getFactionConfig(entityOrFaction) {
     if (factionId === 'player') {
         return { id: 'player', name: 'Player One', color: '#4f8cff', assetFolder: '' };
     }
+    if (factionId === 'player2') {
+        return { id: 'player2', name: 'Player Two', color: '#f2b84b', assetFolder: 'desert' };
+    }
     const factions = GAME_CONFIG.enemyFactions || [];
     return factions.find(faction => faction.id === factionId) ||
         (factionId === 'enemy' ? factions[0] : null) ||
@@ -45,9 +51,66 @@ function isEnemyFaction(entityOrFaction) {
     return factionId !== 'player' && factionId !== 'neutral';
 }
 
+function isHumanFaction(entityOrFaction) {
+    return HUMAN_FACTIONS.includes(getFactionId(entityOrFaction));
+}
+
+function isComputerFaction(entityOrFaction) {
+    const factionId = getFactionId(entityOrFaction);
+    return factionId !== 'neutral' && !isHumanFaction(factionId);
+}
+
+function getLocalPlayerId() {
+    return (typeof Multiplayer !== 'undefined' && Multiplayer.isClient) ? 'player2' : 'player';
+}
+
+function getRemoteHumanPlayerId() {
+    return getLocalPlayerId() === 'player' ? 'player2' : 'player';
+}
+
+function isLocalPlayerEntity(entityOrFaction) {
+    return getFactionId(entityOrFaction) === getLocalPlayerId();
+}
+
+function isRemoteHumanEntity(entityOrFaction) {
+    return getFactionId(entityOrFaction) === getRemoteHumanPlayerId();
+}
+
 function isPlayerVisionOpponent(entityOrFaction) {
     const factionId = getFactionId(entityOrFaction);
-    return factionId !== 'player' && factionId !== 'player2' && factionId !== 'neutral';
+    return factionId !== getLocalPlayerId() && factionId !== 'neutral';
+}
+
+function getAllUnits() {
+    return [...(gameState.units || []), ...(gameState.enemyUnits || [])];
+}
+
+function getAllBuildings() {
+    return [...(gameState.buildings || []), ...(gameState.enemyBuildings || [])];
+}
+
+function findUnitById(id) {
+    return getAllUnits().find(unit => unit.id === id) || null;
+}
+
+function findBuildingById(id) {
+    return getAllBuildings().find(building => building.id === id) || null;
+}
+
+function getUnitsForPlayer(owner = getLocalPlayerId()) {
+    return getAllUnits().filter(unit => getFactionId(unit) === owner);
+}
+
+function getBuildingsForPlayer(owner = getLocalPlayerId()) {
+    return getAllBuildings().filter(building => getFactionId(building) === owner);
+}
+
+function getUnitContainerForPlayer(owner = 'player') {
+    return owner === 'player' ? gameState.units : gameState.enemyUnits;
+}
+
+function getBuildingContainerForPlayer(owner = 'player') {
+    return owner === 'player' ? gameState.buildings : gameState.enemyBuildings;
 }
 
 function getEntityVisionPoints(entity) {
@@ -106,17 +169,11 @@ function areHostile(a, b) {
     const factionB = getFactionId(b);
     if (!factionA || !factionB || factionA === factionB) return false;
     if (factionA === 'neutral' || factionB === 'neutral') return false;
-    // In multiplayer, both human players are allies
-    const humanFactions = ['player', 'player2'];
-    const aIsHuman = humanFactions.includes(factionA);
-    const bIsHuman = humanFactions.includes(factionB);
-    if (aIsHuman && bIsHuman) return false;
-    return aIsHuman || bIsHuman ||
-        (isEnemyFaction(factionA) && isEnemyFaction(factionB));
+    return true;
 }
 
 function getHostileUnits(entity) {
-    return [...gameState.units, ...gameState.enemyUnits].filter(unit =>
+    return getAllUnits().filter(unit =>
         unit !== entity &&
         unit.state !== 'embarked' &&
         areHostile(entity, unit)
@@ -124,9 +181,68 @@ function getHostileUnits(entity) {
 }
 
 function getHostileBuildings(entity) {
-    return [...gameState.buildings, ...gameState.enemyBuildings].filter(building =>
+    return getAllBuildings().filter(building =>
         areHostile(entity, building)
     );
+}
+
+function cloneResourcePool(source = DEFAULT_RESOURCE_POOL) {
+    return {
+        food: Number(source.food) || 0,
+        wood: Number(source.wood) || 0,
+        stone: Number(source.stone) || 0,
+        gold: Number(source.gold) || 0
+    };
+}
+
+function ensurePlayerEconomy(owner = 'player') {
+    if (owner === 'player2') {
+        if (!gameState.p2Resources) gameState.p2Resources = cloneResourcePool(gameState.resources || DEFAULT_RESOURCE_POOL);
+        if (!gameState.p2ResourceRates) gameState.p2ResourceRates = { food: 0, wood: 0, stone: 0, gold: 0 };
+        if (!gameState.p2Population) gameState.p2Population = { ...DEFAULT_POPULATION_POOL };
+        if (!gameState.p2CurrentAge) gameState.p2CurrentAge = 'Dark Age';
+    } else {
+        gameState.resources = gameState.resources || cloneResourcePool(DEFAULT_RESOURCE_POOL);
+        gameState.resourceRates = gameState.resourceRates || { food: 0, wood: 0, stone: 0, gold: 0 };
+        gameState.population = gameState.population || { current: 0, max: 5 };
+        gameState.currentAge = gameState.currentAge || 'Dark Age';
+    }
+}
+
+function getResourcesForPlayer(owner = getLocalPlayerId()) {
+    ensurePlayerEconomy(owner);
+    return owner === 'player2' ? gameState.p2Resources : gameState.resources;
+}
+
+function getResourceRatesForPlayer(owner = getLocalPlayerId()) {
+    ensurePlayerEconomy(owner);
+    return owner === 'player2' ? gameState.p2ResourceRates : gameState.resourceRates;
+}
+
+function getPopulationForPlayer(owner = getLocalPlayerId()) {
+    ensurePlayerEconomy(owner);
+    return owner === 'player2' ? gameState.p2Population : gameState.population;
+}
+
+function addPopulationForPlayer(owner, amount) {
+    const population = getPopulationForPlayer(owner);
+    population.current = Math.max(0, (population.current || 0) + amount);
+}
+
+function addPopulationCapForPlayer(owner, amount) {
+    const population = getPopulationForPlayer(owner);
+    population.max = Math.max(0, (population.max || 0) + amount);
+}
+
+function getAgeForPlayer(owner = getLocalPlayerId()) {
+    ensurePlayerEconomy(owner);
+    return owner === 'player2' ? gameState.p2CurrentAge : gameState.currentAge;
+}
+
+function setAgeForPlayer(owner, age) {
+    ensurePlayerEconomy(owner);
+    if (owner === 'player2') gameState.p2CurrentAge = age;
+    else gameState.currentAge = age;
 }
 
 /**
@@ -149,9 +265,10 @@ function getDistance(obj1, obj2) {
  * @param {Object} cost - Resource cost object with keys like {food: 50, wood: 100}
  * @returns {boolean} True if player can afford the cost, false otherwise
  */
-function canAfford(cost) {
+function canAfford(cost, owner = getLocalPlayerId()) {
+    const resources = getResourcesForPlayer(owner);
     for (const [resource, amount] of Object.entries(cost)) {
-        if (gameState.resources[resource] < amount) return false;
+        if ((resources[resource] || 0) < amount) return false;
     }
     return true;
 }
@@ -161,9 +278,10 @@ function canAfford(cost) {
  * Should only be called after canAfford() validation to prevent negative resources.
  * @param {Object} cost - Resource cost object to deduct from player resources
  */
-function deductResources(cost) {
+function deductResources(cost, owner = getLocalPlayerId()) {
+    const resources = getResourcesForPlayer(owner);
     for (const [resource, amount] of Object.entries(cost)) {
-        gameState.resources[resource] -= amount;
+        resources[resource] = (resources[resource] || 0) - amount;
     }
 }
 

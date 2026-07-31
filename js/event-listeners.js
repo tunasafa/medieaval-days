@@ -73,6 +73,7 @@ function setupEventListeners() {
                     Multiplayer.sendCommand({
                         action: 'BUILD',
                         buildingType: gameState.placingBuilding,
+                        workerIds: gameState.placingWorkerIds || [],
                         x: worldX,
                         y: worldY
                     });
@@ -95,8 +96,8 @@ function setupEventListeners() {
             const { screenX, screenY, worldX, worldY } = getCanvasPoint(e);
 
             // Check for building clicks first
-            const clickedBuilding = [...gameState.buildings].find(building =>
-                building.player === 'player' &&
+            const clickedBuilding = getAllBuildings().find(building =>
+                isLocalPlayerEntity(building) &&
                 worldX >= building.x && worldX <= building.x + building.width &&
                 worldY >= building.y && worldY <= building.y + building.height
             );
@@ -107,8 +108,8 @@ function setupEventListeners() {
             }
 
             // Check for unit clicks with a small tolerance area (20 pixels radius)
-            const clickedUnit = gameState.units.find(unit => {
-                if (unit.player !== 'player') return false;
+            const clickedUnit = getAllUnits().find(unit => {
+                if (!isLocalPlayerEntity(unit)) return false;
                 const distance = Math.hypot(unit.x - worldX, unit.y - worldY);
                 return distance <= 20; // 20 pixel radius for easier clicking
             });
@@ -120,7 +121,7 @@ function setupEventListeners() {
                 if (!isMultiSelect) {
                     // Clear previous selection
                     gameState.selectedUnits.forEach(unit => unit.isSelected = false);
-                    gameState.buildings.forEach(building => building.isSelected = false);
+                    getAllBuildings().forEach(building => building.isSelected = false);
                     gameState.selectedUnits = [clickedUnit];
                     gameState.selectedBuilding = null;
                     clickedUnit.isSelected = true;
@@ -210,7 +211,7 @@ function setupEventListeners() {
                 if (dragDistance < 5) {
                     // Deselect all units and buildings
                     gameState.selectedUnits.forEach(unit => unit.isSelected = false);
-                    gameState.buildings.forEach(building => building.isSelected = false);
+                    getAllBuildings().forEach(building => building.isSelected = false);
                     gameState.selectedUnits = [];
                     gameState.selectedBuilding = null;
 
@@ -401,7 +402,7 @@ function finishSelection(start, end, isMultiSelect = false) {
     if (!isMultiSelect) {
         // Clear previous selection only if not multi-selecting
         gameState.selectedUnits.forEach(unit => unit.isSelected = false);
-        gameState.buildings.forEach(building => building.isSelected = false);
+        getAllBuildings().forEach(building => building.isSelected = false);
         gameState.selectedUnits = [];
         gameState.selectedBuilding = null;
     }
@@ -410,8 +411,8 @@ function finishSelection(start, end, isMultiSelect = false) {
     document.getElementById('general-units').style.display = 'block';
 
     // More precise unit selection - check if unit center or any part is within selection box
-    gameState.units.forEach(unit => {
-        if (unit.player === 'player') {
+    getAllUnits().forEach(unit => {
+        if (isLocalPlayerEntity(unit)) {
             // Check if unit center is in selection box OR if selection box overlaps with unit area
             const unitLeft = unit.x - 8; // Small buffer around unit
             const unitRight = unit.x + 8;
@@ -450,9 +451,20 @@ function hideSelectionBox() {
 }
 
 function handleRightClick(x, y) {
-    if (gameState.selectedBuilding && gameState.selectedBuilding.player === 'player') {
+    if (gameState.selectedBuilding && isLocalPlayerEntity(gameState.selectedBuilding)) {
         if (gameState.selectedBuilding.underConstruction) {
             showNotification(`${displayName(gameState.selectedBuilding.type)} is still under construction.`);
+            return;
+        }
+        if (typeof Multiplayer !== 'undefined' && Multiplayer.isClient) {
+            Multiplayer.sendCommand({
+                action: 'RALLY',
+                buildingId: gameState.selectedBuilding.id,
+                targetX: x,
+                targetY: y
+            });
+            showNotification(`${gameState.selectedBuilding.type} rally point set.`);
+            if (typeof SFX !== 'undefined') SFX.unitCommanded();
             return;
         }
         gameState.selectedBuilding.rallyPoint = { x, y };
@@ -462,8 +474,7 @@ function handleRightClick(x, y) {
     }
 
     if (gameState.selectedUnits.length === 0) return;
-    const constructionTarget = gameState.buildings.find(building =>
-        building.player === 'player' &&
+    const constructionTarget = getBuildingsForPlayer(getLocalPlayerId()).find(building =>
         building.underConstruction &&
         x >= building.x && x <= building.x + building.width &&
         y >= building.y && y <= building.y + building.height
@@ -473,10 +484,19 @@ function handleRightClick(x, y) {
             ? getConstructionSettings()
             : { maxWorkers: 4 };
         const builders = gameState.selectedUnits
-            .filter(unit => unit.type === 'villager' && unit.player === 'player' && unit.health > 0)
+            .filter(unit => unit.type === 'villager' && isLocalPlayerEntity(unit) && unit.health > 0)
             .slice(0, settings.maxWorkers);
         if (builders.length === 0) {
             showNotification(`Select villager(s) to build ${displayName(constructionTarget.type)}.`);
+            return;
+        }
+        if (typeof Multiplayer !== 'undefined' && Multiplayer.isClient) {
+            Multiplayer.sendCommand({
+                action: 'ASSIGN_BUILDERS',
+                buildingId: constructionTarget.id,
+                unitIds: builders.map(unit => unit.id)
+            });
+            showNotification(`${builders.length} villager(s) assigned to ${displayName(constructionTarget.type)}.`);
             return;
         }
         const added = assignWorkersToConstruction(constructionTarget, builders);
@@ -497,10 +517,23 @@ function handleRightClick(x, y) {
     }
 
     // NEW EMBARK SYSTEM: Right-click on friendly transport
-    const clickedTransport = gameState.units.find(u => isTransport(u) && Math.hypot(u.x - x, u.y - y) < 40);
+    const clickedTransport = getAllUnits().find(u =>
+        isLocalPlayerEntity(u) &&
+        isTransport(u) &&
+        Math.hypot(u.x - x, u.y - y) < 40
+    );
     if (clickedTransport) {
         const landUnits = gameState.selectedUnits.filter(u => canEmbark(u));
         if (landUnits.length > 0) {
+            if (typeof Multiplayer !== 'undefined' && Multiplayer.isClient) {
+                Multiplayer.sendCommand({
+                    action: 'EMBARK',
+                    unitIds: landUnits.map(unit => unit.id),
+                    transportId: clickedTransport.id
+                });
+                showNotification(`${landUnits.length} unit(s) moving to embark...`);
+                return;
+            }
             // Check if any units are already close enough to embark immediately
             const nearbyUnits = landUnits.filter(u => Math.hypot(u.x - clickedTransport.x, u.y - clickedTransport.y) <= 40);
             const farUnits = landUnits.filter(u => Math.hypot(u.x - clickedTransport.x, u.y - clickedTransport.y) > 40);
@@ -527,11 +560,16 @@ function handleRightClick(x, y) {
             return;
         }
     }
-    const enemyUnit = gameState.enemyUnits.find(unit =>
+    const commandSource = gameState.selectedUnits[0] || getLocalPlayerId();
+    const enemyUnit = getAllUnits().find(unit =>
+        !isLocalPlayerEntity(unit) &&
+        areHostile(commandSource, unit) &&
         (typeof canPlayerSeeEnemyUnit !== 'function' || canPlayerSeeEnemyUnit(unit)) &&
         getDistance(unit, { x, y }) < 20
     );
-    const enemyBuilding = gameState.enemyBuildings.find(building =>
+    const enemyBuilding = getAllBuildings().find(building =>
+        !isLocalPlayerEntity(building) &&
+        areHostile(commandSource, building) &&
         (typeof canPlayerSeeEnemyBuilding !== 'function' || canPlayerSeeEnemyBuilding(building)) &&
         x >= building.x && x <= building.x + building.width &&
         y >= building.y && y <= building.y + building.height
@@ -574,6 +612,15 @@ function handleRightClick(x, y) {
         y >= obj.y && y <= obj.y + obj.height
     );
     if (resource) {
+        if (typeof Multiplayer !== 'undefined' && Multiplayer.isClient) {
+            Multiplayer.sendCommand({
+                action: 'GATHER',
+                unitIds: gameState.selectedUnits.map(u => u.id),
+                resourceId: resource.id
+            });
+            showNotification('Gather command issued!');
+            return;
+        }
         const offsets = computeFormationOffsets(gameState.selectedUnits.length, 24);
         gameState.selectedUnits.forEach((unit, idx) => {
             if (unit.type === 'villager') {
@@ -620,6 +667,15 @@ function handleRightClick(x, y) {
         // If right-clicking on land/shore and transport has cargo, disembark
         if (!isPointInWater(x, y) || isPointOnBridge(x, y)) {
             if (transport.cargo && transport.cargo.length > 0) {
+                if (typeof Multiplayer !== 'undefined' && Multiplayer.isClient) {
+                    Multiplayer.sendCommand({
+                        action: 'DISEMBARK',
+                        transportId: transport.id,
+                        targetX: x,
+                        targetY: y
+                    });
+                    return;
+                }
                 // Use pathfinding to move transport toward shore (clamped to water for vessels)
                 const clamped = clampTargetToAllowed(transport, x, y);
                 setUnitDestination(transport, clamped.x, clamped.y);

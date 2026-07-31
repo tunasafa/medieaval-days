@@ -459,6 +459,138 @@ function relocateUnitToPathableGround(unit) {
     return true;
 }
 
+function getBuildingBoundaryDistance(x, y, building) {
+    if (!building) return Infinity;
+    const nearestX = clamp(x, building.x, building.x + building.width);
+    const nearestY = clamp(y, building.y, building.y + building.height);
+    return Math.hypot(x - nearestX, y - nearestY);
+}
+
+function getResourceDeliveryAcceptanceDistance() {
+    const cellSize = pathfindingGrid?.cellSize || GAME_CONFIG.pathfinding?.cellSize || 32;
+    return Math.max(
+        (typeof EDGE_CLEARANCE !== 'undefined' ? EDGE_CLEARANCE : 20) + 18,
+        cellSize * 2
+    );
+}
+
+function isValidResourceDeliveryPosition(unit, building) {
+    if (!building || !validateTerrainMovement(unit, unit.x, unit.y)) return false;
+    if (typeof isPointInRoundedRectangle === 'function' &&
+        isPointInRoundedRectangle(unit.x, unit.y, building, 17)) return false;
+    return getBuildingBoundaryDistance(unit.x, unit.y, building) <=
+        getResourceDeliveryAcceptanceDistance();
+}
+
+function getResourceDeliveryCandidates(unit, building) {
+    const cellSize = pathfindingGrid?.cellSize || GAME_CONFIG.pathfinding?.cellSize || 32;
+    const baseMargin = Math.max(
+        (typeof EDGE_CLEARANCE !== 'undefined' ? EDGE_CLEARANCE : 20) + 24,
+        cellSize * 2
+    );
+    const margins = [baseMargin, baseMargin + cellSize, baseMargin + cellSize * 2, baseMargin + cellSize * 3];
+    const xSamples = [
+        clamp(unit.x, building.x, building.x + building.width),
+        building.x + building.width * 0.25,
+        building.x + building.width * 0.5,
+        building.x + building.width * 0.75,
+        building.x + building.width
+    ];
+    const ySamples = [
+        clamp(unit.y, building.y, building.y + building.height),
+        building.y + building.height * 0.25,
+        building.y + building.height * 0.5,
+        building.y + building.height * 0.75,
+        building.y + building.height
+    ];
+    const candidates = [];
+    for (const margin of margins) {
+        for (const y of ySamples) {
+            candidates.push({ x: building.x - margin, y });
+            candidates.push({ x: building.x + building.width + margin, y });
+        }
+        for (const x of xSamples) {
+            candidates.push({ x, y: building.y - margin });
+            candidates.push({ x, y: building.y + building.height + margin });
+        }
+    }
+    return candidates.map(point => ({
+        x: clamp(point.x, 8, GAME_CONFIG.world.width - 8),
+        y: clamp(point.y, 8, GAME_CONFIG.world.height - 8)
+    }));
+}
+
+function planResourceDelivery(unit, building) {
+    if (!unit || !building) return false;
+    let best = null;
+    for (const candidate of getResourceDeliveryCandidates(unit, building)) {
+        if (!validateTerrainMovement(unit, candidate.x, candidate.y)) continue;
+        if (typeof isSpawnPathable === 'function' &&
+            !isSpawnPathable(candidate.x, candidate.y, unit.type)) continue;
+
+        const path = findPath(unit.x, unit.y, candidate.x, candidate.y, unit.type);
+        if (!(path && path.length > 1)) continue;
+        const finalPoint = path[path.length - 1];
+        const pathLength = path.reduce((total, point, index) => {
+            if (index === 0) return total;
+            return total + Math.hypot(point.x - path[index - 1].x, point.y - path[index - 1].y);
+        }, 0);
+        const score = pathLength + getBuildingBoundaryDistance(finalPoint.x, finalPoint.y, building) * 0.25;
+        if (!best || score < best.score) best = { path, point: finalPoint, score };
+    }
+
+    if (!best) {
+        // Keep the delivery order alive even when every sampled route is
+        // temporarily blocked. The return loop will retry this legal edge
+        // point and invoke its stuck recovery instead of depositing at origin.
+        const fallbackMargin = (typeof EDGE_CLEARANCE !== 'undefined' ? EDGE_CLEARANCE : 20) + 24;
+        const fallback = getDropOffPointOutside(unit, building, fallbackMargin);
+        unit.dropOffX = fallback.x;
+        unit.dropOffY = fallback.y;
+        unit.returnPlanBuildingId = building.id;
+        unit.returnPath = null;
+        unit.returnPathTimer = 3001;
+        unit.returnPathFailed = false;
+        unit.returnPathFailCount = 0;
+        unit.returnPathRetryDelay = 0;
+        unit._returnStuckTime = 0;
+        unit._returnLastX = unit.x;
+        unit._returnLastY = unit.y;
+        return false;
+    }
+    unit.dropOffX = best.point.x;
+    unit.dropOffY = best.point.y;
+    unit.returnPlanBuildingId = building.id;
+    unit.returnPath = best.path.slice(1);
+    unit.returnPathTimer = 0;
+    unit.returnPathFailed = false;
+    unit.returnPathFailCount = 0;
+    unit.returnPathRetryDelay = 0;
+    unit._returnStuckTime = 0;
+    unit._returnLastX = unit.x;
+    unit._returnLastY = unit.y;
+    return true;
+}
+
+function monitorResourceDeliveryProgress(unit, building, deltaTime) {
+    const moved = Math.hypot(unit.x - (unit._returnLastX ?? unit.x), unit.y - (unit._returnLastY ?? unit.y));
+    unit._returnLastX = unit.x;
+    unit._returnLastY = unit.y;
+    if (moved > 0.25) {
+        unit._returnStuckTime = 0;
+        return;
+    }
+
+    unit._returnStuckTime = (unit._returnStuckTime || 0) + deltaTime;
+    if (unit._returnStuckTime < 1200) return;
+    unit._returnStuckTime = 0;
+    unit.returnPathTimer = 3001;
+    unit.returnPathFailed = false;
+    unit.returnPathFailCount = 0;
+    if (building && planResourceDelivery(unit, building)) return;
+    if (typeof nudgeUnitTowardOpenGround === 'function') nudgeUnitTowardOpenGround(unit);
+}
+
 function updateUnits(deltaTime) {
     updateResourceRates();
     buildUnitSpatialIndex();
@@ -1229,47 +1361,22 @@ function updateUnit(unit, deltaTime) {
                 unit.returnPathRetryDelay = 0;
                 const tc = getBuildingsForPlayer(unit.player).find(b => b.type === 'town-center');
                 if (tc) {
-                    // Remember which side is closest at the moment we start returning, to avoid oscillation
-                    let edge = getDropOffPointOutside(unit, tc);
-                    unit.dropOffX = edge.x;
-                    unit.dropOffY = edge.y;
-                    // Infer fixed drop side from the edge point relative to TC
-                    if (edge.x < tc.x) unit.dropSide = 'left';
-                    else if (edge.x > tc.x + tc.width) unit.dropSide = 'right';
-                    else if (edge.y < tc.y) unit.dropSide = 'top';
-                    else unit.dropSide = 'bottom';
                     // Keep a handle to resume the exact same resource afterwards
                     unit.returnResource = unit.targetResource;
                     unit.returnGatherOffset = unit.gatherOffset;
+                    // Select one pathable receiving point and keep it stable for
+                    // this delivery. Recomputing a point from the unit's current
+                    // position makes the target chase the villager around corners.
+                    planResourceDelivery(unit, tc);
                 }
             }
         }
     } else if (unit.state === 'returning') {
-        // Dynamically target the nearest Town Center border every tick and deposit once close enough
+        // Keep one stable, pathable delivery plan until the carrier arrives.
         const tc = getBuildingsForPlayer(unit.player).find(b => b.type === 'town-center');
+        if (tc && unit.returnPlanBuildingId !== tc.id) planResourceDelivery(unit, tc);
         let targetX = unit.dropOffX;
         let targetY = unit.dropOffY;
-        if (tc) {
-            const margin = (typeof EDGE_CLEARANCE !== 'undefined' ? EDGE_CLEARANCE : 20);
-            // Lock to the originally chosen closest side to avoid corner thrashing
-            const side = unit.dropSide || 'bottom';
-            if (side === 'left') {
-                targetX = tc.x - margin;
-                targetY = clamp(unit.y, tc.y, tc.y + tc.height);
-            } else if (side === 'right') {
-                targetX = tc.x + tc.width + margin;
-                targetY = clamp(unit.y, tc.y, tc.y + tc.height);
-            } else if (side === 'top') {
-                targetX = clamp(unit.x, tc.x, tc.x + tc.width);
-                targetY = tc.y - margin;
-            } else { // bottom
-                targetX = clamp(unit.x, tc.x, tc.x + tc.width);
-                targetY = tc.y + tc.height + margin;
-            }
-            // Keep land/water and building buffers only
-            unit.dropOffX = targetX;
-            unit.dropOffY = targetY;
-        }
 
         if (targetX === undefined || targetY === undefined) {
             // No valid target; fail-safe: finish delivery immediately
@@ -1285,6 +1392,10 @@ function updateUnit(unit, deltaTime) {
             unit.dropOffX = undefined;
             unit.dropOffY = undefined;
             unit.dropSide = undefined;
+            unit.returnPlanBuildingId = undefined;
+            unit._returnStuckTime = 0;
+            unit._returnLastX = undefined;
+            unit._returnLastY = undefined;
             unit.returnPath = null;
             unit.returnPathTimer = 0;
             unit.returnPathFailed = false;
@@ -1309,6 +1420,11 @@ function updateUnit(unit, deltaTime) {
             return;
         }
 
+        if (tc && isValidResourceDeliveryPosition(unit, tc)) {
+            targetX = unit.x;
+            targetY = unit.y;
+        }
+        monitorResourceDeliveryProgress(unit, tc, deltaTime);
         const dx = targetX - unit.x;
         const dy = targetY - unit.y;
         const distance = Math.sqrt(dx * dx + dy * dy);
@@ -1439,6 +1555,10 @@ function updateUnit(unit, deltaTime) {
             unit.dropOffX = undefined;
             unit.dropOffY = undefined;
             unit.dropSide = undefined;
+            unit.returnPlanBuildingId = undefined;
+            unit._returnStuckTime = 0;
+            unit._returnLastX = undefined;
+            unit._returnLastY = undefined;
             unit.returnPath = null;
             unit.returnPathTimer = 0;
             unit.returnPathFailed = false;

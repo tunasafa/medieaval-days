@@ -597,6 +597,20 @@ function updateUnit(unit, deltaTime) {
             }
         }
     } else if (unit.state === 'attacking' && unit.target) {
+        if (unit.player === 'player' &&
+            typeof canPlayerSeeEntity === 'function' &&
+            !canPlayerSeeEntity(unit.target, true)) {
+            unit.state = 'idle';
+            unit.target = null;
+            unit.targetPoint = undefined;
+            unit.attackPath = null;
+            unit.attackPathTimer = 0;
+            unit.attackPathFailed = false;
+            unit.attackPathFailCount = 0;
+            unit.attackPathRetryDelay = 0;
+            spreadIdleUnits(unit);
+            return;
+        }
         const tx = unit.targetPoint ? unit.targetPoint.x : unit.target.x;
         const ty = unit.targetPoint ? unit.targetPoint.y : unit.target.y;
         const dx = tx - unit.x;

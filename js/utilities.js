@@ -45,6 +45,62 @@ function isEnemyFaction(entityOrFaction) {
     return factionId !== 'player' && factionId !== 'neutral';
 }
 
+function isPlayerVisionOpponent(entityOrFaction) {
+    const factionId = getFactionId(entityOrFaction);
+    return factionId !== 'player' && factionId !== 'player2' && factionId !== 'neutral';
+}
+
+function getEntityVisionPoints(entity) {
+    if (!entity) return [];
+    const hasArea = Number.isFinite(entity.width) && Number.isFinite(entity.height);
+    if (!hasArea) return [{ x: entity.x, y: entity.y }];
+
+    const left = entity.x;
+    const top = entity.y;
+    const right = entity.x + entity.width;
+    const bottom = entity.y + entity.height;
+    const cx = left + entity.width / 2;
+    const cy = top + entity.height / 2;
+    const insetX = Math.min(entity.width * 0.18, 72);
+    const insetY = Math.min(entity.height * 0.18, 72);
+    return [
+        { x: cx, y: cy },
+        { x: left + insetX, y: top + insetY },
+        { x: right - insetX, y: top + insetY },
+        { x: left + insetX, y: bottom - insetY },
+        { x: right - insetX, y: bottom - insetY }
+    ];
+}
+
+function isVisibleThroughPlayerFog(entity, requireCurrentVisibility = true) {
+    if (!entity) return false;
+    if (typeof FogOfWar === 'undefined' ||
+        typeof FogOfWar.isEnabled !== 'function' ||
+        !FogOfWar.isEnabled()) {
+        return true;
+    }
+
+    const checker = requireCurrentVisibility ? FogOfWar.isVisible : FogOfWar.isExplored;
+    if (typeof checker !== 'function') return true;
+    return getEntityVisionPoints(entity).some(point => checker(point.x, point.y));
+}
+
+function canPlayerSeeEntity(entity, requireCurrentVisibility = true) {
+    return !isPlayerVisionOpponent(entity) || isVisibleThroughPlayerFog(entity, requireCurrentVisibility);
+}
+
+function canPlayerSeeEnemyUnit(unit) {
+    return canPlayerSeeEntity(unit, true);
+}
+
+function canPlayerSeeEnemyBuilding(building) {
+    return canPlayerSeeEntity(building, true);
+}
+
+function hasPlayerExploredEnemyEntity(entity) {
+    return canPlayerSeeEntity(entity, false);
+}
+
 function areHostile(a, b) {
     const factionA = getFactionId(a);
     const factionB = getFactionId(b);

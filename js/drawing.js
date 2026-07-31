@@ -508,13 +508,16 @@ function getUnitDomId(unit) {
 function drawUnits(ctx) {
 
     syncOverlayToCanvas();
+    const visibleEnemyUnits = gameState.enemyUnits.filter(unit =>
+        typeof canPlayerSeeEnemyUnit !== 'function' || canPlayerSeeEnemyUnit(unit)
+    );
     gameState.units.forEach(unit => drawUnit(ctx, unit));
-    gameState.enemyUnits.forEach(unit => drawUnit(ctx, unit));
+    visibleEnemyUnits.forEach(unit => drawUnit(ctx, unit));
 
     const overlay = getUnitOverlay();
     const validIds = new Set([
         ...gameState.units.map(u => getUnitDomId(u)),
-        ...gameState.enemyUnits.map(u => getUnitDomId(u))
+        ...visibleEnemyUnits.map(u => getUnitDomId(u))
     ]);
     overlay.querySelectorAll('img[data-unit-id]').forEach(img => {
         if (!validIds.has(img.dataset.unitId)) {
@@ -1379,15 +1382,24 @@ function drawMinimap() {
         ctx.fillStyle = getFactionColor(unit);
         ctx.fillRect(unit.x * scaleX - 1, unit.y * scaleY - 1, 2, 2);
     });
-    gameState.enemyUnits.forEach(unit => {
-        ctx.fillStyle = getFactionColor(unit);
-        ctx.fillRect(unit.x * scaleX - 1, unit.y * scaleY - 1, 2, 2);
-    });
-    [...gameState.buildings, ...gameState.enemyBuildings].forEach(building => {
+    gameState.enemyUnits
+        .filter(unit => typeof canPlayerSeeEnemyUnit !== 'function' || canPlayerSeeEnemyUnit(unit))
+        .forEach(unit => {
+            ctx.fillStyle = getFactionColor(unit);
+            ctx.fillRect(unit.x * scaleX - 1, unit.y * scaleY - 1, 2, 2);
+        });
+    gameState.buildings.forEach(building => {
         ctx.fillStyle = getFactionColor(building);
         ctx.fillRect(building.x * scaleX, building.y * scaleY,
                    Math.max(2, building.width * scaleX), Math.max(2, building.height * scaleY));
     });
+    gameState.enemyBuildings
+        .filter(building => typeof hasPlayerExploredEnemyEntity !== 'function' || hasPlayerExploredEnemyEntity(building))
+        .forEach(building => {
+            ctx.fillStyle = getFactionColor(building);
+            ctx.fillRect(building.x * scaleX, building.y * scaleY,
+                       Math.max(2, building.width * scaleX), Math.max(2, building.height * scaleY));
+        });
     ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 1;
     const zoom = gameState.zoomLevel || 1;

@@ -121,7 +121,7 @@ async function drawUIIcons() {
  * movement border identical.
  */
 function createWorldObjects() {
-    const waterLayouts = ['highland-river', 'coastal-bay', 'lake-chain'];
+    const waterLayouts = ['highland-river', 'highland-river', 'lake-chain', 'lake-chain', 'coastal-bay'];
     const waterRoll = waterLayouts[Math.floor(Math.random() * waterLayouts.length)];
     const seed = (Math.random() * 0x7FFFFFFF) | 0;
 

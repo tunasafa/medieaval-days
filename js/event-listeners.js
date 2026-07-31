@@ -527,8 +527,12 @@ function handleRightClick(x, y) {
             return;
         }
     }
-    const enemyUnit = gameState.enemyUnits.find(unit => getDistance(unit, { x, y }) < 20);
+    const enemyUnit = gameState.enemyUnits.find(unit =>
+        (typeof canPlayerSeeEnemyUnit !== 'function' || canPlayerSeeEnemyUnit(unit)) &&
+        getDistance(unit, { x, y }) < 20
+    );
     const enemyBuilding = gameState.enemyBuildings.find(building =>
+        (typeof canPlayerSeeEnemyBuilding !== 'function' || canPlayerSeeEnemyBuilding(building)) &&
         x >= building.x && x <= building.x + building.width &&
         y >= building.y && y <= building.y + building.height
     );

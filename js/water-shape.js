@@ -589,37 +589,46 @@ function buildWorldWaterField({ worldWidth, worldHeight, layout, seed }) {
     field.layoutName = layout || 'highland-river';
 
     if (field.layoutName === 'coastal-bay') {
-        // A broad southern bay with two coves and a river mouth. It stays inside
-        // the world bounds so contour extraction never creates edge chords.
-        field.addLake({
-            x: W * 0.54 + jitter(rng, W * 0.04),
-            y: H * 0.76,
-            rx: W * 0.40,
-            ry: H * 0.16
-        });
-        field.addLake({
-            x: W * 0.30 + jitter(rng, W * 0.03),
-            y: H * 0.80 + jitter(rng, H * 0.03),
-            rx: W * 0.16,
-            ry: H * 0.12
-        });
-        field.addLake({
-            x: W * 0.70 + jitter(rng, W * 0.03),
-            y: H * 0.78 + jitter(rng, H * 0.03),
-            rx: W * 0.18,
-            ry: H * 0.13
-        });
+        // Broken southern inlets: useful for fishing and naval pressure, but
+        // split by wide dry lanes so the lower map never becomes one hard wall.
+        const leftInlet = {
+            x: W * 0.27 + jitter(rng, W * 0.025),
+            y: H * 0.76 + jitter(rng, H * 0.018),
+            rx: W * 0.12,
+            ry: H * 0.085
+        };
+        const midPond = {
+            x: W * 0.53 + jitter(rng, W * 0.025),
+            y: H * 0.70 + jitter(rng, H * 0.018),
+            rx: W * 0.090,
+            ry: H * 0.070
+        };
+        const rightInlet = {
+            x: W * 0.73 + jitter(rng, W * 0.025),
+            y: H * 0.76 + jitter(rng, H * 0.018),
+            rx: W * 0.125,
+            ry: H * 0.090
+        };
+        field.addLake(leftInlet);
+        field.addLake(midPond);
+        field.addLake(rightInlet);
         field.addRiver([
-            { x: W * 0.48 + jitter(rng, W * 0.03), y: H * 0.34, r: 70 },
-            { x: W * 0.42 + jitter(rng, W * 0.04), y: H * 0.48, r: 90 },
-            { x: W * 0.52 + jitter(rng, W * 0.04), y: H * 0.64, r: 110 },
-            { x: W * 0.54 + jitter(rng, W * 0.03), y: H * 0.78, r: 140 },
-            { x: W * 0.54, y: H * 0.88, r: 120 }
+            { x: W * 0.41 + jitter(rng, W * 0.020), y: H * 0.42, r: 48 },
+            { x: W * 0.48 + jitter(rng, W * 0.020), y: H * 0.55, r: 58 },
+            { x: midPond.x, y: midPond.y, r: 70 },
+            { x: W * 0.63 + jitter(rng, W * 0.020), y: H * 0.72, r: 62 },
+            { x: rightInlet.x, y: rightInlet.y, r: 66 }
         ]);
-        field.flowAngle = Math.PI / 2;
-        field.warpAmplitude = 28;
-        field.detailAmplitude = 22;
-        field.detailScale = 320;
+
+        // Dry corridors cut through the lower half. These keep the starting
+        // base, enemy base, and middle routes connected without requiring ships.
+        field.addLandCut({ x: W * 0.47, y: H * 0.76, rx: W * 0.145, ry: H * 0.085, angle: -0.18 });
+        field.addLandCut({ x: W * 0.86, y: H * 0.79, rx: W * 0.100, ry: H * 0.105, angle: 0.28 });
+        field.addLandCut({ x: W * 0.15, y: H * 0.73, rx: W * 0.090, ry: H * 0.090, angle: -0.22 });
+        field.flowAngle = 0.65;
+        field.warpAmplitude = 22;
+        field.detailAmplitude = 18;
+        field.detailScale = 300;
     } else if (field.layoutName === 'lake-chain') {
         // Several water pockets through mid-map, connected by streams. It opens
         // route decisions around water rather than creating one giant obstacle.

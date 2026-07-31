@@ -23,10 +23,29 @@ version 0:
 
 <img width="1555" height="832" alt="Screenshot 2025-09-01 at 17 36 28" src="https://github.com/user-attachments/assets/52262901-e901-4446-bbee-4baa4c9626b7" />
 
+# current progress / latest version
+
+<img width="1200" alt="current medieval days start menu with battlefield background" src="assets/screenshots/version-2026-07-31-progress-1.png" />
+
+<img width="1200" alt="current medieval days gameplay hud, fog of war, town centers and faction buildings" src="assets/screenshots/version-2026-07-31-progress-2.png" />
+
+# player kinds and town centers
+
+there are now different player kinds / faction looks, not only one same kingdom style. the online host stays as player one, the connected friend plays as player two with the desert style, and ai rivals can use other faction asset sets.
+
+| kind | town center | notes |
+| --- | --- | --- |
+| Player One / Kingdom | <img width="90" alt="player one town center" src="assets/buildings/townCenter.png" /> | default local / host player |
+| Player Two / Desert | <img width="90" alt="desert town center" src="assets/buildings/desert/townCenter.png" /> | connected multiplayer player and desert-style faction |
+| Iron Host | <img width="90" alt="iron host town center" src="assets/buildings/enemy/townCenter.png" /> | rival ai faction |
+| Night Court | <img width="90" alt="night court town center" src="assets/buildings/gothic_vampiric/townCenter.png" /> | rival ai faction with gothic / vampiric style |
+| Warlike Clan | <img width="90" alt="warlike clan town center" src="assets/buildings/jagged_warlike/townCenter.png" /> | rival ai faction with jagged warlike style |
 
 latest changes:
 
 - prepared online multiplayer for GitHub Pages by adding a Render free-tier signaling server Blueprint and wiring the game to `wss://medieaval-days-signal.onrender.com`
+- made multiplayer players real opposing sides: host is Player One, connected friend is Player Two, with separate units, buildings, resources, population, age, tech, fog of war and command control
+- added Player Two desert faction visuals for multiplayer and expanded faction/player-kind support with different town center and building art
 - simplified the multiplayer menu so normal players use only Host Room, Join Room, Copy room code, and Start Game, with the server URL hidden under Advanced
 - changed building construction so standard buildings are now placed as ghost foundations and must be built by 1-4 selected villagers
 - added multi-villager construction speed scaling, with each assigned villager taking a separate border/corner work spot and using the gathering animation while building

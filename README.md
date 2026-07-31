@@ -64,13 +64,7 @@ latest changes:
 - improved RTS quality-of-life UI, including idle villager tracking, tech tree view, research progress, settings, tooltips, and cleaner command panels
 - changed multiplayer networking to WebRTC rooms, using the Node server only for signaling instead of direct-IP gameplay traffic
 
-online multiplayer hosting:
 
-- GitHub Pages hosts the static game at https://tunasafa.github.io/medieaval-days/
-- Render hosts the small signaling server from `server.js`; it does not run game logic
-- create the Render service from `render.yaml` as a free web service named `medieaval-days-signal`
-- after Render deploys, the game should connect to `wss://medieaval-days-signal.onrender.com`
-- if Render gives the service a different URL, update `GAME_CONFIG.multiplayer.signalUrl` in `js/config.js`
 
 previous updates:
 

@@ -144,7 +144,7 @@ function createWorldObjects() {
     scatterResourcesAcrossWorld();
     // Scatter environmental decorations (bushes/trees) with similar rules
     if (typeof scatterDecorationsAcrossWorld === 'function') {
-        scatterDecorationsAcrossWorld({ count: 140 });
+        scatterDecorationsAcrossWorld({ count: 280 });
     }
 }
 
@@ -245,7 +245,7 @@ function createWorldObjectsLegacyRects() {
     scatterResourcesAcrossWorld();
     // Scatter environmental decorations (bushes/trees) with similar rules
     if (typeof scatterDecorationsAcrossWorld === 'function') {
-        scatterDecorationsAcrossWorld({ count: 140 });
+        scatterDecorationsAcrossWorld({ count: 280 });
     }
 
 }

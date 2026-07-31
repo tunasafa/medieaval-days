@@ -49,11 +49,10 @@ function findNearestResource(unit, resourceType) {
 // Randomly scatter resources across the map with sprite variety per category
 function scatterResourcesAcrossWorld(options = {}) {
     const {
-    // 70% fewer nodes than before (keep 30%)
-    foodCount = 64,
-    woodCount = 108,
-    stoneCount = 32,
-    goldCount = 32,
+    foodCount = 128,
+    woodCount = 216,
+    stoneCount = 64,
+    goldCount = 64,
         minSpacing = 24
     } = options;
 
@@ -117,18 +116,28 @@ function scatterResourcesAcrossWorld(options = {}) {
 // Randomly scatter environmental decorations (bushes/trees) across land
 function scatterDecorationsAcrossWorld(options = {}) {
     const {
-        count = 140,
+        count = 280,
         minSpacing = 18
     } = options;
 
     const spriteNames = ['bush1','bush2','bush3','bush4','tree1','tree2','tree3'];
     const placed = [];
 
-    const DECOR_SCALE = 3; // make all decorations 3x bigger
+    const DECOR_SCALE = 3;
+    const DECOR_VARIATION_MIN = 1;
+    const DECOR_VARIATION_MAX = 2;
     const sizeFor = (name) => {
-        // heuristic base sizes; trees a bit larger, then scaled up
+        // Keep the established visual scale, then vary each instance so the
+        // forest does not read as a repeated stamp. The same rule applies to
+        // bushes and trees.
         const base = name.startsWith('tree') ? { w: 40, h: 56 } : { w: 28, h: 24 };
-        return { w: Math.floor(base.w * DECOR_SCALE), h: Math.floor(base.h * DECOR_SCALE) };
+        const variation = DECOR_VARIATION_MIN +
+            Math.random() * (DECOR_VARIATION_MAX - DECOR_VARIATION_MIN);
+        return {
+            w: Math.max(1, Math.floor(base.w * DECOR_SCALE * variation)),
+            h: Math.max(1, Math.floor(base.h * DECOR_SCALE * variation)),
+            scale: variation
+        };
     };
 
     let attempts = 0;
@@ -136,7 +145,7 @@ function scatterDecorationsAcrossWorld(options = {}) {
     while (placed.length < count && attempts < maxAttempts) {
         attempts++;
         const sprite = spriteNames[Math.floor(Math.random() * spriteNames.length)];
-        const { w, h } = sizeFor(sprite);
+        const { w, h, scale } = sizeFor(sprite);
         const x = Math.floor(Math.random() * Math.max(1, (GAME_CONFIG.world.width - w)));
         const y = Math.floor(Math.random() * Math.max(1, (GAME_CONFIG.world.height - h)));
 
@@ -171,6 +180,7 @@ function scatterDecorationsAcrossWorld(options = {}) {
             height: h,
             x,
             y,
+            sizeScale: +scale.toFixed(3),
             color: '#3b6b2a',
             spriteName: sprite // resources/<sprite>.png or decorations/<sprite>.png
         };
